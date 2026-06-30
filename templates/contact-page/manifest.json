@@ -1,0 +1,17 @@
+{
+  "id": "contact-page",
+  "namespace": "contact",
+  "dest": "src/app/contact/page.tsx",
+  "detect": {
+    "signature": "api.contact.send.useMutation"
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": []
+}

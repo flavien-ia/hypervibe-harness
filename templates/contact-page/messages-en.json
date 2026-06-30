@@ -1,0 +1,18 @@
+{
+  "contact": {
+    "title": "Contact",
+    "name": "Name",
+    "email": "Email",
+    "message": "Message",
+    "submit": "Send",
+    "sending": "Sending...",
+    "success": "Message sent, I'll get back to you shortly!",
+    "errors": {
+      "nameRequired": "Name is required",
+      "emailInvalid": "Invalid email",
+      "messageRequired": "Message is required",
+      "rateLimit": "Too many attempts, try again in a few minutes.",
+      "generic": "An error occurred, try again in a moment."
+    }
+  }
+}

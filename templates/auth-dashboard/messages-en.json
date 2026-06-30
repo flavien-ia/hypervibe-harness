@@ -1,0 +1,12 @@
+{
+  "dashboard": {
+    "welcome": "Welcome 👋",
+    "welcomeNamed": "Welcome, {name} 👋",
+    "connectedAs": "You are signed in as <strong>{email}</strong>.",
+    "accountCardTitle": "Your account",
+    "accountCardDescription": "Manage your email, your name, or delete your account.",
+    "accountCardLink": "Go to my account",
+    "startCardTitle": "Get started",
+    "startCardDescription": "This page is your default dashboard. Customize it to match your app."
+  }
+}

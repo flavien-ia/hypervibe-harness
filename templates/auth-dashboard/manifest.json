@@ -1,0 +1,17 @@
+{
+  "id": "auth-dashboard",
+  "namespace": "dashboard",
+  "dest": "src/app/dashboard/page.tsx",
+  "detect": {
+    "signature": "redirect(\"/signin?callbackUrl=/dashboard\")"
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": []
+}

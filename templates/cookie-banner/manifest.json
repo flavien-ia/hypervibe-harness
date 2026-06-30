@@ -1,0 +1,17 @@
+{
+  "id": "cookie-banner",
+  "namespace": "cookies",
+  "dest": "src/components/CookieConsent.tsx",
+  "detect": {
+    "signature": "localStorage.setItem(\"cookie-consent\""
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": []
+}

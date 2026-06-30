@@ -1,0 +1,39 @@
+# /start
+
+Prépare votre ordinateur pour qu'il puisse créer des applications avec Hypervibe.
+
+## Quand l'utiliser
+
+C'est la **toute première commande** à lancer juste après avoir installé le plugin. Elle s'occupe de l'installation des outils nécessaires et de la connexion à vos comptes (GitHub, Vercel, base de données, etc.). Vous ne devriez avoir à la lancer qu'une seule fois.
+
+## Comment ça se passe
+
+1. **Bienvenue + détection** : la commande vérifie quel système vous utilisez (Windows, Mac, Linux).
+2. **Audit silencieux** : elle regarde ce qui est déjà installé sur votre machine, sans rien casser.
+3. **Installation automatique des bases** : si Node.js, Git ou pnpm manquent, ils sont installés tout seuls (sans rien vous demander).
+4. **Rapport** : un récap clair vous montre ce qui est OK ✅, ce qui manque ❌, et ce qui est installé mais pas connecté ⚠️.
+5. **Token Cloudflare** : Hypervibe vous guide pour générer un token (pas-à-pas, 1 minute) que vous collez dans le chat. Il sera sauvegardé pour de bon.
+6. **Connexions CLI** : un script ouvre une fenêtre dédiée et vous fait vous connecter à GitHub, Vercel, Cloudflare l'un après l'autre. Vous suivez les instructions à l'écran (un navigateur s'ouvre pour chaque connexion).
+7. **Clé Neon** : si vous avez connecté la base de données Neon, vous générez une clé API (encore 30 secondes) que la commande sauvegarde. Ça active les sauvegardes automatiques de vos futures bases.
+8. **Récap final + commandes** : à la fin, vous avez un tour d'horizon des commandes disponibles (`/bootstrap`, `/spec`, `/prof`, etc.).
+9. **Règles globales** : un petit fichier de règles (`~/.claude/CLAUDE.md`) est créé pour que Claude Code suive vos conventions sur tous vos projets (pas de build pour rien, pas de push sans accord, etc.).
+
+## Ce que ça crée pour vous
+
+- Node.js, pnpm et Git installés et opérationnels
+- GitHub, Vercel, Wrangler (Cloudflare) connectés à vos comptes
+- Token Cloudflare et clé Neon API sauvegardés dans votre ordinateur. Vous n'aurez plus à les retaper
+- Un fichier de règles globales pour Claude Code (`~/.claude/CLAUDE.md`)
+- Une liste des commandes que vous pouvez maintenant utiliser
+
+## Prérequis
+
+Aucun. C'est par là que tout commence.
+
+{{callout:info|Pourquoi tous ces outils}}
+Pour créer des apps complètes, Hypervibe orchestre plusieurs services : GitHub stocke le code, Vercel met l'app en ligne, Neon héberge la base de données, Resend envoie les emails, Cloudflare gère le DNS et les fichiers. La commande `/start` installe et connecte tout ça **une seule fois** : ensuite vous n'y pensez plus.
+{{/callout}}
+
+{{callout:tip|Si quelque chose se passe mal}}
+Le script qui installe les outils peut être interrompu (fermeture de fenêtre, connexion refusée, Ctrl+C). Aucun problème : relancez simplement `/start`. La commande détecte ce qui est déjà OK et reprend là où ça s'était arrêté. Pas de risque de tout casser.
+{{/callout}}

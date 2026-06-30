@@ -1,0 +1,22 @@
+{
+  "name": "hypervibe",
+  "description": "Bootstrap a full-stack T3 project (Next.js + tRPC + Drizzle + Tailwind + shadcn/ui) with modular addons for database, auth, payments, email, storage, i18n, analytics, domain, and SEO. Deploys to Vercel with GitHub integration.",
+  "version": "2.4.0",
+  "author": {
+    "name": "Flavien Chervet"
+  },
+  "homepage": "https://hypervibe.fr/plugin",
+  "repository": "https://github.com/flavien-ia/hypervibe-harness",
+  "license": "Apache-2.0",
+  "keywords": [
+    "claude-code",
+    "vibe-coding",
+    "t3-stack",
+    "nextjs",
+    "trpc",
+    "drizzle",
+    "tailwind",
+    "bootstrap",
+    "scaffolding"
+  ]
+}

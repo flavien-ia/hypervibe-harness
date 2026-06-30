@@ -1,0 +1,8 @@
+{
+  "map": {
+    "loading": "Loading map…",
+    "listLabel": "List",
+    "sidebarTitle": "List",
+    "sidebarDescription": "Pick an item from the list."
+  }
+}

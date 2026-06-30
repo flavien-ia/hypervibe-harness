@@ -1,0 +1,8 @@
+{
+  "theme": {
+    "groupLabel": "Choose theme",
+    "light": "Light",
+    "system": "System",
+    "dark": "Dark"
+  }
+}

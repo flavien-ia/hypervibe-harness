@@ -1,0 +1,22 @@
+{
+  "account": {
+    "pageTitle": "My account",
+    "loading": "Loading…",
+    "infoCardTitle": "Information",
+    "infoCardDescription": "Your personal information.",
+    "emailLabel": "Email:",
+    "nameLabel": "Name:",
+    "sessionCardTitle": "Session",
+    "sessionCardDescription": "Sign out from this device.",
+    "signoutButton": "Sign out",
+    "dangerCardTitle": "Danger zone",
+    "dangerCardDescription": "Account deletion is permanent. All your data will be erased.",
+    "deleteButton": "Delete my account",
+    "deleteDialogTitle": "Delete your account?",
+    "deleteDialogDescription": "This action is irreversible. All your data will be erased.",
+    "cancel": "Cancel",
+    "confirmDelete": "Confirm deletion",
+    "deletePending": "Deleting…",
+    "toastDeleted": "Account deleted."
+  }
+}

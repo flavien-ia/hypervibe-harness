@@ -1,0 +1,11 @@
+{
+  "forgotPassword": {
+    "title": "Forgot your password?",
+    "description": "Enter your email. If an account exists with this address, we'll send you a link to choose a new password.",
+    "emailLabel": "Email",
+    "submit": "Send link",
+    "submitPending": "Sending…",
+    "successMessage": "Email sent! Check your inbox (and your spam folder if you can't find it). The link is valid for 1 hour.",
+    "backToSignin": "Back to sign in"
+  }
+}

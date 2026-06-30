@@ -1,0 +1,17 @@
+{
+  "id": "not-found",
+  "namespace": "notFound",
+  "dest": "src/app/not-found.tsx",
+  "detect": {
+    "signature": "Cette page n’existe pas"
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": []
+}

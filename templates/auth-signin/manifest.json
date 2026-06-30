@@ -1,0 +1,24 @@
+{
+  "id": "auth-signin",
+  "namespace": "signin",
+  "dest": "src/app/signin/page.tsx",
+  "detect": {
+    "signature": "signIn(\"credentials\""
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": [
+    {
+      "placeholder": "FORGOT_PASSWORD_LINK",
+      "extractRegex": "href=\"/forgot-password\"",
+      "presentValue": "<Link href=\"/forgot-password\" className=\"text-muted-foreground hover:text-foreground hover:underline\">{t(\"forgotPasswordLink\")}</Link>",
+      "fallback": "<span></span>"
+    }
+  ]
+}

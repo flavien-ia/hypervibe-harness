@@ -1,0 +1,12 @@
+{
+  "dashboard": {
+    "welcome": "Bienvenue 👋",
+    "welcomeNamed": "Bienvenue, {name} 👋",
+    "connectedAs": "Tu es connecté en tant que <strong>{email}</strong>.",
+    "accountCardTitle": "Ton compte",
+    "accountCardDescription": "Gère ton email, ton nom, ou supprime ton compte.",
+    "accountCardLink": "Aller à mon compte",
+    "startCardTitle": "Démarrer",
+    "startCardDescription": "Cette page est ton tableau de bord par défaut. Personnalise-la selon ton app."
+  }
+}

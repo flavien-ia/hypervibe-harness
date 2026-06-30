@@ -1,0 +1,22 @@
+{
+  "account": {
+    "pageTitle": "Mon compte",
+    "loading": "Chargement…",
+    "infoCardTitle": "Informations",
+    "infoCardDescription": "Tes informations personnelles.",
+    "emailLabel": "Email :",
+    "nameLabel": "Nom :",
+    "sessionCardTitle": "Session",
+    "sessionCardDescription": "Déconnecte-toi de cet appareil.",
+    "signoutButton": "Se déconnecter",
+    "dangerCardTitle": "Zone de danger",
+    "dangerCardDescription": "La suppression du compte est définitive. Toutes tes données seront effacées.",
+    "deleteButton": "Supprimer mon compte",
+    "deleteDialogTitle": "Supprimer ton compte ?",
+    "deleteDialogDescription": "Cette action est irréversible. Toutes tes données seront effacées.",
+    "cancel": "Annuler",
+    "confirmDelete": "Confirmer la suppression",
+    "deletePending": "Suppression…",
+    "toastDeleted": "Compte supprimé."
+  }
+}

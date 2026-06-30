@@ -1,0 +1,14 @@
+{
+  "resetPassword": {
+    "title": "Nouveau mot de passe",
+    "description": "Choisis un nouveau mot de passe pour ton compte.",
+    "loading": "Chargement…",
+    "missingTokenError": "Lien de réinitialisation manquant ou invalide.",
+    "requestNewLink": "Demander un nouveau lien",
+    "newPasswordLabel": "Nouveau mot de passe (8 caractères minimum)",
+    "submit": "Définir le nouveau mot de passe",
+    "submitPending": "Mise à jour…",
+    "toastSuccess": "Mot de passe mis à jour. Tu peux te connecter.",
+    "errorGeneric": "Lien invalide ou expiré."
+  }
+}

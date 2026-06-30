@@ -1,0 +1,8 @@
+{
+  "map": {
+    "loading": "Chargement de la carte…",
+    "listLabel": "Liste",
+    "sidebarTitle": "Liste",
+    "sidebarDescription": "Choisis un élément dans la liste."
+  }
+}

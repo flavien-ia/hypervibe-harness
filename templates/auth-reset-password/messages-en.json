@@ -1,0 +1,14 @@
+{
+  "resetPassword": {
+    "title": "New password",
+    "description": "Choose a new password for your account.",
+    "loading": "Loading…",
+    "missingTokenError": "Reset link missing or invalid.",
+    "requestNewLink": "Request a new link",
+    "newPasswordLabel": "New password (8 characters minimum)",
+    "submit": "Set the new password",
+    "submitPending": "Updating…",
+    "toastSuccess": "Password updated. You can now sign in.",
+    "errorGeneric": "Link invalid or expired."
+  }
+}

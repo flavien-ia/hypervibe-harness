@@ -1,0 +1,64 @@
+{
+  "privacy": {
+    "metaTitle": "Privacy Policy",
+    "metaDescription": "Privacy policy and personal data processing.",
+    "h1": "Privacy Policy",
+    "lastUpdated": "Last updated: {date}",
+    "regions": {
+      "eu": "EU",
+      "nonEu": "Outside EU"
+    },
+    "sections": {
+      "controller": {
+        "title": "1. Data Controller",
+        "intro": "The controller of the personal data collected through this site is <strong>{project}</strong>.",
+        "contact": "For any question regarding your personal data: <a>{email}</a>.",
+        "placeholder": "Remember to replace this address with your actual contact address before going live."
+      },
+      "collected": {
+        "title": "2. Data Collected and Purposes",
+        "body": "The personal data collected depends on the features you use. The exhaustive list is in the <em>Subprocessors</em> section below, where each recipient indicates precisely what data they process and for what purpose."
+      },
+      "legalBasis": {
+        "title": "3. Legal Basis for Processing",
+        "body": "The processing of your data relies on one of the legal bases set out in Article 6 of the GDPR depending on the context: contract performance, legitimate interest, consent, or legal obligation."
+      },
+      "subprocessors": {
+        "title": "4. Subprocessors and Recipients",
+        "intro": "To provide this service, we work with third-party subprocessors. Each subprocessor only handles the data strictly required for their task, under a contract compliant with Article 28 of the GDPR.",
+        "labels": {
+          "purpose": "Purpose",
+          "dataTypes": "Data processed",
+          "retention": "Retention",
+          "legalBasis": "Legal basis",
+          "transferMechanism": "Transfer / details",
+          "moreInfo": "More info",
+          "privacyPolicy": "Privacy policy",
+          "dpa": "Data Processing Agreement (DPA)"
+        }
+      },
+      "rights": {
+        "title": "5. Your Rights",
+        "intro": "Under the GDPR, you have the following rights over your data:",
+        "items": {
+          "access": "Right of access and rectification",
+          "erasure": "Right to erasure (right to be forgotten)",
+          "portability": "Right to data portability",
+          "objection": "Right to object and to restrict processing",
+          "withdrawConsent": "Right to withdraw your consent at any time (when processing is based on consent)",
+          "complaint": "Right to lodge a complaint with the CNIL (<a>cnil.fr</a>) or any other competent authority"
+        },
+        "exercise": "To exercise your rights: <a>{email}</a>. We commit to responding within a maximum of one month."
+      },
+      "cookies": {
+        "title": "6. Cookies",
+        "body1": "By default, this site only uses cookies strictly necessary for its operation (session, preferences). No advertising or profiling cookie is set without your explicit consent.",
+        "body2": "If an audience analytics feature requiring consent is enabled (for example Google Analytics), a consent banner is displayed before any non-essential cookie is set."
+      },
+      "modifications": {
+        "title": "7. Modifications",
+        "body": "This policy may be updated to reflect changes to the services and subprocessors used. The last update date is shown at the top of this page. Substantial changes will be notified by email to registered account holders."
+      }
+    }
+  }
+}

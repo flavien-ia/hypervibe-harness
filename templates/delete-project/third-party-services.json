@@ -1,0 +1,117 @@
+{
+  "comment": "Lookup table pour détecter des services tiers (hors stack Hypervibe standard) connectés à un projet. Le matching se fait par regex sur le NOM de la variable d'env (pas la valeur). Lors d'un /delete-project, ces services sont flaggés et l'utilisateur doit nettoyer manuellement (URL fournie). Maintenir cette liste à jour quand un nouveau service tiers commun apparaît.",
+  "services": [
+    {
+      "pattern": "^OPENAI_",
+      "service": "OpenAI",
+      "label": "OpenAI (modèles GPT, embeddings, etc.)",
+      "actionUrl": "https://platform.openai.com/api-keys",
+      "instructions": "Va sur platform.openai.com → API keys. Si une clé est dédiée à ce projet (nom contient le projet), supprime-la. Si la clé est globale et partagée, ne touche pas."
+    },
+    {
+      "pattern": "^MAPBOX_|^NEXT_PUBLIC_MAPBOX_",
+      "service": "Mapbox",
+      "label": "Mapbox (cartes interactives)",
+      "actionUrl": "https://account.mapbox.com/access-tokens/",
+      "instructions": "Va sur account.mapbox.com → Access tokens. Si un token a été créé spécifiquement pour ce projet (nom dédié), supprime-le."
+    },
+    {
+      "pattern": "^SENTRY_|^NEXT_PUBLIC_SENTRY_",
+      "service": "Sentry",
+      "label": "Sentry (suivi automatique des bugs en production)",
+      "actionUrl": "https://sentry.io/settings/projects/",
+      "instructions": "Va sur sentry.io → Settings → Projects. Trouve le projet correspondant → bouton Remove Project."
+    },
+    {
+      "pattern": "^POSTHOG_|^NEXT_PUBLIC_POSTHOG_",
+      "service": "PostHog",
+      "label": "PostHog (analytics produit)",
+      "actionUrl": "https://app.posthog.com/project/settings",
+      "instructions": "Va sur posthog.com → Project settings. Trouve le projet correspondant → Delete project."
+    },
+    {
+      "pattern": "^ALGOLIA_|^NEXT_PUBLIC_ALGOLIA_",
+      "service": "Algolia",
+      "label": "Algolia (moteur de recherche)",
+      "actionUrl": "https://dashboard.algolia.com/account/applications",
+      "instructions": "Va sur dashboard.algolia.com → Applications. Si une application est dédiée à ce projet, supprime-la avec l'index."
+    },
+    {
+      "pattern": "^TWILIO_",
+      "service": "Twilio",
+      "label": "Twilio (SMS, voix, WhatsApp)",
+      "actionUrl": "https://console.twilio.com/",
+      "instructions": "Va sur console.twilio.com. Vérifie les numéros de téléphone, sub-accounts et messaging services liés à ce projet."
+    },
+    {
+      "pattern": "^SUPABASE_|^NEXT_PUBLIC_SUPABASE_",
+      "service": "Supabase",
+      "label": "Supabase (DB / auth alternative)",
+      "actionUrl": "https://supabase.com/dashboard/projects",
+      "instructions": "Va sur supabase.com → Dashboard. Trouve le projet correspondant → Settings → General → Delete project."
+    },
+    {
+      "pattern": "^MISTRAL_",
+      "service": "Mistral",
+      "label": "Mistral AI (LLM)",
+      "actionUrl": "https://console.mistral.ai/api-keys/",
+      "instructions": "Va sur console.mistral.ai → API keys. Supprime la clé dédiée au projet si applicable."
+    },
+    {
+      "pattern": "^GROQ_",
+      "service": "Groq",
+      "label": "Groq (LLM rapide)",
+      "actionUrl": "https://console.groq.com/keys",
+      "instructions": "Va sur console.groq.com → Keys. Supprime la clé dédiée au projet si applicable."
+    },
+    {
+      "pattern": "^COHERE_",
+      "service": "Cohere",
+      "label": "Cohere (LLM)",
+      "actionUrl": "https://dashboard.cohere.com/api-keys",
+      "instructions": "Va sur dashboard.cohere.com → API keys. Supprime la clé dédiée au projet si applicable."
+    },
+    {
+      "pattern": "^REPLICATE_",
+      "service": "Replicate",
+      "label": "Replicate (modèles ML hébergés)",
+      "actionUrl": "https://replicate.com/account/api-tokens",
+      "instructions": "Va sur replicate.com → Account → API tokens. Supprime le token dédié au projet si applicable."
+    },
+    {
+      "pattern": "^ELEVENLABS_",
+      "service": "ElevenLabs",
+      "label": "ElevenLabs (TTS / voice cloning)",
+      "actionUrl": "https://elevenlabs.io/app/settings/api-keys",
+      "instructions": "Va sur elevenlabs.io → Settings → API keys. Note : généralement partagée, vérifier avant de supprimer."
+    },
+    {
+      "pattern": "^PRINTFUL_",
+      "service": "Printful",
+      "label": "Printful (print-on-demand)",
+      "actionUrl": "https://www.printful.com/dashboard/store",
+      "instructions": "Va sur printful.com → Stores. Vérifie si une boutique est dédiée à ce projet → archive ou supprime."
+    },
+    {
+      "pattern": "^PRINTIFY_",
+      "service": "Printify",
+      "label": "Printify (print-on-demand)",
+      "actionUrl": "https://printify.com/app/api",
+      "instructions": "Va sur printify.com → API. Vérifie les apps connectées à ce projet."
+    },
+    {
+      "pattern": "^GITHUB_TOKEN$|^GITHUB_PAT$",
+      "service": "GitHub PAT",
+      "label": "GitHub Personal Access Token (PAT)",
+      "actionUrl": "https://github.com/settings/tokens",
+      "instructions": "Va sur github.com → Settings → Developer settings → Personal access tokens. Si un PAT est dédié à ce projet (nom contient le projet), révoque-le."
+    },
+    {
+      "pattern": "^GOOGLE_FORMS_REFRESH_TOKEN$|^YOUTUBE_REFRESH_TOKEN$|^SHOPIFY_|^OPUSCLIP_|^PENNYLANE_|^WIKIDATA_|^BLUESKY_|^LINKEDIN_|^HOSTINGER_|^ZOOM_",
+      "service": "Service personnel de l'utilisateur",
+      "label": "Compte personnel (potentiellement partagé entre projets, à NE PAS supprimer)",
+      "actionUrl": null,
+      "instructions": "Ces variables correspondent à des comptes personnels mutualisés entre projets (documentés dans ~/.claude/CLAUDE.md global). Ne PAS supprimer la clé / le compte. Le projet supprimé arrête juste de les utiliser."
+    }
+  ]
+}

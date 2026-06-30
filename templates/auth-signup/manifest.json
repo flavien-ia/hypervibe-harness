@@ -1,0 +1,17 @@
+{
+  "id": "auth-signup",
+  "namespace": "signup",
+  "dest": "src/app/signup/page.tsx",
+  "detect": {
+    "signature": "api.auth.signup.useMutation"
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": []
+}

@@ -1,0 +1,17 @@
+{
+  "id": "auth-account",
+  "namespace": "account",
+  "dest": "src/app/account/page.tsx",
+  "detect": {
+    "signature": "api.auth.deleteAccount.useMutation"
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": []
+}

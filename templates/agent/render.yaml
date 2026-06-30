@@ -1,0 +1,56 @@
+# render.yaml - Render Blueprint for the agent Background Worker.
+#
+# After committing this file, the user creates a "New Blueprint Instance" in
+# the Render dashboard pointing at the GitHub repo. Render then provisions
+# the worker automatically.
+#
+# Background Worker (not Web Service):
+#   - Always running (no sleep on free tier of paid plans)
+#   - No public HTTP exposure (we trigger via DB polling - see entry.ts)
+#   - Captures stdout/stderr to Render's log viewer
+#
+# Plan - `starter` is the cheapest paid tier ($7/mo). Free tier no longer
+# offers Background Workers (since 2024). If the user wants free, they'd
+# have to switch to a Web Service + accept the 15-min sleep, which defeats
+# the agent use case.
+#
+# Env vars are NOT defined here - they come from the Render dashboard
+# (synced by setup-agent.mjs at deploy time).
+
+services:
+  - type: worker
+    name: {{AGENT_NAME}}
+    runtime: node
+    plan: starter
+    rootDir: apps/{{AGENT_NAME}}
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm start
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false  # set in dashboard, not committed
+      - key: DATABASE_URL
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        sync: false
+      - key: BREVO_SENDER_NAME
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: AGENT_DAILY_BUDGET_USD
+        value: "5"
+      - key: AGENT_MONTHLY_BUDGET_USD
+        value: "50"
+      - key: AGENT_CRON_SCHEDULE
+        sync: false  # optional - set if the agent has a scheduled run
+      - key: AGENT_CRON_PROMPT
+        sync: false  # optional - used for cron-triggered runs
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false  # optional - required only if --memory=pgvector
+                     # (vector memory uses Cloudflare Workers AI embeddings)
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false  # optional - same case

@@ -1,0 +1,64 @@
+{
+  "privacy": {
+    "metaTitle": "Politique de confidentialité",
+    "metaDescription": "Politique de confidentialité et traitement des données personnelles.",
+    "h1": "Politique de confidentialité",
+    "lastUpdated": "Dernière mise à jour : {date}",
+    "regions": {
+      "eu": "UE",
+      "nonEu": "Hors UE"
+    },
+    "sections": {
+      "controller": {
+        "title": "1. Responsable du traitement",
+        "intro": "Le responsable du traitement des données collectées via ce site est <strong>{project}</strong>.",
+        "contact": "Pour toute question relative à vos données personnelles : <a>{email}</a>.",
+        "placeholder": "Pensez à remplacer cette adresse par votre adresse de contact réelle avant la mise en production."
+      },
+      "collected": {
+        "title": "2. Données collectées et finalités",
+        "body": "Les données personnelles collectées dépendent des fonctionnalités que vous utilisez. La liste exhaustive figure dans la section <em>Sous-traitants</em> ci-dessous, où chaque destinataire indique précisément les données qu'il traite et pour quelle finalité."
+      },
+      "legalBasis": {
+        "title": "3. Base légale du traitement",
+        "body": "Le traitement de vos données repose sur l'une des bases légales prévues à l'article 6 du RGPD selon le contexte : exécution d'un contrat, intérêt légitime, consentement, ou obligation légale."
+      },
+      "subprocessors": {
+        "title": "4. Sous-traitants et destinataires",
+        "intro": "Pour vous fournir ce service, nous faisons appel à des sous-traitants tiers. Chaque sous-traitant ne traite que les données strictement nécessaires à sa mission, dans le cadre d'un contrat conforme à l'article 28 du RGPD.",
+        "labels": {
+          "purpose": "Finalité",
+          "dataTypes": "Données traitées",
+          "retention": "Conservation",
+          "legalBasis": "Base légale",
+          "transferMechanism": "Transfert / précisions",
+          "moreInfo": "En savoir plus",
+          "privacyPolicy": "Politique de confidentialité",
+          "dpa": "Accord de traitement des données (DPA)"
+        }
+      },
+      "rights": {
+        "title": "5. Vos droits",
+        "intro": "Conformément au RGPD, vous disposez des droits suivants sur vos données :",
+        "items": {
+          "access": "Droit d'accès et de rectification",
+          "erasure": "Droit à l'effacement (droit à l'oubli)",
+          "portability": "Droit à la portabilité de vos données",
+          "objection": "Droit d'opposition et de limitation du traitement",
+          "withdrawConsent": "Droit de retirer votre consentement à tout moment (lorsque le traitement est basé sur le consentement)",
+          "complaint": "Droit de déposer une plainte auprès de la CNIL (<a>cnil.fr</a>)"
+        },
+        "exercise": "Pour exercer vos droits : <a>{email}</a>. Nous nous engageons à répondre dans un délai maximal d'un mois."
+      },
+      "cookies": {
+        "title": "6. Cookies",
+        "body1": "Ce site utilise par défaut uniquement les cookies strictement nécessaires à son fonctionnement (session, préférences). Aucun cookie publicitaire ou de profilage n'est déposé sans votre consentement explicite.",
+        "body2": "Si une fonctionnalité d'analyse d'audience nécessitant un consentement est activée (par exemple Google Analytics), un bandeau de consentement s'affiche avant tout dépôt de cookie non-essentiel."
+      },
+      "modifications": {
+        "title": "7. Modifications",
+        "body": "Cette politique peut être mise à jour pour refléter l'évolution des services et des sous-traitants utilisés. La date de dernière mise à jour est indiquée en haut de cette page. Les modifications substantielles seront notifiées par email aux titulaires d'un compte utilisateur."
+      }
+    }
+  }
+}

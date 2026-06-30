@@ -1,0 +1,55 @@
+{
+  "_about": "Limites des plans Free des services de la stack Hypervibe. Lu par scripts/quotas-fetch.mjs au runtime. Vérifié manuellement et mis à jour à chaque nouvelle version du plugin si un provider modifie son free tier. Pas d'auto-update - c'est volontaire.",
+  "_lastUpdated": "2026-05-08",
+  "neon": {
+    "lastChecked": "2026-05-08",
+    "pricingUrl": "https://neon.com/pricing",
+    "free": {
+      "storageGBPerProject": 0.5,
+      "computeHoursPerProject": 100,
+      "projectsMax": 100,
+      "branchesPerProject": 10,
+      "egressGBPerMonth": 5
+    }
+  },
+  "cloudflareR2": {
+    "lastChecked": "2026-05-08",
+    "pricingUrl": "https://developers.cloudflare.com/r2/pricing/",
+    "free": {
+      "storageGBPerMonth": 10,
+      "classAOpsPerMonth": 1000000,
+      "classBOpsPerMonth": 10000000
+    }
+  },
+  "cloudflareWorkers": {
+    "lastChecked": "2026-05-08",
+    "pricingUrl": "https://developers.cloudflare.com/workers/platform/pricing/",
+    "free": {
+      "requestsPerDay": 100000
+    }
+  },
+  "brevo": {
+    "lastChecked": "2026-05-08",
+    "pricingUrl": "https://www.brevo.com/pricing/",
+    "_note": "La vraie limite journalière est exposée par l'API Brevo (/v3/account → plan[].credits with creditsType='sendLimit'). Si l'API la donne, on l'utilise (utile pour les plans payants). Sinon fallback à cette valeur.",
+    "free": {
+      "emailsPerDay": 300
+    }
+  },
+  "resend": {
+    "lastChecked": "2026-05-08",
+    "pricingUrl": "https://resend.com/pricing",
+    "free": {
+      "emailsPerDay": 100,
+      "emailsPerMonth": 3000
+    }
+  },
+  "vercel": {
+    "lastChecked": "2026-05-08",
+    "pricingUrl": "https://vercel.com/pricing",
+    "_note": "Vercel n'expose pas l'usage Bandwidth/Function-time en API sur le plan Hobby. On affiche le compte de déploiements et de projets sans limite (informatif). Le plafond Hobby officiel pour les déploiements est 100/jour/user.",
+    "hobby": {
+      "deploymentsPerDayPerUser": 100
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "map",
+  "namespace": "map",
+  "dest": "src/components/site/map-loader.tsx",
+  "detect": {
+    "signature": "Chargement de la carte"
+  },
+  "templates": {
+    "plain": "map-loader.tsx",
+    "i18n": "map-loader.i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": []
+}

@@ -1,0 +1,11 @@
+{
+  "forgotPassword": {
+    "title": "Mot de passe oublié ?",
+    "description": "Entre ton email. Si un compte existe avec cette adresse, on t'envoie un lien pour choisir un nouveau mot de passe.",
+    "emailLabel": "Email",
+    "submit": "Envoyer le lien",
+    "submitPending": "Envoi en cours…",
+    "successMessage": "Email envoyé ! Vérifie ta boîte de réception (et tes spams si tu ne le vois pas). Le lien est valide 1 heure.",
+    "backToSignin": "Retour à la connexion"
+  }
+}

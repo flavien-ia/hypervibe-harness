@@ -1,0 +1,17 @@
+{
+  "id": "theme-toggle",
+  "namespace": "theme",
+  "dest": "src/components/ThemeToggle.tsx",
+  "detect": {
+    "signature": "export function ThemeToggle"
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": []
+}

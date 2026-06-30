@@ -1,0 +1,29 @@
+{
+  "id": "privacy-policy",
+  "namespace": "privacy",
+  "dest": "src/app/politique-de-confidentialite/page.tsx",
+  "detect": {
+    "signature": "import { SUBPROCESSORS } from \"~/lib/subprocessors\""
+  },
+  "templates": {
+    "plain": "plain.tsx",
+    "i18n": "i18n.tsx"
+  },
+  "messages": {
+    "fr": "messages-fr.json",
+    "en": "messages-en.json"
+  },
+  "preserveSubstitutions": [
+    {
+      "placeholder": "PROJECT_NAME",
+      "extractRegex": "title:\\s*[\"']Politique de confidentialité\\s*\\|\\s*([^\"']+)[\"']",
+      "fallback": "{{PROJECT_NAME}}"
+    },
+    {
+      "placeholder": "LAST_UPDATED",
+      "extractRegex": "const\\s+LAST_UPDATED\\s*=\\s*[\"']([^\"']+)[\"']",
+      "fallback": ""
+    }
+  ],
+  "postHook": "privacy-policy-i18n-posthook.mjs"
+}
