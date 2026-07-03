@@ -72,6 +72,8 @@ Analyze the project and check each point. For each point, indicate:
 - **Hashed passwords**: if the app uses credentials, verify that passwords are hashed (scrypt, bcrypt, argon2) and never stored in plain text.
 - **Session and cookies**: verify that session cookies have the `httpOnly`, `secure`, `sameSite` flags.
 - **Roles and permissions**: if the app has roles (admin, user), verify that the checks are server-side (not only client-side).
+- **Object-level authorization (IDOR)**: for every route that reads or mutates a record by id (`getOrder({ id })`, `deleteDocument({ id })`...), verify that the query also filters by the session user (`where userId = session.user.id`) or checks ownership before acting. Being logged in is NOT enough: without this check, any logged-in user can read or modify any other user's data just by changing the id. This is one of the most common flaws in apps built quickly - check every procedure that takes an id, one by one.
+- **CSRF on custom Route Handlers** (making a logged-in user perform an action without realizing it, via a booby-trapped page): NextAuth protects its own routes and tRPC mutations are JSON-only (a cross-site form cannot produce them), but any custom Route Handler (`src/app/api/**/route.ts`) that changes state must verify the session AND reject requests a simple cross-site form could send (check the `Content-Type` and/or the `Origin` header).
 
 ### 1c - Input validation
 
@@ -92,9 +94,9 @@ Check in `next.config.js` or the middleware whether the following headers are co
 - **Strict-Transport-Security** (HSTS): forces HTTPS
 - **X-Content-Type-Options: nosniff**: prevents MIME sniffing
 - **X-Frame-Options: DENY** or **SAMEORIGIN**: protection against clickjacking
-- **X-XSS-Protection: 1; mode=block**: basic XSS protection
 - **Referrer-Policy: strict-origin-when-cross-origin**: controls the info sent to the referrer
 - **Content-Security-Policy**: controls the allowed script/style sources (at minimum, check whether a CSP exists)
+- **X-XSS-Protection**: deprecated header - it should NOT be present (browsers ignore it, and on old browsers it could even introduce flaws). If found, flag it and remove it; modern XSS protection comes from the CSP.
 
 ### 1f - CORS (Cross-Origin Resource Sharing)
 
@@ -114,6 +116,7 @@ rm -f package-lock.json
 
 - Parse the returned JSON, flag the critical and high vulnerabilities in prod (devDeps already excluded by `--omit=dev`).
 - Propose `pnpm update <pkg>@<safe-version>` for each vulnerable package (read `fixAvailable.version` in the JSON output).
+- **Next.js itself**: check the installed `next` version explicitly (it appears in the audit output like any package, but treat it as its own finding). Pay special attention to the middleware authorization bypass class of CVEs (e.g. CVE-2025-29927: a spoofed internal header let attackers skip middleware auth checks entirely). If `next` is affected by a critical advisory, upgrading it is a 🔴, not a ⚠️.
 
 ### 1h - Rate limiting and abuse protection
 
@@ -132,6 +135,18 @@ rm -f package-lock.json
 - **Production mode**: verify that `next.config.js` does not disable protections (e.g. `poweredBy` should be false, `reactStrictMode` should be true).
 - **Rewrites and redirects**: verify that no redirect points to an uncontrolled external domain.
 - **Error pages**: verify that custom error pages do not reveal technical information.
+
+### 1k - Webhooks and third-party callbacks
+
+- **Signature verification**: every webhook endpoint (`/api/webhooks/*` or any route a third-party service calls) must verify the provider's signature BEFORE processing the payload. Stripe: `stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET)` - flag any handler that parses the body without it. Same principle for Brevo, GitHub, etc. Consequence if missing: anyone who finds the URL can forge a "payment succeeded" event and get the product for free.
+- **Raw body**: verify the signature is computed on the raw request body (not a re-serialized JSON), otherwise verification breaks or, worse, gets removed "because it didn't work".
+- **Idempotency**: check that replaying the same webhook event twice does not duplicate side effects (double order, double email). Providers DO redeliver events.
+
+### 1l - SSRF (Server-Side Request Forgery - tricking YOUR server into making requests for an attacker)
+
+- Look for any server-side `fetch`/HTTP call whose URL comes, even partially, from user input: a form field, a query param, a value stored in DB that users can write (avatar URL, webhook URL, RSS feed...).
+- If found, verify the URL is validated against an allowlist: `https` only, expected hosts only, and never internal addresses (`localhost`, `127.0.0.1`, `10.x`, `192.168.x`, `169.254.169.254`...). Consequence if not: an attacker can make your server call internal services or the cloud provider's metadata endpoint, and exfiltrate credentials from inside.
+- If the project has no such call (common for a simple site), mark the point ✅ with "not applicable".
 
 ---
 
@@ -163,17 +178,22 @@ Ask the user:
 
 If yes, fix in this order of priority:
 1. **Exposed secrets** → move them into `.env`, check `.gitignore`. If a `.env` was committed in the past, remove it from the git history and **regenerate all the affected keys** (the history remains accessible).
-2. **Unprotected routes** → add the auth checks (`protectedProcedure` or session check).
-3. **Missing input validation** → add the server-side Zod schemas.
-4. **Missing security headers** → run `node "${CLAUDE_SKILL_DIR}/../../scripts/setup-security.mjs"` (idempotent: applies headers + console.log isDev guard + rate-limit.ts + rateLimitedProcedure if not already in place).
-5. **Vulnerable dependencies** → parse the JSON output of `npm audit --omit=dev` (generated in 1g) to identify the affected packages, then `pnpm update <pkg>@<safe-version>` for each. `pnpm audit --fix` also depends on the old deprecated endpoint, do not rely on it.
-6. **Remaining problems** identified in the audit.
+2. **Unprotected routes and IDOR** → add the auth checks (`protectedProcedure` or session check) AND the ownership filters (`where userId = session.user.id`) on every procedure that accesses a record by id.
+3. **Unverified webhooks** → add the provider signature verification (Stripe `constructEvent` on the raw body, etc.) before any payload processing.
+4. **Missing input validation** → add the server-side Zod schemas. If an SSRF was found (1l), add the URL allowlist validation here too.
+5. **Missing security headers** → run `node "${CLAUDE_SKILL_DIR}/../../scripts/setup-security.mjs"` (idempotent: injects the headers into the EXISTING next.config without regenerating it - wrapped configs like next-intl and custom options survive - + console.log isDev guard + rate-limit.ts + rateLimitedProcedure if not already in place; also removes the deprecated X-XSS-Protection header if present). Two follow-ups after running it:
+   - If the script reports a ⚠️ saying it could not inject (custom `headers()` already present, or config object not found), apply the `securityHeaders` block manually in `next.config` by merging it with what exists.
+   - The script writes the `rateLimitedProcedure` error message in English: if the project's audience is not English-speaking, translate that message in `src/server/api/trpc.ts` into the site's language.
+6. **Vulnerable dependencies** → parse the JSON output of `npm audit --omit=dev` (generated in 1g) to identify the affected packages, then `pnpm update <pkg>@<safe-version>` for each. `pnpm audit --fix` also depends on the old deprecated endpoint, do not rely on it.
+7. **Remaining problems** identified in the audit.
+
+**After the fixes, before reporting**: run `pnpm tsc --noEmit && pnpm lint` and fix any error they raise. Never leave the project in a state that does not compile or lint (never use `pnpm build` for this check).
 
 ---
 
 ## Step 4 - Verification
 
-After the fixes, quickly re-run the checks on the points that were 🔴 or ⚠️ and display the new score.
+After the fixes, quickly re-run the checks on the points that were 🔴 or ⚠️ and display the new score. Confirm that `pnpm tsc --noEmit && pnpm lint` passed (run in Step 3); if a fix was applied after that check, run it again.
 
 > ✅ **Audit complete.** Score: X/Y → X/Y
 >

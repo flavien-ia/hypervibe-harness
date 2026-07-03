@@ -5,13 +5,18 @@
 //   node setup-security.mjs          (from project root)
 //
 // What it does (all idempotent - safe to re-run):
-//   1. Patches next.config.(js|mjs|ts) to add securityHeaders + poweredByHeader:false
-//      + reactStrictMode:true + async headers() wiring.
+//   1. Patches next.config.(js|mjs|ts) by INJECTING securityHeaders + poweredByHeader:false
+//      + reactStrictMode:true + async headers() into the existing config object. The file
+//      is never regenerated, so wrapped configs (next-intl, PWA...) and custom options
+//      (redirects, remotePatterns...) survive. Also strips the deprecated X-XSS-Protection
+//      header if a previous version of this script added it.
 //   2. Wraps the `[TRPC]` timing console.log in src/server/api/trpc.ts with
 //      `if (t._config.isDev)` so timing info doesn't leak in production logs.
 //   3. Creates src/lib/rate-limit.ts (in-memory rate limiter with auto-cleanup).
 //   4. Appends `rateLimitedProcedure` to src/server/api/trpc.ts (with `checkRateLimit`
 //      import) so other skills can use it for public routes that accept user input.
+//      Its error message is written in English - the calling skill translates it to
+//      the project's language afterwards.
 //
 // The script does NOT add a Content-Security-Policy - CSP requires per-project tuning
 // and misconfiguring it breaks Next.js hydration.
@@ -22,6 +27,18 @@ import { dirname } from "node:path";
 const actions = [];
 
 // ─── 1. next.config ────────────────────────────────────────────────────
+const SECURITY_HEADERS_BLOCK = `const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+];
+`;
+
 function patchNextConfig() {
   const candidates = ["next.config.ts", "next.config.mjs", "next.config.js"];
   const file = candidates.find((f) => existsSync(f));
@@ -30,52 +47,53 @@ function patchNextConfig() {
     return;
   }
 
-  const content = readFileSync(file, "utf8");
+  let content = readFileSync(file, "utf8");
+  let changed = false;
+
+  // Deprecated header: remove it if a previous version of this script (or a human) added it.
+  const xssLine = /^[ \t]*\{\s*key:\s*["']X-XSS-Protection["'][^}]*\},?[ \t]*\r?\n/m;
+  if (xssLine.test(content)) {
+    content = content.replace(xssLine, "");
+    changed = true;
+    actions.push(`✓ ${file}: removed deprecated X-XSS-Protection header`);
+  }
 
   if (content.includes("X-Content-Type-Options")) {
-    actions.push(`✓ ${file}: already patched (securityHeaders present)`);
+    actions.push(`✓ ${file}: security headers already present`);
+    if (changed) writeFileSync(file, content);
     return;
   }
 
-  // Regenerate next.config with the expected T3 baseline + security headers.
-  // Preserve T3's `import "./src/env.js"` (build-time env validation) so a later
-  // standalone /security run does not silently drop it.
-  const isTs = file.endsWith(".ts");
-  const envImport = `import "./src/env.js";\n`;
-  const header = isTs ? `${envImport}import type { NextConfig } from "next";\n\n` : `${envImport}\n`;
-  const configAnnotation = isTs ? ": NextConfig" : "";
+  // The config may be wrapped (next-intl, PWA...) or carry custom options
+  // (redirects, remotePatterns...) - inject into the existing object, never regenerate.
+  if (/async\s+headers\s*\(/.test(content)) {
+    actions.push(
+      `⚠️  ${file}: has a custom headers() but no security headers - merge securityHeaders into it manually`,
+    );
+    if (changed) writeFileSync(file, content);
+    return;
+  }
 
-  const newContent = `${header}const securityHeaders = [
-  { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "X-Frame-Options", value: "DENY" },
-  { key: "X-XSS-Protection", value: "1; mode=block" },
-  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  {
-    key: "Strict-Transport-Security",
-    value: "max-age=63072000; includeSubDomains; preload",
-  },
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-];
+  const objRe = /(const\s+\w+\s*(?::\s*[\w.]+)?\s*=\s*\{)/;
+  const m = content.match(objRe);
+  if (!m) {
+    actions.push(
+      `⚠️  ${file}: could not locate the config object literal - add securityHeaders manually`,
+    );
+    if (changed) writeFileSync(file, content);
+    return;
+  }
 
-const config${configAnnotation} = {
-  poweredByHeader: false,
-  reactStrictMode: true,
-  images: {
-    remotePatterns: [
-      { protocol: "https", hostname: "picsum.photos" },
-      { protocol: "https", hostname: "images.unsplash.com" },
-    ],
-  },
-  async headers() {
+  const keys = [];
+  if (!/poweredByHeader/.test(content)) keys.push("  poweredByHeader: false,");
+  if (!/reactStrictMode/.test(content)) keys.push("  reactStrictMode: true,");
+  keys.push(`  async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
-  },
-};
+  },`);
 
-export default config;
-`;
-
-  writeFileSync(file, newContent);
-  actions.push(`✓ ${file}: wrote security headers + poweredByHeader:false + reactStrictMode:true`);
+  content = content.replace(objRe, `${SECURITY_HEADERS_BLOCK}\n$1\n${keys.join("\n")}`);
+  writeFileSync(file, content);
+  actions.push(`✓ ${file}: injected securityHeaders + headers() into the existing config`);
 }
 
 // ─── 2. trpc.ts : wrap console.log + add rateLimitedProcedure ──────────
@@ -143,7 +161,9 @@ function patchTrpcFile() {
       }
     }
 
-    // Append the rateLimitedProcedure export at end of file
+    // Append the rateLimitedProcedure export at end of file.
+    // The message is written in English on purpose - the calling skill translates it
+    // to the project's language right after running this script.
     const procedureBlock = `
 export const rateLimitedProcedure = publicProcedure.use(async ({ ctx, next }) => {
   const ip = ctx.headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
@@ -151,7 +171,7 @@ export const rateLimitedProcedure = publicProcedure.use(async ({ ctx, next }) =>
   if (!allowed) {
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
-      message: \`Trop de tentatives. Réessaie dans \${Math.ceil((retryAfterMs ?? 0) / 1000 / 60)} minutes.\`,
+      message: \`Too many attempts. Try again in \${Math.ceil((retryAfterMs ?? 0) / 1000 / 60)} minute(s).\`,
     });
   }
   return next();

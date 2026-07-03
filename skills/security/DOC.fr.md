@@ -1,6 +1,6 @@
 # /security
 
-Audite la sécurité de votre app et corrige automatiquement les failles courantes. Hypervibe couvre 10 catégories de risques (secrets exposés, routes mal protégées, dépendances vulnérables, etc.) avec une explication en langage simple pour chaque trouvaille.
+Audite la sécurité de votre app et corrige automatiquement les failles courantes. Hypervibe couvre 12 catégories de risques (secrets exposés, routes mal protégées, dépendances vulnérables, webhooks falsifiés, etc.) avec une explication en langage simple pour chaque trouvaille.
 
 ## Quand l'utiliser
 
@@ -12,17 +12,19 @@ Audite la sécurité de votre app et corrige automatiquement les failles courant
 
 1. **Disclaimer affiché en début** : Hypervibe rappelle que c'est un audit des failles courantes. Pour les apps qui traitent des données très sensibles (santé, bancaire, données critiques), un audit de sécurité professionnel reste nécessaire.
 
-2. **Audit en 10 catégories** :
+2. **Audit en 12 catégories** :
   - **Secrets et variables d'env** : recherche de clés/tokens en dur dans le code, vérification du `.gitignore`, vérification que les secrets ne sont pas commités dans l'historique Git
-  - **Authentification et contrôle d'accès** : vérification que les pages admin/protégées ne sont pas accessibles sans login et que les règles d'accès sont appliquées côté serveur
+  - **Authentification et contrôle d'accès** : vérification que les pages admin/protégées ne sont pas accessibles sans login, que les règles d'accès sont appliquées côté serveur, et que chaque utilisateur ne peut accéder qu'à ses propres données (pas à celles d'un autre en changeant un id dans la requête)
   - **Validation des inputs** : vérification que les données utilisateur sont validées côté serveur (zod, etc.), y compris les uploads de fichiers (type et taille)
   - **Injection SQL et requêtes BDD** : vérification que les requêtes sont paramétrées (pas de concaténation de chaînes)
   - **Headers de sécurité** : CSP, HSTS, X-Content-Type-Options, etc.
   - **CORS** : configuration des cross-origin requests
-  - **Dépendances vulnérables** : `npm audit` sur les dépendances de production
+  - **Dépendances vulnérables** : `npm audit` sur les dépendances de production, framework compris
   - **Rate limiting et protection anti-abus** : protection contre le brute force et les abus (ex : sur le login)
   - **Exposition de données** : vérification que les réponses d'API et les logs ne fuient pas de données sensibles
   - **Configuration Next.js** : réglages sûrs du framework (pas de secrets dans les bundles client, etc.)
+  - **Webhooks** : vérification que les notifications envoyées par les services tiers (ex : Stripe après un paiement) sont authentifiées, pour que personne ne puisse fabriquer un faux « paiement reçu »
+  - **Requêtes côté serveur (SSRF)** : vérification que votre serveur ne peut pas être manipulé pour appeler des adresses internes via une URL fournie par un utilisateur
 
 3. **Rapport pédagogique** : chaque trouvaille est classée ✅ OK / ⚠️ À améliorer / 🔴 Critique. Pour chaque problème :
   - **Explication en langage simple** ("XSS = attaque où quelqu'un injecte du code malveillant dans une page que d'autres visitent")

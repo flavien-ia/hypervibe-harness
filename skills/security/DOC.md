@@ -1,6 +1,6 @@
 # /security
 
-Audits the security of your app and automatically fixes common flaws. Hypervibe covers 10 risk categories (exposed secrets, poorly protected routes, vulnerable dependencies, etc.) with a plain-language explanation for each finding.
+Audits the security of your app and automatically fixes common flaws. Hypervibe covers 12 risk categories (exposed secrets, poorly protected routes, vulnerable dependencies, forged webhooks, etc.) with a plain-language explanation for each finding.
 
 ## When to use it
 
@@ -12,17 +12,19 @@ Audits the security of your app and automatically fixes common flaws. Hypervibe 
 
 1. **Disclaimer displayed at the start**: Hypervibe reminds you that this is an audit of common flaws. For apps that handle very sensitive data (health, banking, critical data), a professional security audit is still necessary.
 
-2. **Audit across 10 categories**:
+2. **Audit across 12 categories**:
   - **Secrets and env variables**: search for hardcoded keys/tokens in the code, check the `.gitignore`, verify that secrets are not committed in the Git history
-  - **Authentication and access control**: verify that admin/protected pages are not accessible without login and that access rules are enforced server-side
+  - **Authentication and access control**: verify that admin/protected pages are not accessible without login, that access rules are enforced server-side, and that each user can only reach their own data (not someone else's by changing an id in the request)
   - **Input validation**: verify that user data is validated server-side (zod, etc.), including file uploads (type and size)
   - **SQL injection and database queries**: verify that queries are parameterized (no string concatenation)
   - **Security headers**: CSP, HSTS, X-Content-Type-Options, etc.
   - **CORS**: cross-origin request configuration
-  - **Vulnerable dependencies**: `npm audit` on production dependencies
+  - **Vulnerable dependencies**: `npm audit` on production dependencies, including the framework itself
   - **Rate limiting and abuse protection**: protection against brute force and abuse (e.g. on login)
   - **Data exposure**: verify that API responses and logs do not leak sensitive data
   - **Next.js configuration**: safe framework settings (no secrets in client bundles, etc.)
+  - **Webhooks**: verify that notifications sent by third-party services (e.g. Stripe after a payment) are authenticated, so nobody can forge a fake "payment received"
+  - **Server-side requests (SSRF)**: verify that your server cannot be tricked into calling internal addresses through a user-provided URL
 
 3. **Educational report**: each finding is classified ✅ OK / ⚠️ To improve / 🔴 Critical. For each problem:
   - **Plain-language explanation** ("XSS = an attack where someone injects malicious code into a page that other people visit")
