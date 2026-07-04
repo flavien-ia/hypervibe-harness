@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.2 (4 juillet 2026)
+
+### Améliorations
+- **Sites multilingues mieux référencés** : la commande `/add-i18n` génère désormais un balisage SEO correct page par page. Chaque page obtient sa propre URL canonique et ses variantes de langue (hreflang), au lieu d'un balisage global hérité du gabarit qui faisait pointer toutes les pages vers l'accueil (les moteurs voyaient alors chaque page comme un doublon de la page d'accueil). Un nouvel utilitaire `localeAlternates()` pose ces balises directement dans chaque page.
+
+### Coulisses
+- Refonte du script d'installation i18n pour appliquer ce nouveau modèle de balisage par page.
+
 ## v2.4.1 (2 juillet 2026)
 
 ### Améliorations

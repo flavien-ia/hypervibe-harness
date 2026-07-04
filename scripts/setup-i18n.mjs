@@ -151,6 +151,38 @@ export default getRequestConfig(async ({ requestLocale }) => {
 );
 actions.push(`✓ ${join(i18nDir, "request.ts")}`);
 
+// ─── 2bis. src/i18n/metadata.ts (per-page canonical + hreflang) ──────
+// canonical/hreflang MUST be set per page, never in a layout: Next.js
+// inherits layout metadata, so a layout-level `alternates` makes every
+// child page canonicalize to the same URL (Google then treats all pages
+// as duplicates of the home - bug shipped to hyperprompt/hyperarme).
+writeFileSync(
+  join(i18nDir, "metadata.ts"),
+  `import { routing } from "./routing";
+
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
+// Per-page canonical + hreflang alternates.
+// Usage, from a page's generateMetadata:
+//   alternates: localeAlternates(locale, "/about")   (home: path = "")
+// IMPORTANT: never set \`alternates\` in a layout - Next.js inherits layout
+// metadata, so every child page would canonicalize to the same URL and
+// Google would treat all pages as duplicates of the home.
+export function localeAlternates(locale: string, path = "") {
+  const url = (l: string) =>
+    l === routing.defaultLocale ? \`\${baseUrl}\${path}\` : \`\${baseUrl}/\${l}\${path}\`;
+  const languages: Record<string, string> = {
+    "x-default": url(routing.defaultLocale),
+  };
+  for (const l of routing.locales) {
+    languages[l] = url(l);
+  }
+  return { canonical: url(locale), languages };
+}
+`,
+);
+actions.push(`✓ ${join(i18nDir, "metadata.ts")}`);
+
 // ─── 3. messages/<locale>.json per locale ────────────────────────────
 const messagesDir = join(webDir, "messages");
 mkdirSync(messagesDir, { recursive: true });
@@ -212,25 +244,15 @@ export function generateStaticParams() {
   return routing.locales.map((locale) => ({ locale }));
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ locale: string }>;
-}): Promise<Metadata> {
-  const { locale } = await params;
+export async function generateMetadata(): Promise<Metadata> {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
-  const languages: Record<string, string> = {};
-  for (const l of routing.locales) {
-    languages[l] = l === routing.defaultLocale ? baseUrl : \`\${baseUrl}/\${l}\`;
-  }
-
+  // metadataBase only. canonical + hreflang are set PER PAGE via
+  // localeAlternates() from ~/i18n/metadata. Never add \`alternates\` here:
+  // layout metadata is inherited by every child page, which would make all
+  // pages canonicalize to the home (duplicate-content signal for Google).
   return {
     metadataBase: new URL(baseUrl),
-    alternates: {
-      canonical: locale === routing.defaultLocale ? baseUrl : \`\${baseUrl}/\${locale}\`,
-      languages,
-    },
   };
 }
 
@@ -265,6 +287,52 @@ export default async function LocaleLayout({
 `,
 );
 actions.push(`✓ ${join(localeAppDir, "layout.tsx")}`);
+
+// ─── 4bis. 404 pattern: [locale]/[...rest] catch-all + not-found ─────
+// Without a catch-all under [locale], unknown URLs match NO route, so the
+// [locale]/not-found.tsx is never rendered and Next.js serves its default
+// bare 404 in production (bug seen on hyperprompt/hyperarme/plus33).
+const restDir = join(localeAppDir, "[...rest]");
+mkdirSync(restDir, { recursive: true });
+writeFileSync(
+  join(restDir, "page.tsx"),
+  `import { notFound } from "next/navigation";
+
+// Any unknown URL under a locale triggers the [locale] not-found page.
+// Without this catch-all, Next.js serves its default 404 instead.
+export default function CatchAllPage() {
+  notFound();
+}
+`,
+);
+actions.push(`✓ ${join(restDir, "page.tsx")}`);
+
+// Basic localized not-found, only when the project has none yet.
+// If src/app/not-found.tsx exists, Claude moves it into [locale]/ (Step 4
+// of the skill) and that custom version takes precedence over this one.
+if (!existsSync(join(webDir, "src/app/not-found.tsx"))) {
+  writeFileSync(
+    join(localeAppDir, "not-found.tsx"),
+    `import { useTranslations } from "next-intl";
+import { Link } from "~/i18n/navigation";
+
+export default function NotFound() {
+  const t = useTranslations("common");
+
+  return (
+    <div className="flex min-h-svh flex-col items-center justify-center gap-6 px-4 text-center">
+      <p className="text-8xl font-bold">404</p>
+      <p className="text-xl opacity-70">{t("notFound")}</p>
+      <Link href="/" className="underline">
+        {t("backHome")}
+      </Link>
+    </div>
+  );
+}
+`,
+  );
+  actions.push(`✓ ${join(localeAppDir, "not-found.tsx")}`);
+}
 
 // ─── 5. src/components/language-switcher.tsx ─────────────────────────
 const componentsDir = join(webDir, "src/components");
@@ -359,7 +427,9 @@ if (!existsSync(sitemapPath)) {
         locale === routing.defaultLocale
           ? page.path
           : \`/\${locale}\${page.path}\`;
-      const alternates: Record<string, string> = {};
+      const alternates: Record<string, string> = {
+        "x-default": \`\${baseUrl}\${page.path}\`,
+      };
       for (const alt of routing.locales) {
         alternates[alt] =
           alt === routing.defaultLocale
@@ -399,9 +469,17 @@ console.log(`
 
 Next (Claude handles):
   - Move existing src/app/{page,layout,not-found}.tsx under src/app/[locale]/
+    (a custom not-found.tsx replaces the generated [locale]/not-found.tsx)
+  - Create a root src/app/not-found.tsx global fallback (self-contained
+    html/body - the root layout is a passthrough) styled to the site palette
   - Augment src/app/[locale]/layout.tsx with providers that used to live in the
     root layout (TRPCReactProvider, font className={geist.variable}, etc.)
   - Replace root src/app/layout.tsx with a minimal "return children" version
   - Create src/middleware.ts (or merge with existing) pointing to the routing
+  - Swap next/link (and next/navigation hooks) for ~/i18n/navigation in every
+    moved page/component (internal links only)
+  - Add per-page canonical + hreflang on every public page:
+    alternates: localeAlternates(locale, "/<path>") from ~/i18n/metadata
+    (home: path = ""). NEVER set alternates in a layout.
   - Add translations to messages/<locale>.json as pages are built
 `);

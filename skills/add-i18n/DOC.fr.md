@@ -20,8 +20,9 @@ Rend votre site multilingue en proposant plusieurs langues à vos visiteurs. Fra
   - Création des fichiers `messages/<langue>.json` pour chaque langue (FR/EN/ES/DE/IT/PT ont des templates pré-traduits ; les autres partent vides en anglais)
   - Configuration du routing (`src/i18n/routing.ts`) avec la liste des langues + langue par défaut
   - Loader des messages (`src/i18n/request.ts`)
-  - Layout `[locale]` minimal avec `generateMetadata` + `alternates.languages` pour le **hreflang SEO**
+  - Layout `[locale]` minimal, plus un helper pour que chaque page déclare sa propre URL canonique et ses variantes de langue (**hreflang SEO**, les signaux dont Google a besoin pour indexer correctement chaque langue)
   - Composant `LanguageSwitcher` prêt à dropper dans votre nav
+  - Le pattern 404 complet : un catch-all pour que les URLs inconnues affichent votre page 404 personnalisée (dans la langue du visiteur) au lieu de la 404 par défaut de Next.js
 
 5. **Middleware** : un middleware Next.js est créé (ou fusionné si vous en avez déjà un) pour gérer les URLs `/fr/...`, `/en/...`, etc.
 
