@@ -124,9 +124,17 @@ async function doPing() {
   if (!fiveFieldCron(flags.cron)) fail(`--cron must be a 5-field UTC cron expression. Got: "${flags.cron}"`);
 
   const secretName = `CRON_SECRET_${slugUpper(flags["project-name"])}`;
+  // The job name is prefixed with the project: the shared worker serves every
+  // project on the account, so two projects can pick the same task name
+  // ("rapport-hebdo") and the upsert-by-name would overwrite one with the
+  // other without this prefix. The URL, the Next.js route and the secret stay
+  // based on the task name / the project as before.
+  const jobName = flags["project-name"] === flags["task-name"]
+    ? flags["task-name"]
+    : `${flags["project-name"]}-${flags["task-name"]}`;
   const job = {
     kind: "ping",
-    name: flags["task-name"],
+    name: jobName,
     project: flags["project-name"],
     cron: flags.cron,
     url: `${stripTrail(flags["app-url"])}/api/cron/${flags["task-name"]}`,
@@ -160,7 +168,7 @@ async function doPing() {
     {
       action,
       job: job.name,
-      commitMsg: `jobs: ${action === "added" ? "add" : "update"} ping ${job.project}/${job.name} (${job.cron})`,
+      commitMsg: `jobs: ${action === "added" ? "add" : "update"} ping ${job.project}/${flags["task-name"]} (${job.cron})`,
       routePath,
       routeCreated,
     },

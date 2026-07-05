@@ -1,6 +1,6 @@
 ---
 name: delete-project
-description: "Cleanly deletes a Hypervibe project and all of its cloud infrastructure - Vercel, Neon, Cloudflare R2 (global + EU), Workers, DNS, db-backup, Stripe webhook, Render services, OAuth clients, Upstash, etc. First, it displays a BIG warning and asks for a double confirmation (irreversible action). It then performs a COMPLETE inventory, also scanning environment variables to detect third-party services outside the hypervibe stack that might be connected (OpenAI, Mapbox, Sentry, etc.). At the end, it gives the user the paths (not the commands) of the folders to delete via Windows Explorer. Use when the user says \"delete project X\", \"completely clean up X\", \"/delete-project X\", \"clean up project X\", or wants to decommission a project."
+description: "Cleanly deletes a Hypervibe project and all of its cloud infrastructure - Vercel, Neon, Cloudflare R2 (global + EU), Workers, DNS, db-backup, scheduled crons on the shared worker, Stripe webhook, Render services, OAuth clients, Upstash, etc. First, it displays a BIG warning and asks for a double confirmation (irreversible action). It then performs a COMPLETE inventory, also scanning environment variables to detect third-party services outside the hypervibe stack that might be connected (OpenAI, Mapbox, Sentry, etc.). At the end, it gives the user the paths (not the commands) of the folders to delete via Windows Explorer. Use when the user says \"delete project X\", \"completely clean up X\", \"/delete-project X\", \"clean up project X\", or wants to decommission a project."
 allowed-tools: Bash Read Edit Write Glob AskUserQuestion TodoWrite
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
@@ -17,7 +17,7 @@ You delete a Hypervibe project and **all** of its associated cloud infrastructur
 
 The skill relies on 3 scripts that do the heavy lifting:
 
-- **`scripts/delete-project/discover-resources.mjs`**: Phase 1 (inventory). Scans 16 surfaces in parallel (Vercel, Neon, R2, DNS, env vars, etc.). Returns 1 structured JSON. ~3-5 sec.
+- **`scripts/delete-project/discover-resources.mjs`**: Phase 1 (inventory). Scans 17 surfaces in parallel (Vercel, Neon, R2, DNS, crons of the shared worker, env vars, etc.). Returns 1 structured JSON. ~3-5 sec.
 - **`scripts/delete-project/execute-deletions.mjs`**: Phase 3 (execution). Takes the inventory + the scope chosen by the user, deletes in parallel where it is safe. Returns a {deleted, failed, skipped} report.
 - **`scripts/delete-project/db-backup-remove-target.mjs`**: sub-script for the surgical edit of the shared `db-backup` worker.
 
@@ -119,7 +119,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/discover-resources.mjs" \
   --project-dir "<detected-project-path>" > /tmp/delete-project-inventory.json
 ```
 
-The script scans the 16 surfaces in parallel: Vercel, Neon (REST API), Cloudflare Workers / R2 (global+EU) / DNS / Email Routing, db-backup worker (BACKUP_TARGETS), Render, Stripe (webhooks + products), Upstash, env vars (Vercel pull + diff whitelist) → detection of third-party services (Sentry, PostHog, Mapbox, OpenAI, etc.), local folder + package.json, Claude memory, GitHub repo, Google/GitHub OAuth via present vars.
+The script scans the 17 surfaces in parallel: Vercel, Neon (REST API), Cloudflare Workers / R2 (global+EU) / DNS / Email Routing, db-backup worker (BACKUP_TARGETS), cron ping jobs of the shared `hypervibe-jobs` worker (matched by their `project` field in the registry), Render, Stripe (webhooks + products), Upstash, env vars (Vercel pull + diff whitelist) → detection of third-party services (Sentry, PostHog, Mapbox, OpenAI, etc.), local folder + package.json, Claude memory, GitHub repo, Google/GitHub OAuth via present vars.
 
 The resulting JSON has the form:
 
@@ -133,6 +133,7 @@ The resulting JSON has the form:
   "r2":           { "found": true, "buckets": [{ "name": "...", "jurisdiction": "eu" }] },
   "dns":          { "found": true, "records": [...] },
   "dbBackup":     { "isTarget": true, "entry": {...} },
+  "cronJobs":     { "found": true, "jobs": [{ "name": "cool-trattoria-rapport-hebdo", "cron": "0 8 * * 1", "url": "https://..." }], "secretName": "CRON_SECRET_COOL_TRATTORIA" },
   "render":       { "found": false },
   "stripe":       { "webhooksFound": true, "webhooks": [...] },
   "upstash":      { "found": false },
@@ -151,6 +152,8 @@ The resulting JSON has the form:
   "github":       { "exists": true, "url": "..." }
 }
 ```
+
+Any section may also carry an **`excluded`** array: resources whose name matched but that were re-attributed to a **more specific sibling project** (`street-cool` when deleting `street`), or recognized as **shared Hypervibe infrastructure** (the `hypervibe-jobs` worker). They are NEVER deleted; surface them in section 2.4 with their `excludedReason`.
 
 Read this JSON and move on to Phase 2.
 
@@ -181,6 +184,7 @@ Include conditionally:
 - Brevo / Resend (shared)
 - Parent Cloudflare zones (the subdomains/DNS are deleted, not the parent zone)
 - Stripe products (if found but rarely scoped to the project)
+- Every `excluded` entry from the inventory sections (resource attributed to a sibling project, or shared Hypervibe infrastructure like the `hypervibe-jobs` worker) - list each with its reason in plain language
 
 ### 2.5 Mandatory scope question
 
@@ -203,7 +207,7 @@ Options (multi-select via `multiSelect: true`):
 Build the `scope` JSON array from the Phase 2.5 choices. Possible categories:
 
 ```
-["vercel","neon","r2","workers","dns","db-backup","render","stripe-webhooks","upstash","email-routing","memory"]
+["vercel","neon","r2","workers","dns","db-backup","cron-jobs","render","stripe-webhooks","upstash","email-routing","memory"]
 ```
 
 If the user chose "Delete everything", pass `["all"]`. Otherwise remove the categories they want to keep.
@@ -218,7 +222,7 @@ Create a todo list with one entry per scope category. Mark "in_progress" before 
 
 The script runs:
 - **In parallel**: Vercel, R2 (both jurisdictions), Workers, DNS, Render, Stripe webhooks, Upstash, Email Routing
-- **Sequentially afterwards**: Neon → db-backup (needs the Neon projectId to remove the target) → Memory (last)
+- **Sequentially afterwards**: Neon → db-backup (needs the Neon projectId to remove the target) → cron-jobs (same shared-worker registry as db-backup, never concurrent) → Memory (last)
 
 The resulting JSON:
 
@@ -306,6 +310,11 @@ The Claude Code classifier often blocks `rm -rf` under `C:\DEV\` (deny rule), ev
 ### Shared db-backup worker
 `~/.db-backup-worker/wrangler.toml` is shared across **all** Neon projects. The `db-backup-remove-target.mjs` script does a surgical edit (removes ONLY the project's entry + redeploys). If the redeploy fails, it rolls back the toml automatically.
 
+### Shared hypervibe-jobs worker (cron pings)
+Scheduled tasks created by `/add-cron` live in the same registry as the unified backups (`~/.hypervibe-jobs/jobs.js`) as jobs of kind `ping`. Without cleanup, the worker keeps hitting a dead URL at every schedule after the project is gone. Two subtleties:
+- **Matching**: since 2026-07-05 the registry name is composite (`<project>-<task>`), so the scan matches jobs by their `project` field (with the per-project secret name as fallback for older entries), never by name. Each job is then removed by its registry name via the shared-worker registry script: the jobs of the other projects are untouched.
+- **Worker secret**: once no registry job of the project remains, the execution also deletes the `CRON_SECRET_<PROJECT>` secret from the shared worker (Cloudflare API). If a removal failed, the secret is kept (reported as `kept` in the result) - safe to retry with scope `["cron-jobs"]`. The app-side `CRON_SECRET` env var disappears with the Vercel project.
+
 ### Neon backups
 The backups (`backup-*` branches) live **in the Neon project itself**. When you delete the project (Phase 3, category `neon`), the backups go with it. No separate action.
 
@@ -319,7 +328,7 @@ The env vars scan (Phase 1, env vars sub-step) is **conservative**: any non-whit
 The **webhooks** are safe to delete (1 per project, URL clearly linked). The **products** are rarely scoped per project → the script does NOT delete them automatically, they are merely mentioned in the report for a manual decision.
 
 ### Ambiguous names
-If you find `street-cool` AND `street-le-mans` while searching for `street-cool`, it means they share a prefix. The script filters by `includes()` so you can get unwanted matches. **Display them in Phase 2 and ask the user for confirmation** before execution.
+Matching is word-boundary based, not substring based: deleting `art` does not match `smart-app`, and the shared background workers (`hypervibe-jobs`, legacy `db-backup`) are excluded by name whatever the project is called. When several projects share a prefix (`street` and `street-cool`), every resource that also matches a **more specific known project** (known = shared-worker registry, sibling folders of the project dir, Neon/Vercel project lists) is automatically moved to the section's `excluded` array and left untouched. Limit: a sibling project with zero local footprint (no folder, no registry job, not visible in the Neon/Vercel lists) cannot be recognized, so its derived resources would still show up in the inventory. **The Phase 2 review stays the final safety net**: read the resource names carefully before validating the scope, and when in doubt ask the user.
 
 ### `.env.delete-check` temp file
 The Phase 1 script temporarily creates a `.env.delete-check` file to parse the var names (NOT the values). It deletes it systematically at the end, even on error. Check in the report that it does not exist in the local project after the run.

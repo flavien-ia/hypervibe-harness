@@ -15,7 +15,7 @@ You need [Claude Code](https://claude.com/claude-code) first. It is included wit
 /plugin install hypervibe@hypervibe-harness
 ```
 
-Updating from a version older than 2.5? After updating the plugin, just type `/migrate-workers` in Claude Code: it consolidates your old background mechanisms into the new unified one, safely and with your consent at each step (safe no-op if you have nothing to migrate). More context in [MIGRATION.md](MIGRATION.md).
+Updating from a version older than 2.5? After updating the plugin, just re-run `/start` in Claude Code: it detects your old background mechanisms and consolidates them into the new unified one for you, safely and with your consent at each step (nothing happens if you have nothing to migrate). More context in [MIGRATION.md](MIGRATION.md).
 
 Then type `/start`: it installs everything else for you (Node.js, pnpm, Git, and each service's CLI) and checks that all your connections work.
 

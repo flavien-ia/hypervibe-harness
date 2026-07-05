@@ -79,7 +79,7 @@ Wait for the user's response. Extract:
 - `<name>` (kebab-case; if the user gives a non-kebab-case name, propose the kebab-case version yourself and confirm implicitly by using it).
 - `<description>` (~150-160 characters for SEO; you may rephrase / complete it from the user's sentence if needed to reach that length, this is what will be used in the page's `<meta name="description">` metadata).
 
-⚠️ **The name becomes final as soon as Step 2 begins** - the script creates the GitHub repo and the Vercel project with that name. So if there is the slightest ambiguity, clarify now; otherwise go straight to Step 2 without asking for re-confirmation.
+⚠️ **The name becomes final as soon as Step 2 begins** - the script creates the GitHub repo and the Vercel project with that name. So if there is the slightest ambiguity, clarify now; otherwise go straight to Step 2 without asking for re-confirmation. Step 2 first runs a **name collision guard** (sub-step 1b) that may still adjust the name if it clashes with an existing project, so the truly final name is the one that clears that guard.
 
 Once the name and description are captured, **immediately display the 8-step checklist + the warning message from the "Progress communication" section**, then move on to Step 2.
 
@@ -104,6 +104,25 @@ Move to the **parent** folder where the app should be created:
 - **macOS / Linux**: `cd ~/dev` (or your convention)
 
 If the folder does not exist, create it (`mkdir -p <path>`).
+
+**1b. Guard the project name against collisions**
+
+Before creating anything, check that the chosen name does not clash with an existing project. From the parent folder, run:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/check-name-collision.mjs" --name "<project-name>" --parent-dir "$(pwd)"
+```
+
+The script reads the project's `status` in the returned JSON (it scans your existing projects: local folders, Neon, Vercel, and the shared background clock). React based on `status`:
+
+- **`ok`** → no clash, go straight to step 2 with this name.
+- **`exact`** → a project with this exact name already exists. It cannot be reused. Present the `suggestions` (they are safe, non-colliding names) via `AskUserQuestion` and let the user pick one or type their own. **Re-run this guard** on the chosen name until it returns `ok`.
+- **`subset`** → the chosen name is contained inside an existing project's name (e.g. `street` while a `street-cool` already exists). This is the dangerous case: later, a cleanup of `<name>` could also sweep the other project's data. **Strongly recommend** one of the `suggestions` (which are built to avoid the overlap). Present them via `AskUserQuestion`, adding an explicit "keep `<name>` anyway" choice for the user who really wants it. If they pick a suggestion or type a new name, re-run the guard on it; if they explicitly keep the colliding name, proceed (their informed choice).
+- **`superset`** or **`both`** → the chosen name *contains* an existing shorter project's name (e.g. `street-cool` while a `street` already exists). Warn plainly that the two overlap and that a future cleanup will need extra care to tell them apart. Here `suggestions` is usually empty (a name that wraps another cannot be auto-fixed by adding a word), so **ask the user** to either pick a clearly different name (re-run the guard on it) or confirm they want to keep it.
+
+Always phrase this to the user in plain, non-technical language: talk about "another of your projects with a similar name" and "avoiding confusion when you later delete one of them", never about "tokens" or "subset/superset". If the JSON `notes` mention a source that could not be checked (Neon key locked, Vercel not logged in), you may still proceed, but if `status` is `ok` **only** because a source was skipped, mention that the check was partial.
+
+Whatever name clears this guard is the one you pass to `--name` at step 2 (and everywhere afterwards).
 
 **2. Start the script in the background**
 

@@ -25,13 +25,14 @@ The deletion happens in **4 phases**, with an explicit validation point at each 
 
 **Phase 2: Complete inventory**
 
-Hypervibe runs a parallel scan over **16 surfaces** to identify everything that belongs to the project:
+Hypervibe runs a parallel scan over **17 surfaces** to identify everything that belongs to the project:
 - Hosting (Vercel)
 - Database (Neon)
 - File storage (Cloudflare R2, in global and European versions)
 - Automations (Cloudflare Workers)
 - Domains and DNS, email forwarding (Cloudflare)
 - Automatic backups (`db-backup` worker shared across your projects)
+- Scheduled tasks (crons registered on the shared worker, which would otherwise keep pinging a dead URL)
 - Background workers (Render)
 - Payments (Stripe webhooks)
 - Caches and queues (Upstash)
@@ -41,6 +42,8 @@ Hypervibe runs a parallel scan over **16 surfaces** to identify everything that 
 - GitHub repo
 
 The scan also detects **third-party services** plugged in outside the Hypervibe stack (Sentry, OpenAI, Mapbox, Notion, etc.) by analyzing your environment variables.
+
+Matching is precise to the word: each resource is attributed to the most specific project (deleting `street` touches nothing that belongs to `street-cool`), and the shared clock that runs your backups and scheduled tasks is never listed.
 
 **Phase 3: Scope selection**
 
@@ -55,7 +58,7 @@ You choose: delete everything, or keep certain pieces (DB, DNS, local folder). T
 
 **Phase 4: Execution + report**
 
-Hypervibe chains the deletions in parallel where possible (Vercel, R2, Workers, DNS, Stripe webhooks, Render, Upstash, Email Routing) then serially where there are dependencies (Neon, then removal of the project from the shared `db-backup` worker, then Claude memory).
+Hypervibe chains the deletions in parallel where possible (Vercel, R2, Workers, DNS, Stripe webhooks, Render, Upstash, Email Routing) then serially where there are dependencies (Neon, then removal of the project from the shared `db-backup` worker, then its scheduled tasks on the shared worker, then Claude memory).
 
 At the end, a report shows you:
 - ✅ What was deleted automatically

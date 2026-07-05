@@ -1,13 +1,14 @@
 ---
-name: migrate-workers
-description: "One-time migration for users coming from a Hypervibe version older than 2.5. Consolidates the old separate background mechanisms (db-backup, quota-monitor, cron-dispatcher, each a loose Cloudflare worker) into the new unified shared worker hypervibe-jobs (one worker, one cron slot, git-versioned registry). Self-detecting and safe: if there is nothing legacy on the machine it reports 'already up to date' and does nothing. Nothing is deleted without explicit consent, and the old mechanisms keep working until the new one is deployed and verified. This is a transitional skill and will be removed in a future version once everyone has migrated."
-argument-hint: ""
-user-invocable: true
+name: _migrate-workers
+description: "Internal helper invoked by /start. One-time migration for users coming from a Hypervibe version older than 2.5: consolidates the old separate background mechanisms (db-backup, quota-monitor, cron-dispatcher, each a loose Cloudflare worker) into the new unified shared worker hypervibe-jobs (one worker, one cron slot, git-versioned registry). Self-detecting and safe: if there is nothing legacy on the machine it does nothing. Nothing is deleted without explicit consent, and the old mechanisms keep working until the new one is deployed and verified. Not meant to be invoked directly by users (they just re-run /start). Transitional helper, will be removed in a future version once everyone has migrated."
+user-invocable: false
 allowed-tools: Bash, Read
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; uses wrangler + the vault."
 ---
 
-# Migrate Workers - Consolidate the old background mechanisms into the shared clock
+# _migrate-workers - Consolidate the old background mechanisms into the shared clock (internal)
+
+Invoked by `/start` when it detects legacy background workers on the machine. Users never call this directly: the user-facing instruction is simply "re-run `/start`".
 
 ## Communication
 - Detect the user's language from their messages and ALWAYS reply in that language (default: English). This applies to every user-facing message: questions, progress, confirmations, summaries, errors.
@@ -98,7 +99,7 @@ D=$(date +%Y-%m-%d)
 
 Tell the user the archived folders can be deleted after a few healthy cycles (for example after the next 1st-or-15th backup run).
 
-If the user prefers NOT to decommission yet: fine, stop here. Warn them that until they do, the old and new mechanisms both run (duplicate backups each cycle, and the freed Cloudflare slots stay occupied), and they can come back and run `/migrate-workers` again to finish.
+If the user prefers NOT to decommission yet: fine, stop here. Warn them that until they do, the old and new mechanisms both run (duplicate backups each cycle, and the freed Cloudflare slots stay occupied), and they can re-run `/start` any time to finish.
 
 ## Step 7 - Final recap (plain words)
 

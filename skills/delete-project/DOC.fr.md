@@ -25,13 +25,14 @@ La suppression se fait en **4 phases**, avec un point de validation explicite à
 
 **Phase 2 : Inventaire complet**
 
-Hypervibe lance un scan parallèle sur **16 surfaces** pour identifier tout ce qui appartient au projet :
+Hypervibe lance un scan parallèle sur **17 surfaces** pour identifier tout ce qui appartient au projet :
 - Hébergement (Vercel)
 - Base de données (Neon)
 - Stockage de fichiers (Cloudflare R2, en versions globale et européenne)
 - Automatisations (Cloudflare Workers)
 - Domaines et DNS, redirection d'emails (Cloudflare)
 - Sauvegardes automatiques (worker `db-backup` partagé entre vos projets)
+- Tâches planifiées (crons enregistrés sur le worker partagé, qui sinon continueraient de frapper une URL morte)
 - Workers de fond (Render)
 - Paiements (webhooks Stripe)
 - Caches et files d'attente (Upstash)
@@ -41,6 +42,8 @@ Hypervibe lance un scan parallèle sur **16 surfaces** pour identifier tout ce q
 - Repo GitHub
 
 Le scan détecte aussi **les services tiers** branchés hors stack Hypervibe (Sentry, OpenAI, Mapbox, Notion, etc.) en analysant vos variables d'environnement.
+
+La détection est précise au mot près : chaque ressource est attribuée au projet le plus spécifique (supprimer `street` ne touche à rien de ce qui appartient à `street-cool`), et l'horloge partagée qui porte vos sauvegardes et vos tâches planifiées n'est jamais listée.
 
 **Phase 3 : Choix de la portée**
 
@@ -55,7 +58,7 @@ Vous choisissez : tout supprimer, ou garder certaines briques (DB, DNS, dossier 
 
 **Phase 4 : Exécution + rapport**
 
-Hypervibe enchaîne les suppressions en parallèle où c'est possible (Vercel, R2, Workers, DNS, Stripe webhooks, Render, Upstash, Email Routing) puis en série là où il y a des dépendances (Neon, puis retrait du projet dans le worker `db-backup` partagé, puis mémoire Claude).
+Hypervibe enchaîne les suppressions en parallèle où c'est possible (Vercel, R2, Workers, DNS, Stripe webhooks, Render, Upstash, Email Routing) puis en série là où il y a des dépendances (Neon, puis retrait du projet dans le worker `db-backup` partagé, puis ses tâches planifiées sur le worker partagé, puis mémoire Claude).
 
 À la fin, un rapport vous montre :
 - ✅ Ce qui a été supprimé automatiquement

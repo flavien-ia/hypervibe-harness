@@ -9,8 +9,8 @@
 //   --inventory  : path to the JSON file produced by discover-resources.mjs
 //   --scope      : JSON array of categories to delete. Subset of:
 //                  ["vercel","neon","r2","workers","dns","db-backup",
-//                   "render","stripe-webhooks","upstash","email-routing",
-//                   "memory"]
+//                   "cron-jobs","render","stripe-webhooks","upstash",
+//                   "email-routing","memory"]
 //                  Pass ["all"] as a shortcut to delete everything.
 //
 // Outputs a JSON report to stdout:
@@ -23,7 +23,9 @@
 // Design:
 // - Parallel where safe (3.1-3.5 + 3.7-3.10 all independent).
 // - Sequential where needed: db-backup AFTER neon (since the db-backup
-//   removal references the Neon projectId), memory AT THE END.
+//   removal references the Neon projectId), cron-jobs AFTER db-backup (both
+//   commit + redeploy the same ~/.hypervibe-jobs registry, never in
+//   parallel), memory AT THE END.
 // - Each operation is fault-tolerant: one failure doesn't abort the whole
 //   batch. The user can re-run with a narrower scope to retry.
 // - NEVER touches the local project dir (sandbox blocks it). The LLM
@@ -35,6 +37,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSecret } from "../vault/vault.mjs";
+import { tokenMatches, moreSpecificOwner } from "../_match.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -64,12 +67,15 @@ try {
   console.error(`Invalid --scope JSON: ${SCOPE_JSON}`);
   process.exit(1);
 }
-const ALL_CATEGORIES = ["vercel", "neon", "r2", "workers", "dns", "db-backup", "render", "stripe-webhooks", "upstash", "email-routing", "memory"];
+const ALL_CATEGORIES = ["vercel", "neon", "r2", "workers", "dns", "db-backup", "cron-jobs", "render", "stripe-webhooks", "upstash", "email-routing", "memory"];
 if (scope.length === 1 && scope[0] === "all") scope = ALL_CATEGORIES;
 const scopeSet = new Set(scope);
 
 const PROJECT = inventory.project;
 const CF_ACCOUNT_ID = inventory.cloudflareAccountId;
+// Sibling project names computed at discovery time (disambiguation of shared
+// prefixes, e.g. "street" vs "street-cool").
+const OWNER_CANDIDATES = Array.isArray(inventory.ownerCandidates) ? inventory.ownerCandidates : [];
 
 // ─── env ───────────────────────────────────────────────────────────────────
 function readUserEnvSync(name) {
@@ -197,6 +203,110 @@ async function deleteDbBackup() {
   }
 }
 
+// Re-read the shared-worker registry from disk (post-removal guard for the
+// per-project secret). Returns the jobs array, or null when unreadable.
+function readRegistryJobs() {
+  const jobsPath = join(homedir(), ".hypervibe-jobs", "jobs.js");
+  if (!existsSync(jobsPath)) return null;
+  try {
+    const raw = readFileSync(jobsPath, "utf8");
+    const m = raw.match(/export default\s*([\s\S]*?);?\s*$/);
+    if (!m) return null;
+    const registry = JSON.parse(m[1]);
+    return Array.isArray(registry.jobs) ? registry.jobs : null;
+  } catch {
+    return null;
+  }
+}
+
+function readSharedWorkerName() {
+  try {
+    const toml = readFileSync(join(homedir(), ".hypervibe-jobs", "wrangler.toml"), "utf8");
+    const m = toml.match(/^\s*name\s*=\s*"([^"]+)"/m);
+    if (m) return m[1];
+  } catch {}
+  return "hypervibe-jobs";
+}
+
+async function deleteCronJobs() {
+  if (!inventory.cronJobs?.found) return { status: "skipped", reason: "no cron jobs on the shared worker" };
+  const registerPath = join(PLUGIN_ROOT, "scripts", "shared-worker", "register.mjs");
+  // Make the Cloudflare token visible to register.mjs even when this process
+  // resolved it from the vault (readUserEnv checks process.env first).
+  const spawnEnv = { ...process.env };
+  if (CLOUDFLARE_API_TOKEN) {
+    spawnEnv.CLOUDFLARE_API_TOKEN = CLOUDFLARE_API_TOKEN;
+    spawnEnv.CF_API_TOKEN = CLOUDFLARE_API_TOKEN;
+  }
+
+  const results = [];
+  for (const job of inventory.cronJobs.jobs) {
+    // Remove by REGISTRY name (composite <project>-<task> since 2026-07-05);
+    // the jobs were matched by their `project` field at discovery time.
+    const r = spawnSync("node", [registerPath, "--remove", "--name", job.name], {
+      encoding: "utf8",
+      env: spawnEnv,
+    });
+    let rep = null;
+    try {
+      const line = (r.stdout || "").trim().split("\n").filter(Boolean).pop();
+      rep = line ? JSON.parse(line) : null;
+    } catch {
+      rep = null;
+    }
+    if (r.status === 0 && rep && rep.ok) {
+      results.push({ name: job.name, url: job.url, status: "deleted", workerDeployed: rep.deployed === true });
+    } else if (rep && /No job named/i.test(rep.error || "")) {
+      // Registry changed between discovery and execution: already gone.
+      results.push({ name: job.name, url: job.url, status: "deleted", note: "already absent from the registry" });
+    } else {
+      results.push({
+        name: job.name,
+        url: job.url,
+        status: "failed",
+        error: ((rep && rep.error) || r.stderr || r.stdout || "").slice(0, 300),
+      });
+    }
+  }
+
+  // Drop the per-project worker secret (CRON_SECRET_<PROJECT>) once NO
+  // registry job of the project remains. Re-read from disk: a failed removal
+  // above (or a concurrent registration) must keep the secret alive.
+  const secretName = inventory.cronJobs.secretName;
+  let secret = null;
+  if (secretName) {
+    const remaining = readRegistryJobs();
+    const stillUsed = remaining === null
+      ? true // cannot verify the registry: do not touch the secret
+      : remaining.some(
+          (j) =>
+            j.secretName === secretName ||
+            (j.kind === "ping" && (j.project || "").toLowerCase() === PROJECT.toLowerCase()),
+        );
+    if (stillUsed) {
+      secret = {
+        name: secretName,
+        status: "kept",
+        reason: remaining === null ? "registry unreadable, not verified" : "still referenced by a registry job",
+      };
+    } else if (!CLOUDFLARE_API_TOKEN || !CF_ACCOUNT_ID) {
+      secret = { name: secretName, status: "kept", reason: "Cloudflare token or account id missing" };
+    } else {
+      const workerName = readSharedWorkerName();
+      const r = await httpDelete(
+        `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/workers/scripts/${workerName}/secrets/${secretName}`,
+        { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` },
+      );
+      if (r.ok) secret = { name: secretName, status: "deleted", worker: workerName };
+      else if (r.status === 404) secret = { name: secretName, status: "absent", worker: workerName };
+      else secret = { name: secretName, status: "failed", error: r.body.slice(0, 300) };
+    }
+  }
+
+  const anyFail = results.some((x) => x.status === "failed") || secret?.status === "failed";
+  return { status: anyFail ? "partial" : "deleted", results, secret };
+}
+
 async function deleteRender() {
   if (!inventory.render?.found) return { status: "skipped", reason: "not found in inventory" };
   if (!RENDER_API_KEY) return { status: "failed", error: "RENDER_API_KEY missing" };
@@ -294,7 +404,11 @@ async function deleteMemory() {
     try {
       const original = readFileSync(indexPath, "utf8");
       const lines = original.split("\n");
-      const filtered = lines.filter((l) => !l.toLowerCase().includes(PROJECT.toLowerCase()));
+      // Word-boundary match + ownership check: deleting "street" must not trim
+      // index lines that actually reference "street-cool".
+      const filtered = lines.filter(
+        (l) => !(tokenMatches(PROJECT, l) && !moreSpecificOwner(PROJECT, l, OWNER_CANDIDATES)),
+      );
       const removed = lines.length - filtered.length;
       if (removed > 0) {
         writeFileSync(indexPath, filtered.join("\n"));
@@ -310,7 +424,8 @@ async function deleteMemory() {
 // ─── orchestration ─────────────────────────────────────────────────────────
 // Parallel batch 1: independent operations (vercel, r2, workers, dns,
 // render, stripe-webhooks, upstash, email-routing).
-// Sequential after: neon (needed for db-backup), then db-backup, then memory.
+// Sequential after: neon (needed for db-backup), then db-backup, then
+// cron-jobs (same shared-worker registry as db-backup), then memory.
 
 const startedAt = Date.now();
 const report = {
@@ -346,7 +461,7 @@ if (scopeSet.has("email-routing")) parallelTasks.push(deleteEmailRouting().then(
 const parallelResults = await Promise.all(parallelTasks);
 for (const [cat, res] of parallelResults) record(cat, res);
 
-// Sequential: neon → db-backup → memory
+// Sequential: neon → db-backup → cron-jobs → memory
 if (scopeSet.has("neon")) {
   const r = await deleteNeon();
   record("neon", r);
@@ -354,6 +469,12 @@ if (scopeSet.has("neon")) {
 if (scopeSet.has("db-backup")) {
   const r = await deleteDbBackup();
   record("db-backup", r);
+}
+if (scopeSet.has("cron-jobs")) {
+  // After db-backup: both mutate + commit + redeploy the same
+  // ~/.hypervibe-jobs registry, so they must never run concurrently.
+  const r = await deleteCronJobs();
+  record("cron-jobs", r);
 }
 if (scopeSet.has("memory")) {
   const r = await deleteMemory();

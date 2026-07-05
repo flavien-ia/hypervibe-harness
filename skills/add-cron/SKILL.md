@@ -201,7 +201,7 @@ result=$(CRON_SECRET_VALUE="<CRON_SECRET>" node "${CLAUDE_SKILL_DIR}/../../scrip
   --put-secrets)
 ```
 
-This single call: creates the protected Next.js route (if absent), registers the task in the versioned registry, commits the change, uploads the project's secret to the shared worker (first time only), and redeploys. Parse the JSON: `ok`, `action` (added/replaced), `routeCreated`, `missingSecrets` (should be empty; if not, follow its `nextSteps`).
+This single call: creates the protected Next.js route (if absent), registers the task in the versioned registry, commits the change, uploads the project's secret to the shared worker (first time only), and redeploys. Parse the JSON: `ok`, `action` (added/replaced), `job` (the name of the entry in the shared registry, normally `<PROJECT_NAME>-<TASK_NAME>` - store it as `JOB_NAME`, the management commands below use it), `routeCreated`, `missingSecrets` (should be empty; if not, follow its `nextSteps`).
 
 ### If `CHOICE=cf-dedicated` → dedicated Cloudflare Worker
 
@@ -328,7 +328,7 @@ Invoke `_update-claude-md` with:
 
 For a **shared worker** cron:
 ```
-- **<TASK_NAME>** (shared hypervibe-jobs worker) - `<CRON_EXPR>` (<CRON_HUMAN>) → registered in `~/.hypervibe-jobs/jobs.js` (git-versioned) → calls `/api/cron/<TASK_NAME>`
+- **<TASK_NAME>** (shared hypervibe-jobs worker) - `<CRON_EXPR>` (<CRON_HUMAN>) → registered as `<JOB_NAME>` in `~/.hypervibe-jobs/jobs.js` (git-versioned) → calls `/api/cron/<TASK_NAME>`
 ```
 
 For a **dedicated CF Worker** cron:
@@ -397,13 +397,15 @@ Choose the right block according to `CHOICE`, incorporating `REASON` in non-tech
 
 ## Natural-language management (after setup)
 
+On the shared clock, the registry job name is `JOB_NAME` = `<PROJECT_NAME>-<TASK_NAME>` (tasks registered by older plugin versions may be listed under `<TASK_NAME>` alone - when in doubt, `--list` shows the exact names).
+
 - **"run the task right now"** (shared clock): trigger it manually through the worker's control endpoint:
   ```bash
   ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN)
-  curl -s -X POST -H "Authorization: Bearer $ADMIN" "<WORKER_URL>/trigger?name=<TASK_NAME>"
+  curl -s -X POST -H "Authorization: Bearer $ADMIN" "<WORKER_URL>/trigger?name=<JOB_NAME>"
   ```
   (For a GitHub clock: `gh workflow run cron-<TASK_NAME>.yml`. For a dedicated clock: `curl` the `/api/cron/<TASK_NAME>` route directly with the project's `CRON_SECRET`.)
 - **"show me my scheduled tasks"**: `node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --list` (+ `.github/workflows/cron-*.yml` + `cron-workers/*/` for the other clocks). Present them in plain language.
-- **"change the schedule"** (shared): re-run the register command from Step 6 with the new `--cron` (same task name = update in place).
-- **"delete this task"** (shared): `node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --remove --name <TASK_NAME>`. Also offer to delete the now-unused `/api/cron/<TASK_NAME>` route.
+- **"change the schedule"** (shared): re-run the register command from Step 6 with the new `--cron` (same project + same task name = update in place).
+- **"delete this task"** (shared): `node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --remove --name <JOB_NAME>`. Also offer to delete the now-unused `/api/cron/<TASK_NAME>` route.
 - If **after** the final summary the user says *"no, GitHub instead"* / *"give it a dedicated clock"*, restart from Step 6 with the forced `CHOICE`. Not before - the automatic decision is the default.

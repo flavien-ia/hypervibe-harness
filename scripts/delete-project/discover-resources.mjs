@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// discover-resources.mjs - Phase 1 of /delete-project, all 16 scans in parallel.
+// discover-resources.mjs - Phase 1 of /delete-project, all 17 scans in parallel.
 //
 // Usage:
 //   node discover-resources.mjs --project <name> [--cloudflare-account-id <id>]
@@ -23,6 +23,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSecret } from "../vault/vault.mjs";
+import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -90,9 +91,23 @@ async function scanVercel() {
     // if any, lands on stdout). Matching stdout alone misses every project -
     // search both streams, else /delete-project silently skips the Vercel
     // project and leaves it orphaned.
-    const haystack = `${r.stdout}\n${r.stderr}`.toLowerCase();
-    const found = haystack.includes(PROJECT_LOWER);
-    return { found, raw: found ? `${r.stdout}\n${r.stderr}`.trim() : null };
+    const haystack = `${r.stdout}\n${r.stderr}`;
+    // Parse the first column of the table as candidate project names: used
+    // both for an exact `found` check and by the ownership post-pass to
+    // attribute prefix-sharing resources to their real project.
+    const NOISE = new Set(["vercel", "project", "projects", "name", "latest", "production", "preview", "https", "http", "error", "warn", "updated", "age", "url", "source", "node", "fetching", "retrieving", "deployments", "deployment", "found", "no"]);
+    const names = [];
+    for (const line of haystack.split("\n")) {
+      if (names.length >= 200) break;
+      const tok = normalizeName(line.trim().split(/\s+/)[0] || "");
+      if (!tok || tok.length < 2) continue;
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(tok) || /^[0-9]+$/.test(tok) || NOISE.has(tok)) continue;
+      if (!names.includes(tok)) names.push(tok);
+    }
+    // Exact name in the parsed table wins; fall back to a word-boundary match
+    // on the raw output only when the table yielded nothing parseable.
+    const found = names.includes(PROJECT_LOWER) || (names.length === 0 && tokenMatches(PROJECT_LOWER, haystack));
+    return { found, names, raw: found ? haystack.trim() : null };
   } catch (e) {
     return { found: false, error: String(e) };
   }
@@ -106,10 +121,14 @@ async function scanNeon() {
       headers: { Authorization: `Bearer ${NEON_API_KEY}` },
     });
     if (data.__error) return { found: false, error: data.__error };
-    const projects = (data.projects || []).filter((p) => p.name.toLowerCase().includes(PROJECT_LOWER));
-    if (projects.length === 0) return { found: false };
+    // allNames feeds the ownership post-pass: the ?search= response also
+    // returns sibling projects (searching "street" returns "street-cool").
+    const allNames = (data.projects || []).map((p) => p.name);
+    const projects = (data.projects || []).filter((p) => tokenMatches(PROJECT_LOWER, p.name));
+    if (projects.length === 0) return { found: false, allNames };
     return {
       found: true,
+      allNames,
       projects: projects.map((p) => ({ id: p.id, name: p.name, region: p.region_id, createdAt: p.created_at })),
     };
   } catch (e) {
@@ -126,7 +145,7 @@ async function scanWorkers() {
       { headers: { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` } },
     );
     if (data.__error) return { found: false, error: data.__error };
-    const workers = (data.result || []).filter((s) => s.id.toLowerCase().includes(PROJECT_LOWER));
+    const workers = (data.result || []).filter((s) => tokenMatches(PROJECT_LOWER, s.id));
     return { found: workers.length > 0, workers: workers.map((w) => ({ id: w.id, modifiedOn: w.modified_on })) };
   } catch (e) {
     return { found: false, error: String(e) };
@@ -146,7 +165,7 @@ async function scanR2() {
       const matches = r.stdout
         .split("\n")
         .map((l) => l.trim())
-        .filter((l) => l.toLowerCase().includes(PROJECT_LOWER))
+        .filter((l) => tokenMatches(PROJECT_LOWER, l))
         .map((l) => ({ name: l.split(/\s+/)[0], jurisdiction }));
       buckets.push(...matches);
     } catch {
@@ -175,8 +194,8 @@ async function scanDns() {
         );
         if (recs.__error) return;
         for (const r of recs.result || []) {
-          const nameMatches = r.name.toLowerCase().includes(PROJECT_LOWER);
-          const contentMatches = (r.content || "").toLowerCase().includes(PROJECT_LOWER);
+          const nameMatches = tokenMatches(PROJECT_LOWER, r.name);
+          const contentMatches = tokenMatches(PROJECT_LOWER, r.content || "");
           if (nameMatches || contentMatches) {
             allRecords.push({
               zoneId: z.id,
@@ -203,7 +222,10 @@ async function scanDns() {
 // BACKUP_TARGETS JSON env var. Both are reported with the same resource shape
 // ({ isTarget, entry?, totalTargets?, error? }) plus a `source` field so
 // downstream steps know which infrastructure holds the registration.
-function readUnifiedBackupTargets() {
+// Registry reader shared by the backup-targets scan (6) and the cron-pings
+// scan (6b): ~/.hypervibe-jobs/jobs.js is a JS module whose default export is
+// strict JSON.
+function readUnifiedRegistry() {
   const jobsPath = join(homedir(), ".hypervibe-jobs", "jobs.js");
   if (!existsSync(jobsPath)) return { exists: false };
   try {
@@ -211,11 +233,17 @@ function readUnifiedBackupTargets() {
     const m = raw.match(/export default\s*([\s\S]*?);?\s*$/);
     if (!m) return { exists: true, error: "jobs.js not parseable" };
     const registry = JSON.parse(m[1]);
-    const job = (registry.jobs || []).find((j) => j.name === "neon-backups");
-    return { exists: true, targets: job && Array.isArray(job.targets) ? job.targets : [] };
+    return { exists: true, jobs: Array.isArray(registry.jobs) ? registry.jobs : [] };
   } catch (e) {
     return { exists: true, error: String(e) };
   }
+}
+
+function readUnifiedBackupTargets() {
+  const reg = readUnifiedRegistry();
+  if (!reg.exists || reg.error) return reg;
+  const job = reg.jobs.find((j) => j.name === "neon-backups");
+  return { exists: true, targets: job && Array.isArray(job.targets) ? job.targets : [] };
 }
 
 function scanDbBackupLegacy() {
@@ -250,6 +278,32 @@ async function scanDbBackup() {
   return scanDbBackupLegacy();
 }
 
+// ─── 6b. Scheduled cron pings (unified hypervibe-jobs registry) ─────────────
+// Ping jobs registered by /add-cron live in the same registry and keep hitting
+// <app-url>/api/cron/<task> after the app is gone. Match by the job's
+// `project` field, NOT by its name: since 2026-07-05 registry names are
+// composite (<project>-<task>). Older entries without a `project` field are
+// caught via their per-project secret name (CRON_SECRET_<PROJECT>).
+function scanCronPings() {
+  const secretName = `CRON_SECRET_${PROJECT_LOWER.replace(/-/g, "_").toUpperCase()}`;
+  const reg = readUnifiedRegistry();
+  if (!reg.exists) return { found: false, source: "hypervibe-jobs" };
+  if (reg.error) return { found: false, error: reg.error, source: "hypervibe-jobs" };
+  const jobs = reg.jobs.filter(
+    (j) =>
+      j.kind === "ping" &&
+      ((j.project || "").toLowerCase() === PROJECT_LOWER || j.secretName === secretName),
+  );
+  return {
+    found: jobs.length > 0,
+    jobs: jobs.map((j) => ({ name: j.name, cron: j.cron, url: j.url, secretName: j.secretName || null })),
+    // Per-project worker secret, dropped by execute-deletions once no registry
+    // job of the project remains.
+    secretName,
+    source: "hypervibe-jobs",
+  };
+}
+
 // ─── 7. Render services ────────────────────────────────────────────────────
 async function scanRender() {
   if (!RENDER_API_KEY) return { found: false, error: "RENDER_API_KEY missing" };
@@ -260,7 +314,7 @@ async function scanRender() {
     if (data.__error) return { found: false, error: data.__error };
     const services = (Array.isArray(data) ? data : data.services || [])
       .map((d) => d.service || d)
-      .filter((s) => (s.name || "").toLowerCase().includes(PROJECT_LOWER));
+      .filter((s) => tokenMatches(PROJECT_LOWER, s.name || ""));
     return { found: services.length > 0, services: services.map((s) => ({ id: s.id, name: s.name, type: s.type, suspended: s.suspended })) };
   } catch (e) {
     return { found: false, error: String(e) };
@@ -277,8 +331,8 @@ async function scanStripe() {
       httpJson("https://api.stripe.com/v1/webhook_endpoints?limit=100", { headers }),
       httpJson("https://api.stripe.com/v1/products?limit=100", { headers }),
     ]);
-    const webhooks = ((webhooksData.data) || []).filter((w) => (w.url || "").toLowerCase().includes(PROJECT_LOWER));
-    const products = ((productsData.data) || []).filter((p) => (p.name || "").toLowerCase().includes(PROJECT_LOWER));
+    const webhooks = ((webhooksData.data) || []).filter((w) => tokenMatches(PROJECT_LOWER, w.url || ""));
+    const products = ((productsData.data) || []).filter((p) => tokenMatches(PROJECT_LOWER, p.name || ""));
     return {
       webhooksFound: webhooks.length > 0,
       webhooks: webhooks.map((w) => ({ id: w.id, url: w.url, status: w.status })),
@@ -302,7 +356,7 @@ async function scanUpstash() {
       headers: { Authorization: `Basic ${auth}` },
     });
     if (data.__error) return { found: false, error: data.__error };
-    const dbs = (Array.isArray(data) ? data : []).filter((d) => (d.database_name || "").toLowerCase().includes(PROJECT_LOWER));
+    const dbs = (Array.isArray(data) ? data : []).filter((d) => tokenMatches(PROJECT_LOWER, d.database_name || ""));
     return { found: dbs.length > 0, databases: dbs.map((d) => ({ id: d.database_id, name: d.database_name })) };
   } catch (e) {
     return { found: false, error: String(e) };
@@ -331,9 +385,9 @@ async function scanEmailRouting() {
           const matchersStr = JSON.stringify(r.matchers || []);
           const actionsStr = JSON.stringify(r.actions || []);
           if (
-            (r.name || "").toLowerCase().includes(PROJECT_LOWER) ||
-            matchersStr.toLowerCase().includes(PROJECT_LOWER) ||
-            actionsStr.toLowerCase().includes(PROJECT_LOWER)
+            tokenMatches(PROJECT_LOWER, r.name || "") ||
+            tokenMatches(PROJECT_LOWER, matchersStr) ||
+            tokenMatches(PROJECT_LOWER, actionsStr)
           ) {
             rules.push({
               zoneId: z.id,
@@ -464,13 +518,18 @@ function scanMemory() {
         scanned++;
         let content = "";
         try { content = readFileSync(join(memDir, f), "utf8"); } catch { continue; }
-        if (content.toLowerCase().includes(PROJECT_LOWER) || f.toLowerCase().includes(PROJECT_LOWER)) {
+        // Word-boundary matching with _ normalized to -, so the memory slug
+        // convention (project_street_cool.md) matches the project street-cool
+        // without "street" claiming it.
+        const fileMatch = tokenMatches(PROJECT_LOWER, f);
+        const contentMentions = tokenMatchCount(PROJECT_LOWER, content);
+        if (fileMatch || contentMentions > 0) {
           matches.push({
             filename: f,
             dir: memDir,
             path: join(memDir, f),
-            isProjectSpecific: f.toLowerCase().includes(PROJECT_LOWER),
-            mentionsCount: (content.toLowerCase().match(new RegExp(PROJECT_LOWER, "g")) || []).length,
+            isProjectSpecific: fileMatch,
+            mentionsCount: contentMentions,
           });
         }
       }
@@ -500,6 +559,7 @@ async function scanGitHub() {
 const startedAt = Date.now();
 const local = scanLocalDir();
 const memory = scanMemory();
+const cronJobs = scanCronPings(); // sync (local file read), no need for the Promise.all batch
 
 // Cloudflare account id: provided via --cloudflare-account-id / CLOUDFLARE_ACCOUNT_ID,
 // otherwise auto-detected from the API token (first account on the token).
@@ -541,6 +601,121 @@ const [
   scanGitHub(),
 ]);
 
+// ─── ownership post-pass (precision guard) ─────────────────────────────────
+// Word-boundary matching alone still confuses sibling projects sharing a
+// prefix: deleting "street" must not sweep up "street-cool-db". Build the set
+// of OTHER known project names (shared-worker registry, sibling directories,
+// Neon + Vercel project lists) and re-attribute every matched resource to the
+// most specific owner. Claimed items move to a per-section `excluded` array
+// (reported to the user, never deleted). The shared background workers are
+// excluded by name whatever the project is called.
+function collectSiblingDirs() {
+  const out = [];
+  try {
+    const parent = dirname(PROJECT_DIR);
+    if (!parent || parent === PROJECT_DIR) return out;
+    for (const e of readdirSync(parent, { withFileTypes: true })) {
+      if (out.length >= 300) break;
+      if (!e.isDirectory()) continue;
+      const n = normalizeName(e.name);
+      if (n === PROJECT_LOWER || !/^[a-z0-9][a-z0-9-]*$/.test(n)) continue;
+      out.push(n);
+    }
+  } catch {}
+  return out;
+}
+
+function collectRegistryProjects() {
+  const reg = readUnifiedRegistry();
+  if (!reg.exists || reg.error) return [];
+  const out = [];
+  for (const j of reg.jobs) {
+    if (j.kind === "ping" && j.project) out.push(j.project);
+    if (j.kind === "snapshot") for (const t of j.targets || []) if (t.name) out.push(t.name);
+  }
+  return out;
+}
+
+function readSharedWorkerNames() {
+  const names = new Set(["hypervibe-jobs", "db-backup", "db-backup-worker", "quota-monitor"]);
+  for (const dir of [".hypervibe-jobs", ".db-backup-worker"]) {
+    try {
+      const toml = readFileSync(join(homedir(), dir, "wrangler.toml"), "utf8");
+      const m = toml.match(/^\s*name\s*=\s*"([^"]+)"/m);
+      if (m) names.add(m[1].toLowerCase());
+    } catch {}
+  }
+  return names;
+}
+
+const ownerCandidates = [...new Set(
+  [...collectRegistryProjects(), ...collectSiblingDirs(), ...(neon.allNames || []), ...(vercel.names || [])]
+    .map(normalizeName)
+    .filter((n) => n && n !== PROJECT_LOWER),
+)];
+
+function partitionOwned(items, stringsOf) {
+  const kept = [];
+  const excluded = [];
+  for (const it of items || []) {
+    const matched = stringsOf(it).filter((s) => s && tokenMatches(PROJECT_LOWER, s));
+    // Keep when at least one matching string is NOT claimed by a more
+    // specific project (a resource genuinely derived from this project).
+    const unclaimed = matched.length === 0 || matched.some((s) => !moreSpecificOwner(PROJECT_LOWER, s, ownerCandidates));
+    if (unclaimed) {
+      kept.push(it);
+    } else {
+      excluded.push({ ...it, excludedReason: `belongs to project "${moreSpecificOwner(PROJECT_LOWER, matched[0], ownerCandidates)}"` });
+    }
+  }
+  return { kept, excluded };
+}
+
+function applyOwnership(section, listKey, stringsOf, foundKey = "found") {
+  if (!section || !Array.isArray(section[listKey])) return;
+  const { kept, excluded } = partitionOwned(section[listKey], stringsOf);
+  section[listKey] = kept;
+  if (excluded.length) section.excluded = [...(section.excluded || []), ...excluded];
+  section[foundKey] = kept.length > 0;
+}
+
+// Shared background workers are NEVER part of a project inventory, even when
+// the project name overlaps ("hypervibe" vs "hypervibe-jobs").
+if (workers && Array.isArray(workers.workers)) {
+  const shared = readSharedWorkerNames();
+  const kept = [];
+  for (const w of workers.workers) {
+    if (shared.has((w.id || "").toLowerCase())) {
+      workers.excluded = [...(workers.excluded || []), { ...w, excludedReason: "shared Hypervibe infrastructure (never deleted here)" }];
+    } else {
+      kept.push(w);
+    }
+  }
+  workers.workers = kept;
+  workers.found = kept.length > 0;
+}
+
+applyOwnership(neon, "projects", (p) => [p.name]);
+applyOwnership(workers, "workers", (w) => [w.id]);
+applyOwnership(r2, "buckets", (b) => [b.name]);
+applyOwnership(dns, "records", (r) => [r.name, r.content]);
+applyOwnership(emailRouting, "rules", (r) => [r.name, JSON.stringify(r.matchers || []), JSON.stringify(r.actions || [])]);
+applyOwnership(render, "services", (s) => [s.name]);
+applyOwnership(stripe, "webhooks", (w) => [w.url], "webhooksFound");
+applyOwnership(stripe, "products", (p) => [p.name], "productsFound");
+applyOwnership(upstash, "databases", (d) => [d.name]);
+
+// Memory: a file whose name matches a MORE specific project is not ours.
+if (memory && Array.isArray(memory.files)) {
+  for (const f of memory.files) {
+    const owner = f.isProjectSpecific ? moreSpecificOwner(PROJECT_LOWER, f.filename, ownerCandidates) : null;
+    if (owner) {
+      f.isProjectSpecific = false;
+      f.note = `filename matches project "${owner}" better - left for review`;
+    }
+  }
+}
+
 const elapsedMs = Date.now() - startedAt;
 
 const report = {
@@ -548,12 +723,16 @@ const report = {
   scannedAt: new Date().toISOString(),
   scanDurationMs: elapsedMs,
   cloudflareAccountId: CF_ACCOUNT_ID,
+  // Sibling project names used for disambiguation; execute-deletions reuses
+  // them when trimming MEMORY.md index lines.
+  ownerCandidates,
   vercel,
   neon,
   workers,
   r2,
   dns,
   dbBackup,
+  cronJobs,
   render,
   stripe,
   upstash,

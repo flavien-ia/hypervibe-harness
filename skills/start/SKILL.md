@@ -310,10 +310,9 @@ for d in "$HOME/.db-backup-worker" "$HOME/.quota-monitor-worker" "$HOME/.cron-di
 done
 ```
 
-If there is at least one `LEGACY:` line, do NOT migrate here (this is `/start`, not the migration flow). Instead tell the user once, in plain words:
-> I notice you still have the older background mechanisms from a previous Hypervibe version, running in parallel with the new shared clock. Run `/migrate-workers` when you have a minute: it consolidates them safely (I verify everything before removing anything) and frees your Cloudflare slots.
+If there is at least one `LEGACY:` line, tell the user in plain words that you noticed the older background mechanisms from a previous Hypervibe version (running in parallel with the new shared clock), and that you will consolidate them now, safely. Then **invoke the internal `_migrate-workers` helper skill**: it handles the whole consolidation (carry the old configuration over, verify with a real test run, and remove the old mechanisms only after the user consents). When it returns, fold its result into the onboarding summary.
 
-Then continue. If there is no `LEGACY:` line, say nothing.
+If there is no `LEGACY:` line, say nothing and continue. This is the case for every fresh install, so the check is invisible to new users.
 
 Then register the **quota watch job** (daily check via the CF GraphQL API, email via Brevo on overage; initially Cloudflare R2 storage, threshold 9 GB out of the 10 GB free tier, configurable via `--r2-threshold-gb`):
 
