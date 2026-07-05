@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.5.1 (5 juillet 2026)
+
+### Nouveautés
+- **Commande `/migrate-workers`** : si vous venez d'une version antérieure à la 2.5, tapez `/migrate-workers` après la mise à jour et Claude regroupe automatiquement vos anciens mécanismes de fond (sauvegardes, alertes de quota, tâches planifiées) dans la nouvelle horloge partagée unifiée. Il vérifie que tout fonctionne par un vrai test avant de retirer quoi que ce soit, et ne supprime rien sans votre accord. Sans effet si vous n'avez rien à migrer.
+
+### Améliorations
+- **/start** vous signale désormais s'il détecte d'anciens mécanismes de fond encore en place, et vous invite à lancer `/migrate-workers`.
+
 ## v2.5.0 (5 juillet 2026)
 
 ### Nouveautés

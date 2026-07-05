@@ -302,6 +302,19 @@ node "$PLUGIN_DIR/scripts/shared-worker/ensure.mjs"
 
 JSON output: `{ ok, status: "created" | "already_present", ... }`. If `ok: false` → report it briefly, do not block (the worker can be provisioned later via `/quotas` or `/add-backup-db`).
 
+**Legacy safety net (users coming from a version older than 2.5)**: right after provisioning, check whether the old standalone mechanisms still exist on the machine:
+
+```bash
+for d in "$HOME/.db-backup-worker" "$HOME/.quota-monitor-worker" "$HOME/.cron-dispatcher"; do
+  [ -f "$d/wrangler.toml" ] && echo "LEGACY: $d"
+done
+```
+
+If there is at least one `LEGACY:` line, do NOT migrate here (this is `/start`, not the migration flow). Instead tell the user once, in plain words:
+> I notice you still have the older background mechanisms from a previous Hypervibe version, running in parallel with the new shared clock. Run `/migrate-workers` when you have a minute: it consolidates them safely (I verify everything before removing anything) and frees your Cloudflare slots.
+
+Then continue. If there is no `LEGACY:` line, say nothing.
+
 Then register the **quota watch job** (daily check via the CF GraphQL API, email via Brevo on overage; initially Cloudflare R2 storage, threshold 9 GB out of the 10 GB free tier, configurable via `--r2-threshold-gb`):
 
 1. `node "$PLUGIN_DIR/scripts/shared-worker/register.mjs" --list` → if the `jobs` array already contains a job named `quota-monitor`, skip (silent).

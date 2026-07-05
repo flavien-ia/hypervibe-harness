@@ -15,7 +15,7 @@ Il vous faut d'abord [Claude Code](https://claude.com/claude-code). Il est inclu
 /plugin install hypervibe@hypervibe-harness
 ```
 
-Vous mettez à jour depuis une ancienne version ? Donnez [MIGRATION.md](MIGRATION.md) à Claude Code (« lis MIGRATION.md et fais la migration ») : il regroupe vos anciens mécanismes de tâches de fond dans le nouveau mécanisme unifié, en toute sécurité et avec votre accord à chaque étape.
+Vous mettez à jour depuis une version antérieure à la 2.5 ? Après avoir mis à jour le plugin, tapez simplement `/migrate-workers` dans Claude Code : il regroupe vos anciens mécanismes de tâches de fond dans le nouveau mécanisme unifié, en toute sécurité et avec votre accord à chaque étape (sans effet si vous n’avez rien à migrer). Plus de contexte dans [MIGRATION.md](MIGRATION.md).
 
 Puis tapez `/start` : il installe tout le reste pour vous (Node.js, pnpm, Git, et les outils de chaque service) et vérifie que vos connexions fonctionnent.
 
