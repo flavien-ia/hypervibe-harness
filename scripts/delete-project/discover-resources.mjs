@@ -196,23 +196,58 @@ async function scanDns() {
   }
 }
 
-// ─── 6. db-backup worker (BACKUP_TARGETS) ─────────────────────────────────
-async function scanDbBackup() {
+// ─── 6. Scheduled Neon backups (unified hypervibe-jobs registry, with legacy
+//        db-backup worker fallback) ─────────────────────────────────────────
+// Unified: ~/.hypervibe-jobs/jobs.js holds a "neon-backups" job with a
+// targets[] array. Legacy: ~/.db-backup-worker/wrangler.toml holds a
+// BACKUP_TARGETS JSON env var. Both are reported with the same resource shape
+// ({ isTarget, entry?, totalTargets?, error? }) plus a `source` field so
+// downstream steps know which infrastructure holds the registration.
+function readUnifiedBackupTargets() {
+  const jobsPath = join(homedir(), ".hypervibe-jobs", "jobs.js");
+  if (!existsSync(jobsPath)) return { exists: false };
+  try {
+    const raw = readFileSync(jobsPath, "utf8");
+    const m = raw.match(/export default\s*([\s\S]*?);?\s*$/);
+    if (!m) return { exists: true, error: "jobs.js not parseable" };
+    const registry = JSON.parse(m[1]);
+    const job = (registry.jobs || []).find((j) => j.name === "neon-backups");
+    return { exists: true, targets: job && Array.isArray(job.targets) ? job.targets : [] };
+  } catch (e) {
+    return { exists: true, error: String(e) };
+  }
+}
+
+function scanDbBackupLegacy() {
   const wranglerToml = join(homedir(), ".db-backup-worker", "wrangler.toml");
-  if (!existsSync(wranglerToml)) return { isTarget: false, error: "wrangler.toml not found" };
+  if (!existsSync(wranglerToml)) return { isTarget: false, error: "wrangler.toml not found", source: "db-backup-worker" };
   try {
     const content = readFileSync(wranglerToml, "utf8");
     // Extract BACKUP_TARGETS JSON and find this project
     const targetsMatch = content.match(/BACKUP_TARGETS\s*=\s*'(\[[^']+\])'/);
-    if (!targetsMatch) return { isTarget: false, error: "BACKUP_TARGETS not parseable" };
+    if (!targetsMatch) return { isTarget: false, error: "BACKUP_TARGETS not parseable", source: "db-backup-worker" };
     const targets = JSON.parse(targetsMatch[1]);
     const entry = targets.find((t) => t.name.toLowerCase() === PROJECT_LOWER);
     return entry
-      ? { isTarget: true, entry, totalTargets: targets.length }
-      : { isTarget: false, totalTargets: targets.length };
+      ? { isTarget: true, entry, totalTargets: targets.length, source: "db-backup-worker" }
+      : { isTarget: false, totalTargets: targets.length, source: "db-backup-worker" };
   } catch (e) {
-    return { isTarget: false, error: String(e) };
+    return { isTarget: false, error: String(e), source: "db-backup-worker" };
   }
+}
+
+async function scanDbBackup() {
+  const unified = readUnifiedBackupTargets();
+  if (unified.exists && !unified.error) {
+    const entry = unified.targets.find((t) => (t.name || "").toLowerCase() === PROJECT_LOWER);
+    if (entry) return { isTarget: true, entry, totalTargets: unified.targets.length, source: "hypervibe-jobs" };
+    // Not in the unified registry: still check the legacy worker (setups not
+    // yet migrated may hold the registration there).
+    const legacy = scanDbBackupLegacy();
+    if (legacy.isTarget) return legacy;
+    return { isTarget: false, totalTargets: unified.targets.length, source: "hypervibe-jobs" };
+  }
+  return scanDbBackupLegacy();
 }
 
 // ─── 7. Render services ────────────────────────────────────────────────────

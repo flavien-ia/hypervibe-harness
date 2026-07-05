@@ -1,6 +1,6 @@
 ---
 name: add-cron
-description: Add a scheduled task (CRON) to an existing Next.js project. Creates a protected /api/cron/<task-name> route and picks the right clock - Cloudflare Worker (precise timing, 5 free slots) or GitHub Action (best-effort timing, unlimited) - based on what the cron does. When CF slots are exhausted, falls back transparently to a shared Cloudflare dispatcher (one slot for unlimited tasks). Can be called by /bootstrap, by /add-automation, or standalone.
+description: Add a scheduled task (CRON) to an existing Next.js project. Creates a protected /api/cron/<task-name> route and registers the schedule on the right clock - by default the unified shared Hypervibe worker (hypervibe-jobs, precise to the minute, zero extra Cloudflare slot), a dedicated Cloudflare Worker only when the task needs isolated resources, or a GitHub Action as the no-Cloudflare fallback. Can be called by /bootstrap, by /add-automation, or standalone.
 argument-hint: "[description of what the cron should do]"
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
@@ -23,14 +23,14 @@ This line loads `CLOUDFLARE_API_TOKEN` from User scope (Windows registry / shell
 - When generating user-facing content for the scaffolded project (UI labels, emails, copy), write it in the user's language too.
 - Show progress as a short natural-language checklist (in-progress and done states).
 
-You add a scheduled task to the current Next.js project. You **decide yourself** which clock is best, based on the nature of the task and the available room. You ask the user NOTHING about this choice - you act, then you explain in 1 sentence what you did in the final summary.
+You add a scheduled task to the current Next.js project. You **decide yourself** which clock is best, based on the nature of the task. You ask the user NOTHING about this choice - you act, then you explain in 1 sentence what you did in the final summary.
 
 ## Non-tech audience: language rules
 
 The users of this plugin may be non-technical. In EVERYTHING you show to the user:
 
-- **Zero gratuitous jargon**. No "Worker", "Action", "workflow", "endpoint", "slot", "trigger", "cron expression", "bearer token", "repo", "yaml", "dispatcher" without explanation. When a technical term is unavoidable, put it in parentheses or explain it in a short clause.
-- **Speak in business terms, not infrastructure**. Say *"a scheduled task"* rather than *"a cron"*, *"the Cloudflare clock"* / *"the GitHub clock"* / *"the shared clock"* rather than *"CF Worker"* / *"GitHub Action"* / *"dispatcher"*, *"your site"* rather than *"your Next.js endpoint"*, *"your keys"* rather than *"your env vars"*.
+- **Zero gratuitous jargon**. No "Worker", "Action", "workflow", "endpoint", "slot", "trigger", "cron expression", "bearer token", "repo", "yaml" without explanation. When a technical term is unavoidable, put it in parentheses or explain it in a short clause.
+- **Speak in business terms, not infrastructure**. Say *"a scheduled task"* rather than *"a cron"*, *"your shared clock"* / *"a dedicated clock"* / *"the GitHub clock"* rather than *"the hypervibe-jobs worker"* / *"CF Worker"* / *"GitHub Action"*, *"your site"* rather than *"your Next.js endpoint"*, *"your keys"* rather than *"your env vars"*.
 - **NEVER suggest commands to type**. The user does not open a terminal. When an action is possible (delete, test, view the logs, change the schedule), offer it in natural language - *"tell me 'delete task X' and I'll take care of it"*, *"do you want me to run it right now to test it?"*. Claude executes, the user does not type.
 - **Avoid tech anglicisms** (*"skipped"*, *"overkill"*, *"fallback"*, *"deploy"*) in user-facing blocks. Internal use only.
 
@@ -46,51 +46,37 @@ The business logic always lives in Next.js (`/api/cron/<task-name>/route.ts`), p
 
 ## The 3 options
 
-### 1. Dedicated Cloudflare Worker (precise, 1 slot)
-A Cloudflare Worker created specifically for this task. Precise to the second, isolated, individually observable. Consumes 1 of the 5 free slots on the Cloudflare account.
+### 1. Unified shared worker - the DEFAULT (precise, zero extra slot)
+The account-wide `hypervibe-jobs` worker, shared across ALL the user's projects and roles (scheduled pings, database backups, quota watch). Lives in a **git-versioned local repo** (`~/.hypervibe-jobs/`), ticks every minute, and consumes ONE Cloudflare cron slot in total no matter how many tasks and projects use it. Precision: to the minute. This is where virtually every scheduled task belongs.
 
-### 2. Shared Cloudflare dispatcher (precise, 0 extra slot)
-A single Worker shared across all of the user's projects. Runs every minute and triggers the tasks whose schedule matches. **Lives in `~/.cron-dispatcher/`**, outside any repo. Precision: to the minute. Cost: 1 slot total for N tasks across N projects. Ideal when the 5 Cloudflare slots are already saturated.
+### 2. Dedicated Cloudflare Worker (only for isolated resources)
+A Cloudflare Worker created specifically for this task. Only justified when the task itself needs an isolated Cloudflare binding (its own R2 / KV / D1 / Durable Object) or a secret that must NOT coexist with other projects' secrets. Consumes 1 of the 5 free cron slots on the account.
 
-### 3. GitHub Action (best-effort, unlimited)
-A YAML workflow in the project's GitHub repo. Free and unlimited. **Delays of 30-60 min are possible** during peak load. Ideal for reports/digests/cleanups where exact timing has no impact.
+### 3. GitHub Action (fallback without Cloudflare)
+A YAML workflow in the project's GitHub repo. Used ONLY when Cloudflare is not configured on the machine and the user does not want to configure it. Free and unlimited, but **delays of 30-60 min are possible** during peak load.
 
 ---
 
 ## Preflight - vault unlocked
 
-If this skill uses a Cloudflare Worker, it reads the Cloudflare token from the vault → first, make sure it is unlocked (follow **`_ensure-vault`**): `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status` → if `locked`/`expired`, run `launch.mjs unlock`; if the vault does not exist, delegate to `_add-keyring`. (Not needed if the cron goes to a GitHub Action, which does not use Cloudflare.)
+This skill reads the Cloudflare token from the vault → first, make sure it is unlocked (follow **`_ensure-vault`**): `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status` → if `locked`/`expired`, run `launch.mjs unlock`; if the vault does not exist, delegate to `_add-keyring`. (Not needed if you already know Cloudflare is unavailable and the cron will go to a GitHub Action.)
 
 ---
 
-## Step 0 - Preflight (Cloudflare inventory + sanity check)
+## Step 0 - Preflight: the shared worker
 
-### 0.a - Cloudflare slot inventory (mandatory)
-
-**⚠️ NEVER INFER the state of the Cloudflare slots from memory.** The user's CF account typically hosts workers from several projects - your memory of the current project gives you only a partial view. The ONLY source of truth is the script below.
-
-Run it right away, BEFORE any discovery, BEFORE any verbal estimate of the number of free slots:
+Make sure the unified shared worker is provisioned (idempotent, fast when already there):
 
 ```bash
 eval "$(node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs")"
-node "${CLAUDE_SKILL_DIR}/../../scripts/count-cf-cron-slots.mjs"
+result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/ensure.mjs")
 ```
 
-Parse the JSON and remember it - these variables will be reused in Step 4 (clock inference):
-- `CF_USED` - number of active cron triggers on the account (sum of schedules per worker)
-- `CF_FREE` - free slots in the free tier (5 − `CF_USED`)
-- `PER_WORKER` - breakdown per worker (useful if the user asks who occupies what)
-- `ACCOUNT_ID` - for the following wrangler commands
+Parse the JSON:
+- `ok=true` → store `CF_OK=true`, plus `WORKER_DIR`, `WORKER_URL`, and the current `jobs` count. `status` is `created` (first time - one sentence to the user: *"I set up your shared clock, a single mechanism that will serve all your projects"*) or `already_present` (silent).
+- `ok=false` → Cloudflare is not usable on this machine (wrangler missing, token missing/locked). Store `CF_OK=false`. Do NOT abort: the GitHub clock can still take the task (Step 4 will force it). Mention `/start` as the way to enable Cloudflare later.
 
-**If the script returns `{"error":"..."}`**: Cloudflare is not configured. Suggest `/start` to configure Cloudflare, then abort. If the user still wants a cron without Cloudflare, the Step 4 decision will automatically force `CHOICE=gh`.
-
-**As soon as you communicate about slots to the user (in the final summary or a warning message), ALWAYS reference the real numbers from the script.** Examples:
-- ✅ *"You have 4 cron triggers used out of 5 (Cloudflare free tier). You have 1 slot left."*
-- 🔴 *"You have a few free slots I think"* ← FORBIDDEN.
-
-⚠️ **Note on Email Workers**: a worker that has no cron trigger (for example an Email Worker triggered by Cloudflare Email Routing) appears in `PER_WORKER` with `schedules: 0` and consumes **NO** cron slot. This is normal. Do not count it as an occupied slot.
-
-### 0.b - Sanity check (is the need really a cron?)
+### Step 0.b - Sanity check (is the need really a cron?)
 
 Briefly verify that the user's need is really a cron:
 
@@ -153,69 +139,28 @@ Store it in `TASK_NAME` (kebab-case ASCII).
 
 ---
 
-## Step 4 - Infer the optimal clock (silently)
+## Step 4 - Infer the clock (silently)
 
-**You ask the user nothing.** You decide according to these rules:
+**You ask the user nothing.** The logic is now simple:
 
-### 4.a - Detect "special bindings"
+### 4.a - Detect "isolated resources"
 
-If the description explicitly mentions a need for an isolated Cloudflare R2 / KV / D1 / Durable Object, or if the task must access a secret that must NOT be shared between projects, then it **cannot** go into the shared dispatcher. Store `NEEDS_DEDICATED_CF=true`. Otherwise `false`.
+If the description explicitly mentions a need for an isolated Cloudflare R2 / KV / D1 / Durable Object, or a secret that must NOT be shared with other projects on the same account, store `NEEDS_DEDICATED_CF=true`. Otherwise `false`. (This is rare: a plain "ping my site on a schedule" task NEVER needs this.)
 
-### 4.b - Infer the nature of the task
+### 4.b - Decision
 
-Analyze `TASK_DESCRIPTION` + `CRON_EXPR`:
+| Case | `CF_OK` | `NEEDS_DEDICATED_CF` | → `CHOICE` |
+|---|---|---|---|
+| 1 | true | false | `shared` (the default for virtually everything) |
+| 2 | true | true | `cf-dedicated` - but first check a free slot exists: run `node "${CLAUDE_SKILL_DIR}/../../scripts/count-cf-cron-slots.mjs"`; if `cfFree` = 0, fall back to `shared` and note in the summary that the isolated spot was not possible |
+| 3 | false | * | `gh` (no Cloudflare on this machine) |
 
-**"Timing critical" signals → prefer Cloudflare**:
-- Frequency > 1×/h (`*/N * * * *`, `0 * * * *`)
-- Keywords: "exactly midnight", "at the exact time", "reset", "real-time", "user notification", "refresh cache", "limit reset", "start/end of day", "sync in real time"
-- Direct user impact if it drifts
+Also build `REASON` (1 non-tech sentence) for the final summary:
+- `shared`: *"I put it on your shared clock: precise to the minute, it serves all your projects at zero extra cost"*
+- `cf-dedicated`: *"I gave it its own dedicated clock because this task needs its own isolated storage"*
+- `gh`: *"Cloudflare is not set up on this machine, so I used the GitHub clock - free and unlimited, but it can run 30-60 minutes late. If that ever matters, run /start to enable Cloudflare and tell me to move the task."*
 
-**"Best-effort" signals → prefer GitHub**:
-- Frequency ≤ 1/day (weekly, monthly, non-critical daily)
-- Keywords: "report", "digest", "newsletter", "backup", "cleanup", "summary", "archive"
-- No visible consequence if delayed by 30 min
-
-If signals are mixed: **frequency wins**. If genuinely in doubt: default to GitHub.
-
-Store `PREFER=cf` or `PREFER=gh`.
-
-### 4.c - Available Cloudflare slots
-
-Reuse the variables already computed in **Step 0.a**: `ACCOUNT_ID`, `CF_USED`, `CF_FREE`, `PER_WORKER`. No need to re-run the script - we already have this info from the very start of the flow.
-
-If Step 0.a returned an error (Cloudflare not configured), we already aborted at that point - so we never reach here in that case.
-
-### 4.d - Check whether the shared dispatcher already exists
-
-```bash
-test -f "$HOME/.cron-dispatcher/wrangler.toml" && echo "exists" || echo "new"
-```
-
-Store `DISPATCHER_EXISTS=true|false`.
-
-### 4.e - Final decision
-
-Apply this decision table (silently, without asking the user):
-
-| Case | `PREFER` | `NEEDS_DEDICATED_CF` | `CF_FREE` | `DISPATCHER_EXISTS` | → Decision (`CHOICE`) |
-|---|---|---|---|---|---|
-| 1 | `gh` | * | * | * | `gh` |
-| 2 | `cf` | true | ≥1 | * | `cf-dedicated` |
-| 3 | `cf` | true | 0 | * | `gh` (with an explicit warning in the summary) |
-| 4 | `cf` | false | ≥1 | false | `cf-dedicated` (prefer a dedicated slot when there is room) |
-| 5 | `cf` | false | ≥2 | true | `cf-dispatcher` (the dispatcher already exists, may as well use it: zero extra slot + consistency with the other tasks) |
-| 6 | `cf` | false | 1 | * | `cf-dispatcher` (keep the last slot for a truly dedicated case) |
-| 7 | `cf` | false | 0 | * | `cf-dispatcher` |
-
-**Note on Case 5**: if the dispatcher exists AND the user has many free slots, we still favor the dispatcher to share resources. This reduces fragmentation.
-
-Store `CHOICE` ∈ {`cf-dedicated`, `cf-dispatcher`, `gh`}.
-
-Also build `REASON` (1 non-tech sentence), to use in the final summary:
-- `cf-dedicated`: *"I put it on the precise Cloudflare clock (triggers to the second) because <frequency/criticality>"*
-- `cf-dispatcher`: *"I put it on your shared Cloudflare clock (precise to the minute, shared across all your projects) because <reason>"*
-- `gh` (Case 1): *"I put it on the GitHub clock because it is <best-effort type>, exact timing has no impact here"*
-- `gh` (forced Case 3): *"I would have preferred the precise Cloudflare clock because <reason>, but your 5 Cloudflare spots are taken AND this task needs an isolated spot. I put it on the GitHub clock. Downside: a possible delay of 30-60 min - concretely <consequence>"*
+If `CHOICE=gh` AND the task smells timing-critical (frequency > 1x/hour, "exactly at midnight", "reset", user-visible consequence when late), be honest in the final summary about the concrete impact of a possible delay.
 
 ---
 
@@ -239,18 +184,26 @@ Read the value from `.env` for the following steps.
 
 ## Step 6 - Implement according to `CHOICE`
 
-### If `CHOICE=cf-dedicated` → dedicated Cloudflare Worker
-
-#### Preflight: valid Cloudflare token?
+### If `CHOICE=shared` → unified shared worker (one command does everything)
 
 ```bash
-result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/check-deps.mjs" cloudflare)
-cf_ok=$(echo "$result" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).cloudflare.ok)")
+WEB_DIR_FLAG=""
+[ "$IS_MONOREPO" = "yes" ] && WEB_DIR_FLAG="--web-dir apps/web"
+[ "$IS_MONOREPO" = "no" ] && WEB_DIR_FLAG="--web-dir ."
+
+result=$(CRON_SECRET_VALUE="<CRON_SECRET>" node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" \
+  --kind ping \
+  --task-name "<TASK_NAME>" \
+  --cron "<CRON_EXPR>" \
+  --app-url "<NEXT_PUBLIC_APP_URL>" \
+  --project-name "<PROJECT_NAME>" \
+  $WEB_DIR_FLAG \
+  --put-secrets)
 ```
 
-If `cf_ok = false` → silently switch to `CHOICE=gh` and adapt `REASON` ("Cloudflare is not configured on your machine, I'm switching to the GitHub clock instead - re-run `/start` if you want to enable Cloudflare later"). Continue further down in the `gh` branch.
+This single call: creates the protected Next.js route (if absent), registers the task in the versioned registry, commits the change, uploads the project's secret to the shared worker (first time only), and redeploys. Parse the JSON: `ok`, `action` (added/replaced), `routeCreated`, `missingSecrets` (should be empty; if not, follow its `nextSteps`).
 
-#### Install Wrangler + scaffold
+### If `CHOICE=cf-dedicated` → dedicated Cloudflare Worker
 
 Invoke `_setup-wrangler`. Then:
 
@@ -270,70 +223,6 @@ cd cron-workers/<TASK_NAME>
 echo "<CRON_SECRET>" | wrangler secret put CRON_SECRET
 wrangler deploy
 cd ../..
-```
-
-### If `CHOICE=cf-dispatcher` → shared Cloudflare dispatcher
-
-#### Cloudflare preflight
-
-Identical to the dedicated case. If Cloudflare is not available → silently switch to `gh`.
-
-#### Init the dispatcher if absent
-
-Invoke `_setup-wrangler` then:
-
-```bash
-# Get the account ID if it is not already in ACCOUNT_ID
-[ -z "$ACCOUNT_ID" ] && ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-  "https://api.cloudflare.com/client/v4/accounts" \
-  | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.[0]?.id || '');")
-
-# Init if not already there
-node "${CLAUDE_SKILL_DIR}/../../scripts/setup-cron-dispatcher.mjs" \
-  --init --cf-account-id "$ACCOUNT_ID"
-```
-
-If the init returns `action=created`, deploy the dispatcher for the first time:
-```bash
-cd "$HOME/.cron-dispatcher" && wrangler deploy && cd -
-```
-
-#### Add the task
-
-```bash
-WEB_DIR_FLAG=""
-[ "$IS_MONOREPO" = "yes" ] && WEB_DIR_FLAG="--web-dir apps/web"
-
-result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/setup-cron-dispatcher.mjs" \
-  --add-task \
-  --task-name "<TASK_NAME>" \
-  --cron-expr "<CRON_EXPR>" \
-  --app-url "<NEXT_PUBLIC_APP_URL>" \
-  --project-name "<PROJECT_NAME>" \
-  $WEB_DIR_FLAG)
-
-SECRET_NAME=$(echo "$result" | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).secretName)")
-```
-
-#### Push the project secret (if not already there)
-
-```bash
-# List the dispatcher's current secrets
-EXISTING=$(cd "$HOME/.cron-dispatcher" && wrangler secret list 2>/dev/null \
-  | node -e "const d = JSON.parse(require('fs').readFileSync(0,'utf8') || '[]'); console.log(d.map(s => s.name).join(' '))" \
-  || echo "")
-
-# If this project's secret does not exist yet, upload it
-if ! echo " $EXISTING " | grep -q " $SECRET_NAME "; then
-  cd "$HOME/.cron-dispatcher" && printf '%s' "<CRON_SECRET>" | wrangler secret put "$SECRET_NAME"
-  cd -
-fi
-```
-
-#### Redeploy the dispatcher
-
-```bash
-cd "$HOME/.cron-dispatcher" && wrangler deploy && cd -
 ```
 
 ### If `CHOICE=gh` → GitHub Action
@@ -437,14 +326,14 @@ Invoke `_update-claude-md` with:
 - `custom` heading: `## Cron`
 - Body (adapt to the type):
 
+For a **shared worker** cron:
+```
+- **<TASK_NAME>** (shared hypervibe-jobs worker) - `<CRON_EXPR>` (<CRON_HUMAN>) → registered in `~/.hypervibe-jobs/jobs.js` (git-versioned) → calls `/api/cron/<TASK_NAME>`
+```
+
 For a **dedicated CF Worker** cron:
 ```
 - **<TASK_NAME>** (dedicated Cloudflare Worker) - `<CRON_EXPR>` (<CRON_HUMAN>) → `cron-workers/<TASK_NAME>/` → calls `/api/cron/<TASK_NAME>`
-```
-
-For a **shared CF dispatcher** cron:
-```
-- **<TASK_NAME>** (shared Cloudflare dispatcher) - `<CRON_EXPR>` (<CRON_HUMAN>) → `~/.cron-dispatcher/` (worker shared across projects) → calls `/api/cron/<TASK_NAME>` with secret `<SECRET_NAME>`
 ```
 
 For a **GitHub Action** cron:
@@ -455,9 +344,9 @@ For a **GitHub Action** cron:
 Add as the section intro (created only once):
 ```
 Scheduled tasks. A clock pings the `/api/cron/<name>` endpoint on the Next.js side, protected by `CRON_SECRET`. The business logic lives in Next.js. 3 possible clocks:
-- **Dedicated Cloudflare Worker**: timing to the second, 1 CF slot per task (5 free max)
-- **Shared Cloudflare dispatcher** (`~/.cron-dispatcher/`): timing to the minute, 1 CF slot total for N tasks across N projects
-- **GitHub Action**: best-effort (±30 min), unlimited, automatic monthly keepalive to avoid deactivation after 60 days
+- **Shared hypervibe-jobs worker** (default): one account-wide Cloudflare worker for all projects (pings, backups, quota watch), registry git-versioned in `~/.hypervibe-jobs/`, timing to the minute, 1 CF slot total
+- **Dedicated Cloudflare Worker**: only when the task needs isolated resources (own R2/KV/D1), 1 CF slot per task
+- **GitHub Action**: fallback without Cloudflare, best-effort (±30-60 min), automatic monthly keepalive
 ```
 
 And `env-vars`:
@@ -469,10 +358,12 @@ And `env-vars`:
 
 Choose the right block according to `CHOICE`, incorporating `REASON` in non-tech language.
 
-### If `cf-dedicated`
+### If `shared`
 > ## ✅ Your task **<TASK_NAME>** is in place
 >
 > It will trigger **<CRON_HUMAN>**. <REASON>
+>
+> <If the shared clock was created on this occasion: *"I set up your shared clock for the first time: a single mechanism, versioned and kept safe on your computer, that will serve all your current and future projects at no extra cost."*>
 >
 > For now it does nothing concrete - I prepared the file where you will write what it should do (*<TASK_DESCRIPTION>*). Tell me what it should run and I'll code the logic for you.
 >
@@ -482,43 +373,37 @@ Choose the right block according to `CHOICE`, incorporating `REASON` in non-tech
 > - *"change the schedule to X"*
 > - *"delete this task"*
 
-### If `cf-dispatcher`
+### If `cf-dedicated`
 > ## ✅ Your task **<TASK_NAME>** is in place
 >
 > It will trigger **<CRON_HUMAN>**. <REASON>
->
-> I used your **shared Cloudflare clock**: a single mechanism shared across all your projects, which uses a single Cloudflare spot no matter how many tasks there are. <If first call: *"I created it for you on this occasion - it lives outside your project, in a dedicated folder on your computer, and will outlive all your future projects."*>
 >
 > For now it does nothing concrete - I prepared the file where you will write what it should do (*<TASK_DESCRIPTION>*). Tell me what it should run and I'll code the logic for you.
 >
 > You can also ask me at any time: *"run the task right now to test it"*, *"show me the latest triggers"*, *"change the schedule to X"*, *"delete this task"*.
 
-### If `gh` (standard case, REASON = best-effort)
+### If `gh`
 > ## ✅ Your task **<TASK_NAME>** is in place
 >
 > It will trigger **<CRON_HUMAN>**. <REASON>
 >
-> A small reminder: GitHub can be 30 to 60 min late, but that's not a problem for this kind of task. I also added (if not already done) a tiny invisible task that runs once a month to prevent GitHub from disabling the clock if you don't touch the project for 60 days.
+> A small reminder: GitHub can be 30 to 60 min late<, concrete consequence for this task if relevant>. I also added (if not already done) a tiny invisible task that runs once a month to prevent GitHub from disabling the clock if you don't touch the project for 60 days.
+>
+> **If the delay ever becomes a problem**, run `/start` to enable Cloudflare on this machine, then tell me *"move this task to my shared clock"* and I'll migrate it.
 >
 > For now it does nothing concrete - I prepared the file where you will write what it should do (*<TASK_DESCRIPTION>*). Tell me what it should run and I'll code the logic for you.
->
-> You can also ask me: *"run the task right now to test it"*, *"show me the latest triggers"*, *"change the schedule to X"*, *"delete this task"*.
-
-### If `gh` (forced Case 3 or Cloudflare unavailable)
-> ## ⚠️ Your task **<TASK_NAME>** is in place - with a caveat
->
-> It will trigger **<CRON_HUMAN>** on the GitHub clock. <REASON explaining why not Cloudflare>
->
-> **Good to know**: GitHub can be 30-60 min late. <Concrete consequence depending on the nature of the task, e.g.: *"if it arrives 30 min later, some users will see their old quota during that half hour"*>.
->
-> **If this delay becomes a problem**, you can tell me:
-> - *"free up a Cloudflare spot"* - I'll list your current Cloudflare tasks, you choose which to delete, and we move this one onto it
-> - *"switch to the paid Cloudflare plan"* - $5/month for 250 spots instead of 5
 
 ---
 
-## Natural-language override
+## Natural-language management (after setup)
 
-If **after** the final summary the user says *"no, Cloudflare instead"* / *"GitHub instead"* / *"put it in the dispatcher"*, restart from Step 6 with the forced `CHOICE`. Not before - the automatic decision is the default.
-
-If the user asks to **delete an existing task**: list the current tasks (dedicated Workers via the Cloudflare API (`GET https://api.cloudflare.com/client/v4/accounts/<account-id>/workers/scripts`) filtered by the `<projectname>-cron-` prefix, dispatcher tasks by reading `~/.cron-dispatcher/wrangler.toml` TASKS, GitHub Actions via `.github/workflows/cron-*.yml`). Let them choose, delete, and resume the flow if needed.
+- **"run the task right now"** (shared clock): trigger it manually through the worker's control endpoint:
+  ```bash
+  ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN)
+  curl -s -X POST -H "Authorization: Bearer $ADMIN" "<WORKER_URL>/trigger?name=<TASK_NAME>"
+  ```
+  (For a GitHub clock: `gh workflow run cron-<TASK_NAME>.yml`. For a dedicated clock: `curl` the `/api/cron/<TASK_NAME>` route directly with the project's `CRON_SECRET`.)
+- **"show me my scheduled tasks"**: `node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --list` (+ `.github/workflows/cron-*.yml` + `cron-workers/*/` for the other clocks). Present them in plain language.
+- **"change the schedule"** (shared): re-run the register command from Step 6 with the new `--cron` (same task name = update in place).
+- **"delete this task"** (shared): `node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --remove --name <TASK_NAME>`. Also offer to delete the now-unused `/api/cron/<TASK_NAME>` route.
+- If **after** the final summary the user says *"no, GitHub instead"* / *"give it a dedicated clock"*, restart from Step 6 with the forced `CHOICE`. Not before - the automatic decision is the default.

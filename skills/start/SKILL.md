@@ -290,26 +290,33 @@ If the displayed email does not match the account on which the token was created
 
 - If INVALID → ask the user again (maybe they copied it wrong, or the permissions are incomplete - re-check the checklist above).
 
-#### R2 email alert - quota-monitor Worker (auto, at the end of /start)
+#### Shared clock + R2 email alert (auto, at the end of /start)
 
-Once **all the other dependencies are configured** (Wrangler authenticated, Brevo configured with at least one verified sender), run the idempotent script that deploys a shared Cloudflare Worker to monitor quotas and notify by email via Brevo:
+Once **all the other dependencies are configured** (Wrangler authenticated, Brevo configured with at least one verified sender), provision the **unified shared worker `hypervibe-jobs`**: ONE Cloudflare Worker for all the account-wide scheduled jobs (cron pings, database backups, quota alerts), consuming a single Cloudflare cron slot, with a git-versioned registry in `~/.hypervibe-jobs/`:
 
 ```bash
 PLUGIN_DIR="$HOME/.claude/plugins/marketplaces/local-desktop-app-uploads/hypervibe"
-node "$PLUGIN_DIR/scripts/ensure-quota-monitor-worker.mjs"
+eval "$(node "$PLUGIN_DIR/scripts/wrangler-env-init.mjs")"
+node "$PLUGIN_DIR/scripts/shared-worker/ensure.mjs"
 ```
 
-**Why a custom Worker rather than Cloudflare's native "Billing Alerts"**: Cloudflare's Billing Alerts are reserved for Pro+ plans, and the CF API is under-documented for free accounts (the first version used `billing_usage_alert` but it triggered false alerts because of an ambiguous threshold format). The Worker does exactly what we want: daily check via the CF GraphQL API, email via Brevo on overage. Shared across the account (only 1 Cloudflare slot consumed for all projects).
+JSON output: `{ ok, status: "created" | "already_present", ... }`. If `ok: false` → report it briefly, do not block (the worker can be provisioned later via `/quotas` or `/add-backup-db`).
 
-**What it monitors (initially)**:
-- Cloudflare R2 storage: threshold 9 GB out of the 10 GB free tier (configurable via `--threshold-gb=`)
+Then register the **quota watch job** (daily check via the CF GraphQL API, email via Brevo on overage; initially Cloudflare R2 storage, threshold 9 GB out of the 10 GB free tier, configurable via `--r2-threshold-gb`):
 
-JSON output of the script:
-- `created` → briefly mention: *"By the way, I deployed a Cloudflare Worker that monitors your R2 storage daily and will email you (via Brevo) if you approach the 10 GB of the free tier."*
-- `already_present` → say nothing (silent).
-- `needs_brevo_sender` → ask the user to verify a sender on https://app.brevo.com/senders (link returned in `howTo`), then re-run the script. Do not block if the user declines, just continue (the worker can be deployed later via `/quotas`).
-- `needs_prereq` → a prerequisite is missing (Wrangler, BREVO_API_KEY, CLOUDFLARE_API_TOKEN). Report it to the user, do not block.
-- `error` → ignore it, it is not critical.
+1. `node "$PLUGIN_DIR/scripts/shared-worker/register.mjs" --list` → if the `jobs` array already contains a job named `quota-monitor`, skip (silent).
+2. Otherwise discover the recipient and the sender:
+   - **Recipient** = the Cloudflare account email: `curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user` → take `result.email` (CFTOK read from the vault as above).
+   - **Sender** = the first verified Brevo sender: `BREVO_API_KEY=$(node "$PLUGIN_DIR/scripts/vault/vault.mjs" get BREVO api_key); curl -s https://api.brevo.com/v3/senders -H "api-key: $BREVO_API_KEY"` → take the first entry with `"active": true`. If there is none → ask the user to verify a sender on https://app.brevo.com/senders. Do not block if the user declines, just continue (the job can be registered later via `/quotas`).
+3. Register (also uploads the CLOUDFLARE_API_TOKEN + BREVO_API_KEY secrets, read from the vault): `node "$PLUGIN_DIR/scripts/shared-worker/register.mjs" --kind quota --recipient <email> --sender-email <sender> --put-secrets`
+
+**Why a custom job rather than Cloudflare's native "Billing Alerts"**: Cloudflare's Billing Alerts are reserved for Pro+ plans, and the CF API is under-documented for free accounts (the first version used `billing_usage_alert` but it triggered false alerts because of an ambiguous threshold format). The shared worker does exactly what we want, on a single Cloudflare cron slot for the whole account.
+
+What to say in the onboarding summary:
+- Worker `created` (and/or quota job just registered) → mention once: *"Your shared clock is in place: one mechanism for all your projects' scheduled tasks, database backups and quota alerts. It will email you if you approach the 10 GB of the R2 free tier."*
+- `already_present` and quota job already registered → say nothing (silent).
+- Missing verified sender → covered in point 2 above.
+- Any other error → report it briefly, it is not critical.
 
 ### Missing CLIs
 

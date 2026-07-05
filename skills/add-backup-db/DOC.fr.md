@@ -2,36 +2,37 @@
 
 Active les **sauvegardes automatiques** de votre base de données Neon. Une nouvelle sauvegarde toutes les 2 semaines, conservée intelligemment dans le temps.
 
-## Quand l'utiliser
+## Quand l’utiliser
 
-{{callout:info|Vous n'avez probablement pas besoin de lancer cette commande}}
-`/add-backup-db` est lancé **automatiquement** à la fin de `/add-db`, dans le flux normal. Vous n'avez rien à faire. Vous ne devriez avoir à utiliser `/add-backup-db` directement que si la sauvegarde a été ignorée pour une raison technique (Cloudflare ou Neon pas configuré au moment du `/add-db`).
+{{callout:info|Vous n’avez probablement pas besoin de lancer cette commande}}
+`/add-backup-db` est lancé **automatiquement** à la fin de `/add-db`, dans le flux normal. Vous n’avez rien à faire. Vous ne devriez avoir à utiliser `/add-backup-db` directement que si la sauvegarde a été ignorée pour une raison technique (Cloudflare ou Neon pas configuré au moment du `/add-db`).
 {{/callout}}
 
-- Vous avez ajouté une base de données via `/add-db` et vous voulez vous assurer d'avoir des sauvegardes (c'est en fait **activé automatiquement** par `/add-db`. Vous n'avez pas besoin de lancer `/add-backup-db` à la main dans la plupart des cas)
-- Vous voulez relancer l'activation des sauvegardes sur un projet où c'est cassé (clé Neon manquante, Cloudflare pas configuré au moment de `/add-db`, etc.)
+- Vous avez ajouté une base de données via `/add-db` et vous voulez vous assurer d’avoir des sauvegardes (c’est en fait **activé automatiquement** par `/add-db`. Vous n’avez pas besoin de lancer `/add-backup-db` à la main dans la plupart des cas)
+- Vous voulez relancer l’activation des sauvegardes sur un projet où c’est cassé (clé Neon manquante, Cloudflare pas configuré au moment de `/add-db`, etc.)
 
 ## Comment ça se passe
 
 1. **Vérifications** : Hypervibe vérifie que :
   - Wrangler (la CLI Cloudflare) est installé et authentifié
-  - Vous avez une **clé Neon API** sauvegardée (`NEON_API_KEY` dans vos variables d'environnement utilisateur, `/start` s'en occupe)
+  - Votre **clé Neon API** est sauvegardée sur votre ordi (`/start` s’en occupe)
   - Une base Neon est effectivement branchée à votre projet
 
-2. **Déploiement du Worker partagé** : Hypervibe déploie (ou met à jour) un **Cloudflare Worker mutualisé** appelé `db-backup`, qui vit dans `~/.db-backup-worker/` sur votre ordi (en dehors de tout repo, parce qu'il est partagé entre tous vos projets). Le Worker est déclenché par un cron Cloudflare (1er et 15 du mois à 3h UTC).
+2. **Votre horloge partagée** : Hypervibe s’assure que votre **horloge partagée** est en place : un mécanisme Cloudflare mutualisé unique (`hypervibe-jobs`) qui sert tous vos projets (tâches planifiées, sauvegardes de base, surveillance de quotas). Elle vit dans `~/.hypervibe-jobs/` sur votre ordi, versionnée avec git, donc chaque modification laisse une trace.
 
-3. **Enregistrement du projet** : votre projet courant est ajouté à la liste `BACKUP_TARGETS` du Worker. Le Worker fait le tour de tous ses targets à chaque exécution et créé une sauvegarde Neon pour chacun.
+3. **Enregistrement du projet** : votre projet courant est ajouté aux cibles du **job de sauvegarde** de l’horloge. La liste mise à jour est enregistrée (un petit commit git) et l’horloge redéployée. Le 1er et le 15 du mois à 3h UTC, le job fait le tour de toutes ses cibles et crée une sauvegarde Neon pour chacune.
 
-4. **Politique de rétention** : pour chaque projet, le Worker maintient un mix intelligent de sauvegardes :
+4. **Politique de rétention** : pour chaque projet, le job de sauvegarde maintient un mix intelligent de sauvegardes :
   - **Rolling** (les 2 dernières) : créées à chaque run, on garde toujours les 2 plus récentes
-  - **Aging** (jusqu'à 3 historiques) : la sauvegarde la plus récente devient "aging" tous les 3 mois, et est conservée jusqu'à 9 mois max
+  - **Aging** (jusqu’à 3 historiques) : un nouveau point de contrôle environ tous les 3 mois, conservé 9 mois max
   - **Total** : 5 branches Neon max par projet (sur 20 du plan gratuit Neon)
 
 ## Ce que ça crée pour vous
 
-- Un **Cloudflare Worker** `db-backup` (1er passage uniquement) déployé sur votre compte Cloudflare. Une seule "case" Cloudflare consommée, **même pour 50 projets**.
-- Votre projet courant **enregistré** comme target du Worker
+- Le **job de sauvegarde** sur votre horloge partagée (créé la première fois ; les projets suivants s’y ajoutent simplement)
+- Votre projet courant **enregistré** comme cible de ce job
 - À partir de maintenant, votre base Neon est sauvegardée toutes les 2 semaines, sans intervention
+- Une seule place cron Cloudflare consommée **au total**, partagée avec vos tâches planifiées et votre surveillance de quotas, même pour 50 projets
 
 ## Prérequis
 
@@ -41,10 +42,10 @@ Active les **sauvegardes automatiques** de votre base de données Neon. Une nouv
 
 ## Astuces
 
-{{callout:tip|Un seul Worker pour N projets}}
-Le génie de cette skill : **un seul** Cloudflare Worker partagé fait les sauvegardes de **tous** vos projets. Vous pouvez avoir 30 projets Neon. Ça consomme toujours une seule "case" Cloudflare (sur les 5 du plan gratuit). Le Worker tourne 2 fois par mois et boucle sur la liste.
+{{callout:tip|Une seule horloge pour tous vos projets}}
+Les sauvegardes n’ont plus leur machinerie dédiée : ce sont un job parmi d’autres sur votre **horloge partagée**, le mécanisme mutualisé unique qui exécute aussi vos tâches planifiées et votre surveillance de quotas. Vous pouvez avoir 30 projets Neon : ça consomme toujours une seule place cron Cloudflare au total. Et comme la liste de ce qui est sauvegardé est versionnée (git) sur votre ordi, vous pouvez toujours voir ce qui a changé, et quand.
 {{/callout}}
 
 {{callout:warning|Pour restaurer une sauvegarde}}
-Si vous voulez restaurer une sauvegarde, allez sur **console.neon.tech** → votre projet → onglet **Branches**. Vous y verrez vos branches `backup-rolling-*` et `backup-aging-*` avec leur date. Vous pouvez ouvrir une branche pour la consulter, ou la promouvoir comme `main` si vous voulez rollback. Si vous avez un doute sur la marche à suivre, demandez à Claude.
+Si vous voulez restaurer une sauvegarde, allez sur **console.neon.tech** → votre projet → onglet **Branches**. Vous y verrez vos branches de sauvegarde avec leur date : `bk-<projet>-r-*` pour les rolling, `bk-<projet>-a-*` pour les points de contrôle trimestriels. Vous pouvez ouvrir une branche pour la consulter, ou la promouvoir comme `main` si vous voulez rollback. Si vous avez un doute sur la marche à suivre, demandez à Claude.
 {{/callout}}

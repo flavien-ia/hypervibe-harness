@@ -15,6 +15,8 @@ You need [Claude Code](https://claude.com/claude-code) first. It is included wit
 /plugin install hypervibe@hypervibe-harness
 ```
 
+Updating from an older version? Hand [MIGRATION.md](MIGRATION.md) to Claude Code ("read MIGRATION.md and run the migration"): it consolidates your old background mechanisms into the new unified one, safely and with your consent at each step.
+
 Then type `/start`: it installs everything else for you (Node.js, pnpm, Git, and each service's CLI) and checks that all your connections work.
 
 Prefer a guided, click-by-click version? See the full walkthrough at **[hypervibe.fr/plugin/installation](https://hypervibe.fr/plugin/installation)**.

@@ -1,18 +1,18 @@
 ---
 name: add-backup-db
-description: Add automated Neon database backups to the current project. Deploys a shared Cloudflare Worker (one per account, reused across projects) that creates point-in-time Neon branch snapshots every 2 weeks. Retention - rolling (2 latest) + aging checkpoints every 3 months (kept up to 9 months). Uses only 1 Cloudflare cron slot regardless of how many databases are backed up. Auto-invoked silently at the end of /add-db when --quiet flag is passed; can also be called standalone.
+description: Add automated Neon database backups to the current project. Registers the project as a snapshot target of the unified shared Cloudflare Worker "hypervibe-jobs" (one Worker per account for ALL background jobs, reused across projects) that creates point-in-time Neon branch snapshots every 2 weeks. Retention - rolling (2 latest) + aging checkpoints every 3 months (kept up to 9 months). Uses only 1 Cloudflare cron slot regardless of how many databases are backed up. Auto-invoked silently at the end of /add-db when --quiet flag is passed; can also be called standalone.
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
 
 
 ## Invocation modes
 
-- **Interactive mode (default)**: the user called `/add-backup-db` directly. You show the detailed checklist and each `↳ … ✅`. You finish with the full summary (Step 9).
+- **Interactive mode (default)**: the user called `/add-backup-db` directly. You show the detailed checklist and each `↳ … ✅`. You finish with the full summary (Step 8).
 - **`quiet` mode**: called silently by `/add-db` (or another caller) at the end of its flow. You **display nothing** other than **a single final status line** intended for the caller, which must be one of these exact values:
-  - `STATUS:ok:created` - the `db-backup` worker was created for the first time on the CF account, and this project is registered as the first target
-  - `STATUS:ok:added` - the worker already existed, this project was added to `BACKUP_TARGETS`
+  - `STATUS:ok:created` - the shared worker got the snapshot job for the first time (this project is registered as its first target)
+  - `STATUS:ok:added` - the snapshot job already existed, this project was appended as a new target
   - `STATUS:ok:already-registered` - the project was already registered, no-op
-  - `STATUS:skipped:no-neon-key` - `NEON_API_KEY` not found (neither env nor rc) → we could not prompt in quiet mode
+  - `STATUS:skipped:no-neon-key` - `NEON_API_KEY` not found (neither env nor rc nor vault) → we could not prompt in quiet mode
   - `STATUS:skipped:cloudflare-missing` - Cloudflare token missing or not authenticated
   - `STATUS:skipped:no-db` - the Neon DB is not wired into this project (db_ok=false)
   - `STATUS:error:<short-reason>` - any other error, with a short reason
@@ -22,13 +22,13 @@ compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; 
 Detect the mode: if `$ARGUMENTS` contains `--quiet` (or if the invocation passes `quiet=true`), switch to quiet mode and apply the rules above at every step.
 
 
-## ⚠️ Before any call to `wrangler` (do this BEFORE any other wrangler command in this skill)
+## ⚠️ Before any shared-worker script or `wrangler` command (do this FIRST)
 
 ```bash
 eval "$(node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs")"
 ```
 
-This line loads `CLOUDFLARE_API_TOKEN` from the User scope (Windows registry / shell rc on Mac/Linux) if it is not already in `process.env`, and adds the pnpm bin to the PATH (for bash sessions where `pnpm setup` has not propagated yet). Without it, `wrangler` fails with "command not found" on Mac (Spotlight), or may use a different Cloudflare account than the one the user expects.
+This line loads `CLOUDFLARE_API_TOKEN` from the User scope (Windows registry / shell rc on Mac/Linux) if it is not already in `process.env`, and adds the pnpm bin to the PATH (for bash sessions where `pnpm setup` has not propagated yet). Without it, the deploy step fails with "command not found" on Mac (Spotlight), or may use a different Cloudflare account than the one the user expects.
 
 
 # Add Backup DB - Automated Neon database backups
@@ -46,19 +46,24 @@ You add automatic backups for the current project's Neon database.
 ## Architecture
 
 ```
-Cloudflare Worker "db-backup" (cron: 1st and 15th of the month, 3am UTC)
-  └─ For each registered project:
-       └─ Neon API → create a branch snapshot + clean up the old ones
+Cloudflare Worker "hypervibe-jobs" (ONE worker, ONE cron slot, ALL account-wide jobs)
+  ├─ job "neon-backups" (kind: snapshot, default cadence: 1st and 15th of the month, 3am UTC)
+  │    └─ For each registered target:
+  │         └─ Neon API → create a branch snapshot + clean up the old ones
+  ├─ job "quota-monitor" (kind: quota, if configured by /quotas)
+  └─ ping jobs (kind: ping, if configured by /add-cron or /add-automation)
 ```
 
-**A single shared Worker** for all projects. Each call to `add-backup-db` registers the current project in the list of targets. A single Cloudflare cron slot consumed, regardless of the number of projects.
+**A single unified shared Worker** for the whole account: it is the shared clock of all Hypervibe background jobs, not just backups. Each call to `add-backup-db` registers the current project as one more **target** of the `neon-backups` snapshot job. A single Cloudflare cron slot consumed, regardless of the number of projects and jobs.
+
+The job list lives in a **git-versioned registry**: `~/.hypervibe-jobs/jobs.js`. Every change is committed there and the worker is redeployed, all handled by the plugin scripts. You never scaffold or edit the worker files by hand.
 
 ### Retention policy (per project)
 
 | Type | When a new one is created | Deleted when | Max branches |
 |---|---|---|---|
 | Rolling | On each run (every ~2 weeks) | Only the 2 most recent are kept | 2 |
-| Aging | When the most recent aging is > 3 months old | When it exceeds 9 months | 3 (in steady state) |
+| Aging | When the most recent aging is > 3 months (90 days) old | When it exceeds 9 months (270 days) | 3 (in steady state) |
 
 **Total: 5 Neon branches max per project** (out of 20 on the free tier).
 
@@ -66,7 +71,7 @@ In steady state, the 3 aging branches cover the 0-3 months, 3-6 months and 6-9 m
 
 ### Worker location
 
-The Worker lives in `$HOME/.db-backup-worker/` (outside any repo, because it is shared across projects). Contains: `wrangler.toml` + `index.js`.
+The worker lives in `$HOME/.hypervibe-jobs/` (outside any repo, because it is shared across projects; itself a small git repo so the registry history is versioned). Contains: `worker.js` + `jobs.js` (the registry) + `wrangler.toml`. Managed exclusively through the plugin scripts below.
 
 ---
 
@@ -113,108 +118,79 @@ curl -s -H "Authorization: Bearer $NTOK" "https://console.neon.tech/api/v2/proje
 
 Match the `DATABASE_URL` host (`ep-xxx...`) with a project from the list (via `GET /projects/{id}/connection_uri` or by comparing the endpoints). As a last resort, ask the user for the Neon project ID (visible on https://console.neon.tech → project → Settings).
 
-Store: `NEON_PROJECT_ID` and `PROJECT_NAME` (the project's short name, e.g. `hypervibe`).
+Store: `NEON_PROJECT_ID` and `PROJECT_NAME` (the project's short name, e.g. `hypervibe`). `PROJECT_NAME` must be **kebab-case** (lowercase, digits, hyphens): normalize it if needed, the registry rejects anything else.
 
 ---
 
-## Step 3 - Check whether the db-backup Worker already exists
+## Step 3 - Provision the shared worker (idempotent preflight)
+
+One call replaces all the scaffolding: it creates `~/.hypervibe-jobs/` (git repo, worker code, registry, wrangler config), deploys the worker on the user's Cloudflare account, and sets up the admin token used for manual triggers. If everything already exists, it returns fast without touching anything (it may self-heal: sync the worker code with the plugin version, re-init git, regenerate the admin token).
 
 ```bash
-test -f "$HOME/.db-backup-worker/wrangler.toml" && echo "exists" || echo "new"
+eval "$(node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs")"
+result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/ensure.mjs")
 ```
 
-### If "exists" → Branch A (add a target)
+Parse the JSON `result`:
+- `{ ok: true, status: "created" | "already_present", dir, workerName: "hypervibe-jobs", workerUrl, deployed, jobs, adminTokenVar: "HYPERVIBE_JOBS_ADMIN_TOKEN", healed: [] }`
+- `{ ok: false, error, howTo }` on failure.
 
-1. Read `$HOME/.db-backup-worker/wrangler.toml`
-2. Extract the value of `BACKUP_TARGETS` (JSON array in `[vars]`)
-3. Check that the current project is not already registered (by `projectId`)
-4. If already registered:
-   - **Quiet mode**: emit `STATUS:ok:already-registered` and exit.
-   - **Interactive mode**: enter the **frequency modification flow** below (Step 3.bis).
-5. Add `{"name":"<PROJECT_NAME>","projectId":"<NEON_PROJECT_ID>"}` to the array
-6. Write the updated `wrangler.toml` (only the `BACKUP_TARGETS` line changes)
-7. Redeploy:
+If `ok = false`:
+- **Quiet mode**: if the error concerns wrangler or the Cloudflare token, emit `STATUS:skipped:cloudflare-missing`; otherwise emit `STATUS:error:<short-reason>`. Exit.
+- **Interactive mode**: explain the problem in plain words and relay the `howTo` instruction (usually: run `/start`). Abort.
+
+Keep `workerUrl` and `dir` for later steps. If `healed` is non-empty in interactive mode, you may mention in one short line that the backup system was refreshed; no details needed.
+
+### Migration from the old db-backup worker (legacy, interactive mode only)
+
+Before 2026-07 backups ran on a standalone worker scaffolded in `~/.db-backup-worker/`. Right after the preflight, check for it:
+
+```bash
+test -f "$HOME/.db-backup-worker/wrangler.toml" && echo "legacy" || echo "clean"
+```
+
+If `legacy` (and you are in interactive mode):
+1. Tell the user in plain words: you found their previous backup system, you will move its configuration into the new unified one, no backup is lost, nothing is deleted yet.
+2. Run the one-shot migration (it imports ALL legacy backup targets, plus the old quota watch if present, uploads the needed secrets, commits and redeploys):
    ```bash
-   cd "$HOME/.db-backup-worker" && wrangler deploy
+   result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/migrate-live.mjs" --put-secrets)
    ```
-8. **Quiet mode**: emit `STATUS:ok:added` and exit (skip Steps 8 and 9). **Interactive mode**: skip to Step 8.
+3. Verify it works: run a manual backup right now (the trigger command in Step 6) and watch the result. The migration output also contains a ready-made `verification` list.
+4. Only after that verification succeeds: decommission the legacy workers. The migration output lists the exact commands under `decommission_after_verification` (a `wrangler delete` in each legacy folder, which frees their cron slots, then removing the folders). Explain to the user in plain words what you are about to do (deleting the OLD standalone workers, now redundant) and do it.
 
-### If "new" → Branch B (first installation)
-
-Continue to Step 4.
-
----
-
-## Step 3.bis - Change the frequency (interactive mode only, project already backed up)
-
-The project is already registered for backups. Offer to **change the frequency** rather than just skipping.
-
-### 3.bis.a - Read the current cadence
-
-In the `wrangler.toml`, extract the value of `crons = [...]`. Convert the cron expression into a human-readable label:
-
-| Cron expression | Label shown to the user |
-|---|---|
-| `0 3 * * *` | Every day (at 3am UTC) |
-| `0 3 * * 1` | Every week (Monday 3am UTC) |
-| `0 3 1,15 * *` | Every 2 weeks (1st and 15th of the month) |
-| `0 3 1 * *` | Every month (1st of the month) |
-| Other | Custom: show the raw expression |
-
-### 3.bis.b - Ask the user
-
-Show exactly (replacing `<CURRENT>` with the label):
-
-> ## 📦 This project is already backed up
->
-> Current backup cadence: **<CURRENT>**.
->
-> Do you want to **change** it?
->
-> 1. ⏰ **Every day** - maximum protection, fast rotation
-> 2. 🗓️ **Every week** - a good compromise for an active project
-> 3. 🔄 **Every 2 weeks** *(Hypervibe default)* - economical for most projects
-> 4. 📅 **Every month** - low-activity projects
-> 5. ❌ **Change nothing** - keep the current cadence
->
-> ⚠️ **Important**: the cadence is **shared across all your** backed-up projects (a single shared Worker to save Cloudflare slots). Changing it here will affect ALL your backup projects.
-
-### 3.bis.c - Process the choice
-
-- **Choice 5** (change nothing): show *"OK, I am not touching anything. Your backups continue at the current pace ✅"*. Skip to Step 8.
-- **Choices 1-4**: if the value already matches the current cadence, say *"That is already the cadence in place, nothing to change ✅"* and skip to Step 8. Otherwise:
-  1. Map the choice to the corresponding cron expression (table 3.bis.a)
-  2. Update the `crons = [...]` line in the `wrangler.toml` (only this line changes)
-  3. Redeploy:
-     ```bash
-     cd "$HOME/.db-backup-worker" && wrangler deploy
-     ```
-  4. Check that the new trigger is correctly declared:
-     ```bash
-     cd "$HOME/.db-backup-worker" && wrangler triggers list
-     ```
-  5. Show: *"✅ Cadence updated: backups are now **<NEW_LABEL>**. Effective across all your backup projects."*
-- Skip to Step 8 (final summary).
+In quiet mode: never migrate (that flow needs the user in the loop). Just continue; the legacy worker keeps running untouched and the migration will be offered next time this skill runs interactively.
 
 ---
 
-## Step 4 - Get the Neon API key (first time only)
+## Step 4 - Check the current registration and the Neon API key
 
-### 4.a - Read from the env first
+### 4.a - Is this project already a target?
+
+```bash
+result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --list)
+```
+
+In the returned `jobs` array, look for the job named `neon-backups` (kind `snapshot`) and, inside its `targets`, an entry whose `name` equals `PROJECT_NAME`.
+
+If the target is already there:
+- **Quiet mode**: emit `STATUS:ok:already-registered` and exit.
+- **Interactive mode**: enter the **frequency modification flow** below (Step 4.bis).
+
+Otherwise continue to 4.b. Also note whether the `neon-backups` job exists at all (needed in 4.b).
+
+### 4.b - Neon API key availability
+
+The worker authenticates to Neon with a `NEON_API_KEY` secret. Check that the key is readable locally:
 
 ```bash
 node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" NEON_API_KEY
 ```
 
-If the command returns a non-empty value, use it directly as `NEON_API_KEY` and move on to Step 5. (On this machine, the key is usually already saved by `/start`.)
+If the command returns a non-empty value, move on to Step 5. (On this machine, the key is usually already saved by `/start`.)
 
-### 4.b - Otherwise, prompt the user (rare)
-
-#### In `quiet` mode
-Emit `STATUS:skipped:no-neon-key` and exit. **Do not prompt** - that would be disruptive in the middle of `/add-db`. The caller will read this status and show the warning in its summary.
-
-#### In interactive mode
-Tell the user:
+If it is empty:
+- **Quiet mode**: if the `neon-backups` job already exists (seen in 4.a), the worker already holds the secret from a previous registration: continue to Step 5 anyway. If the job does not exist yet, emit `STATUS:skipped:no-neon-key` and exit. **Do not prompt** - that would be disruptive in the middle of `/add-db`. The caller will read this status and show the warning in its summary.
+- **Interactive mode**: tell the user:
 
 > For the backups to work automatically, I need a Neon API key.
 >
@@ -231,117 +207,158 @@ Wait for the key. Store it in the **vault** (reusable for all projects) - a mask
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name NEON --service Neon --fields api_key:secret
 ```
 
-Store: item `NEON`, field `api_key`. (`_read-user-env.mjs NEON_API_KEY` will then read it back automatically.) If the vault is not set up yet, run `_add-keyring` first.
+Store: item `NEON`, field `api_key`. (`_read-user-env.mjs NEON_API_KEY` will then read it back automatically, and so will the registration script.) If the vault is not set up yet, run `_add-keyring` first.
 
 ---
 
-## Step 5 - Get the Cloudflare account ID
+## Step 4.bis - Change the frequency (interactive mode only, project already backed up)
 
-```bash
-wrangler whoami 2>&1
-```
+The project is already registered for backups. Offer to **change the frequency** rather than just skipping.
 
-Extract the account ID from the output. Store: `CF_ACCOUNT_ID`.
+### 4.bis.a - Read the current cadence
 
----
+In the `--list` output from 4.a, read the `cron` field of the `neon-backups` job. Convert the cron expression into a human-readable label:
 
-## Step 6 - Scaffold and deploy the Worker
+| Cron expression | Label shown to the user |
+|---|---|
+| `0 3 * * *` | Every day (at 3am UTC) |
+| `0 3 * * 1` | Every week (Monday 3am UTC) |
+| `0 3 1,15 * *` | Every 2 weeks (1st and 15th of the month) |
+| `0 3 1 * *` | Every month (1st of the month) |
+| Other | Custom: show the raw expression |
 
-1. Create the folder:
+### 4.bis.b - Ask the user
 
-```bash
-mkdir -p "$HOME/.db-backup-worker"
-```
+Show exactly (replacing `<CURRENT>` with the label):
 
-2. Copy the Worker code from the plugin:
+> ## 📦 This project is already backed up
+>
+> Current backup cadence: **<CURRENT>**.
+>
+> Do you want to **change** it?
+>
+> 1. ⏰ **Every day** - maximum protection, fast rotation
+> 2. 🗓️ **Every week** - a good compromise for an active project
+> 3. 🔄 **Every 2 weeks** *(Hypervibe default)* - economical for most projects
+> 4. 📅 **Every month** - low-activity projects
+> 5. ❌ **Change nothing** - keep the current cadence
+>
+> ⚠️ **Important**: the cadence is **shared across all your** backed-up projects (a single shared backup job to save Cloudflare slots). Changing it here will affect ALL your backup projects.
 
-```bash
-cp "${CLAUDE_SKILL_DIR}/../../scripts/db-backup-worker.js" "$HOME/.db-backup-worker/index.js"
-```
+### 4.bis.c - Process the choice
 
-3. Create `$HOME/.db-backup-worker/wrangler.toml` with this content:
-
-```toml
-name = "db-backup"
-main = "index.js"
-compatibility_date = "2024-01-01"
-account_id = "<CF_ACCOUNT_ID>"
-
-[triggers]
-crons = ["0 3 1,15 * *"]
-
-[vars]
-BACKUP_TARGETS = '[{"name":"<PROJECT_NAME>","projectId":"<NEON_PROJECT_ID>"}]'
-```
-
-Replace the placeholders with the real values.
-
-4. Deploy:
-
-```bash
-cd "$HOME/.db-backup-worker" && wrangler deploy
-```
-
-5. Upload the Neon API key secret:
-
-```bash
-cd "$HOME/.db-backup-worker" && printf '%s' "<NEON_API_KEY>" | wrangler secret put NEON_API_KEY
-```
-
-⚠️ Use `printf '%s'` and not `echo` (echo adds a `\n` that corrupts the key).
+- **Choice 5** (change nothing): show *"OK, I am not touching anything. Your backups continue at the current pace ✅"*. Skip to Step 7.
+- **Choices 1-4**: if the value already matches the current cadence, say *"That is already the cadence in place, nothing to change ✅"* and skip to Step 7. Otherwise:
+  1. Map the choice to the corresponding cron expression (table 4.bis.a)
+  2. Apply it through the registry (re-registering the same target with `--cron` updates the shared cadence, commits and redeploys in one call):
+     ```bash
+     result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" \
+       --kind snapshot --target-name "<PROJECT_NAME>" --neon-project-id "<NEON_PROJECT_ID>" \
+       --cron "<CRON_EXPR>")
+     ```
+  3. Check `ok: true` (the `action` will be `target-updated`), then confirm with `--list` that the `neon-backups` job now carries the new `cron`.
+  4. Show: *"✅ Cadence updated: backups are now **<NEW_LABEL>**. Effective across all your backup projects."*
+- Skip to Step 7 (CLAUDE.md), then Step 8 (final summary).
 
 ---
 
-## Step 7 - Verify the deployment
+## Step 5 - Register the project as a snapshot target
+
+One call does everything: creates the `neon-backups` job on first use, appends (or updates) this project's target, uploads the `NEON_API_KEY` secret read from the vault, commits the registry change to git, and redeploys the worker.
 
 ```bash
-cd "$HOME/.db-backup-worker" && wrangler deployments list
+result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" \
+  --kind snapshot --target-name "<PROJECT_NAME>" --neon-project-id "<NEON_PROJECT_ID>" --put-secrets)
 ```
 
-Also check the cron trigger:
+Do NOT pass `--cron` here: new registrations join the shared cadence as it is (default `0 3 1,15 * *`). Changing the cadence is Step 4.bis territory and affects all projects.
 
-```bash
-cd "$HOME/.db-backup-worker" && wrangler triggers list
-```
+Parse the JSON `result`:
+- `{ ok: true, action: "target-added" | "target-updated", job: "neon-backups", target, targetCount, dir, deployed, workerUrl, uploadedSecrets, missingSecrets, nextSteps }`
 
-**Quiet mode**: emit `STATUS:ok:created` (worker created for the first time) and exit (skip Steps 8 and 9, the caller handles the rest).
+Handle it:
+
+| Outcome | Quiet mode | Interactive mode |
+|---|---|---|
+| `ok:true`, `action:"target-added"`, `targetCount` = 1 | emit `STATUS:ok:created` and exit | continue to Step 6 |
+| `ok:true`, `action:"target-added"`, `targetCount` > 1 | emit `STATUS:ok:added` and exit | continue to Step 6 |
+| `ok:true`, `action:"target-updated"` | emit `STATUS:ok:already-registered` and exit | continue to Step 6 |
+| `ok:true` but `missingSecrets` contains `NEON_API_KEY` | emit `STATUS:skipped:no-neon-key` and exit (the target is saved; re-running the skill later will finish the job) | prompt for the key as in Step 4.b, store it in the vault, then re-run the exact same registration command (idempotent) so the secret gets uploaded |
+| `ok:false` | emit `STATUS:error:<short-reason>` and exit | explain in plain words, relay `nextSteps` if present, abort |
+
+**Quiet mode ends here in every case** (skip Steps 6 to 8, the caller handles the rest).
 
 ---
 
-## Step 8 - Update CLAUDE.md
+## Step 6 - Verify the deployment (interactive mode)
+
+The registration output already confirms `deployed: true` and gives `workerUrl`. For a stronger check, or whenever the user wants a backup **right now**, trigger the job manually:
+
+```bash
+ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN)
+curl -s -X POST -H "Authorization: Bearer $ADMIN" "<workerUrl>/trigger?name=neon-backups"
+```
+
+To watch it run live:
+
+```bash
+cd ~/.hypervibe-jobs && npx wrangler tail
+```
+
+After a manual run you can confirm the new `bk-<PROJECT_NAME>-r-...` branch in the Neon console. Keep this quick: one trigger + one confirmation line is enough.
+
+---
+
+## Step 7 - Update CLAUDE.md
 
 Invoke `_update-claude-md` with:
 - `custom`:
   - heading: `## Backups`
-  - body:
+  - body (adapt the Schedule line if a custom cadence is in place):
     ```
-    Automatic backups of the Neon database via a Cloudflare Worker (`db-backup`).
-    - **Schedule**: 1st and 15th of the month at 3am UTC (~every 2 weeks)
-    - **Retention**: 2 rolling (last 2 weeks) + 3 aging (checkpoints ~3 months, kept 9 months max)
+    Automatic backups of the Neon database via the unified shared Cloudflare Worker (`hypervibe-jobs`).
+    - **Schedule**: 1st and 15th of the month at 3am UTC (~every 2 weeks), cadence shared by all backed-up projects
+    - **Retention**: 2 rolling (last 2 weeks) + up to 3 aging (checkpoints ~3 months, kept 9 months max)
     - **Neon branches**: 5 max per project (out of 20 on the free tier)
-    - **Worker config**: `~/.db-backup-worker/wrangler.toml`
-    - **Logs**: `cd ~/.db-backup-worker && wrangler tail`
+    - **Job registry**: `~/.hypervibe-jobs/jobs.js` (git-versioned; job name: `neon-backups`)
+    - **Logs**: `cd ~/.hypervibe-jobs && npx wrangler tail`
+    - **Run a backup now**: ask me to run a backup right now (I trigger the `neon-backups` job manually)
     - **Add another project**: re-run `/add-backup-db` from that project
     ```
 
 ---
 
-## Step 9 - Summary
+## Step 8 - Summary
 
 > ## ✅ Backups enabled
 >
-> Your database **<PROJECT_NAME>** (`<NEON_PROJECT_ID>`) is now backed up automatically.
+> Your database **<PROJECT_NAME>** (`<NEON_PROJECT_ID>`) is now backed up automatically by your shared backup system (`hypervibe-jobs`).
 >
 > | | |
 > |---|---|
-> | **Schedule** | 1st and 15th of the month at 3am UTC |
+> | **Schedule** | 1st and 15th of the month at 3am UTC (cadence shared by all your backed-up projects) |
 > | **Rolling** | 2 recent backups (0 and ~2 weeks) |
 > | **Checkpoints** | A new one every ~3 months, kept for 9 months |
 > | **Neon branches** | 5 max out of the 20 on the free tier |
 >
-> **Useful commands:**
-> - View the logs live: `cd ~/.db-backup-worker && wrangler tail`
-> - Trigger manually: `cd ~/.db-backup-worker && wrangler dev --test-scheduled`
-> - View the Neon branches: Neon dashboard or `/backup-db status` (coming soon)
-> - Add another project: re-run `/add-backup-db` in another project
-> - Disable the backups: `cd ~/.db-backup-worker && wrangler delete`
+> **Good to know:**
+> - Want a backup right now? Just ask me to **run a backup right now** and I will trigger it.
+> - View the logs live: `cd ~/.hypervibe-jobs && npx wrangler tail`
+> - Add another project: re-run `/add-backup-db` in that project
+> - Stop backing up THIS project: ask me to disable its backups (I only remove this project from the list; the other projects keep their backups)
+
+---
+
+## Other operations (reference for the model)
+
+- **List everything the shared worker runs** (all jobs, all targets, cadences):
+  ```bash
+  node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --list
+  ```
+- **Disable backups for THIS project only** (what "disable the backups" means by default):
+  ```bash
+  node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --kind snapshot --remove-target "<PROJECT_NAME>"
+  ```
+  Never run `wrangler delete` for this: the worker is shared, other projects may still depend on it for their backups and for the other jobs (quota watch, cron pings). Deleting the whole `hypervibe-jobs` worker is an **account-wide decision** that kills every job for every project; only consider it if the user explicitly wants to dismantle the entire shared system, and say so clearly first.
+- **Manual test run**: the `ADMIN` + `curl .../trigger?name=neon-backups` pair from Step 6.
+- **Live logs**: `cd ~/.hypervibe-jobs && npx wrangler tail`

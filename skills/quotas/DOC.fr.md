@@ -2,21 +2,21 @@
 
 Affiche où en est votre consommation sur chaque service face aux plafonds des plans gratuits. Pratique pour anticiper un dépassement sans devoir ouvrir 6 dashboards séparés (Neon, Cloudflare, Brevo, Resend, Vercel).
 
-## Quand l'utiliser
+## Quand l’utiliser
 
 - Vous voulez **anticiper un dépassement** de quota et basculer sur un plan payant à temps
 - Vous voulez **comprendre** où en sont vos forfaits gratuits (sans devoir ouvrir 6 dashboards séparés)
-- Vous voulez vérifier après une montée en charge (par ex. un lancement de produit) qu'aucun service n'est en limite
+- Vous voulez vérifier après une montée en charge (par ex. un lancement de produit) qu’aucun service n’est en limite
 
 ## Comment ça se passe
 
 1. **Lancement du script** : Hypervibe exécute en parallèle 6 fetchers qui interrogent les API de chaque service. Ça prend 2 à 5 secondes.
 
 2. **Récupération des données** : pour chaque service, Hypervibe lit :
-  - **Neon** : nombre de projets utilisés, storage utilisé (par projet, jusqu'à 0.5 Go chacun), heures de calcul utilisées (jusqu'à 100h / mois / projet)
+  - **Neon** : nombre de projets utilisés, storage utilisé (par projet, jusqu’à 0.5 Go chacun), heures de calcul utilisées (jusqu’à 100h / mois / projet)
   - **Cloudflare R2** : Go stockés, opérations lecture/écriture
   - **Cloudflare Workers** : requêtes / jour, slots cron utilisés sur les 5 gratuits
-  - **Brevo** : emails envoyés / mois (jusqu'à 300/jour gratuits)
+  - **Brevo** : emails envoyés / mois (jusqu’à 300/jour gratuits)
   - **Resend** : emails envoyés / mois (3 000 gratuits) + 100/jour
   - **Vercel** : bandwidth, fonctions, builds, hobby seats
 
@@ -29,22 +29,24 @@ Affiche où en est votre consommation sur chaque service face aux plafonds des p
 
 5. **Conseils** : pour chaque verdict ⚠️ ou 🔴, Hypervibe propose des actions concrètes (alléger le projet, passer au plan supérieur, etc.).
 
+6. **Surveillance quotidienne (vérifiée au passage)** : pendant qu’elle y est, Hypervibe s’assure que votre surveillance quotidienne de quotas est en place : un petit job sur votre **horloge partagée** (le mécanisme mutualisé qui exécute aussi vos tâches planifiées et vos sauvegardes de base) vérifie chaque jour votre stockage Cloudflare R2 et vous envoie un email si vous approchez des 10 Go gratuits (alerte à partir de 9 Go). Aucune machinerie à part, aucune place Cloudflare en plus.
+
 ## Ce que ça crée pour vous
 
 - Un **rapport tableau** avec votre consommation actuelle sur les 6 services principaux
-- Une vue **par projet** quand c'est pertinent (Neon notamment)
+- Une vue **par projet** quand c’est pertinent (Neon notamment)
 - Des **recommandations** pour anticiper un dépassement
-- Aucune modification de vos comptes ou configurations, juste un rapport en lecture seule
+- Aucune modification de vos comptes ou forfaits : le rapport est en lecture seule. La seule chose que `/quotas` peut mettre en place (la première fois), c’est le **job de surveillance quotidienne** sur votre horloge partagée, pour être prévenu par email entre deux rapports
 
 ## Prérequis
 
 - Les services concernés doivent être connectés à votre ordi (via `/start` ou via les clés API user-scope)
-- Vous pouvez lancer `/quotas` depuis n'importe quel dossier, c'est une vue **compte-wide**, pas projet-spécifique
+- Vous pouvez lancer `/quotas` depuis n’importe quel dossier, c’est une vue **compte-wide**, pas projet-spécifique
 
 ## Astuces
 
 {{callout:tip|Lancez tous les mois}}
-Un coup d'œil régulier (chaque début de mois) vous évite la mauvaise surprise du dépassement. C'est particulièrement utile sur Neon (qui a des quotas par projet) et Resend (3 000 emails / mois passe vite si vous avez plusieurs apps).
+Un coup d’œil régulier (chaque début de mois) vous évite la mauvaise surprise du dépassement. C’est particulièrement utile sur Neon (qui a des quotas par projet) et Resend (3 000 emails / mois passe vite si vous avez plusieurs apps). Et entre deux rapports, la surveillance quotidienne sur votre horloge partagée garde un œil sur votre stockage pour vous.
 {{/callout}}
 
 {{callout:info|Plans gratuits = vraiment confortables}}

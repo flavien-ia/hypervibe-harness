@@ -247,13 +247,15 @@ With args: --quiet
 # Get the Neon project ID of the current project (look it up via the Neon API by matching the project's DATABASE_URL)
 PROJECT_ID="<neon-project-id-of-the-project>"
 
-# Check that this project ID appears in the shared worker's config
-if [ -f ~/.db-backup-worker/wrangler.toml ]; then
-  if grep -q "\"$PROJECT_ID\"" ~/.db-backup-worker/wrangler.toml; then
-    echo "OK:backup-registered"
-  else
-    echo "FAIL:backup-not-registered"
-  fi
+# Check that this project ID appears in the shared clock's registry (unified
+# hypervibe-jobs worker), with a legacy fallback for machines not yet migrated
+# from the old standalone db-backup worker.
+if [ -f ~/.hypervibe-jobs/jobs.js ] && grep -q "\"$PROJECT_ID\"" ~/.hypervibe-jobs/jobs.js; then
+  echo "OK:backup-registered"
+elif [ -f ~/.db-backup-worker/wrangler.toml ] && grep -q "\"$PROJECT_ID\"" ~/.db-backup-worker/wrangler.toml; then
+  echo "OK:backup-registered-legacy"
+elif [ -f ~/.hypervibe-jobs/jobs.js ] || [ -f ~/.db-backup-worker/wrangler.toml ]; then
+  echo "FAIL:backup-not-registered"
 else
   echo "FAIL:worker-config-missing"
 fi
@@ -262,8 +264,9 @@ fi
 **Interpretation**:
 
 - `OK:backup-registered` then all good, go to Step 8.
+- `OK:backup-registered-legacy` then the backup runs on the old standalone worker: fine for now, `add-backup-db` proposes the migration to the unified worker next time it runs interactively.
 - `FAIL:backup-not-registered` then step 6 failed to register the project. **Re-invoke** `add-backup-db --quiet` one more time. If it fails again, capture the returned status (Step 6 table above) and add the matching warning to the final summary.
-- `FAIL:worker-config-missing` then either the project is the very first one on this machine (in which case `add-backup-db` should have created the worker), or the step 6 status was `skipped:cloudflare-missing` or `error:*`. The warning in the summary is enough, don't retry in a loop.
+- `FAIL:worker-config-missing` then either the project is the very first one on this machine (in which case `add-backup-db` should have provisioned the shared worker), or the step 6 status was `skipped:cloudflare-missing` or `error:*`. The warning in the summary is enough, don't retry in a loop.
 
 The goal: we accept that there are cases where the backup can't be enabled (no Neon key, no Cloudflare token), but we don't accept **forgetting to enable it** when all the ingredients are there.
 

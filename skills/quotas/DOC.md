@@ -29,12 +29,14 @@ Shows where your usage stands on each service against the free-plan caps. Handy 
 
 5. **Advice**: for each ⚠️ or 🔴 verdict, Hypervibe proposes concrete actions (lighten the project, move to a higher plan, etc.).
 
+6. **Daily watch (checked in passing)**: while it is at it, Hypervibe makes sure your daily quota watch is in place: a small job on your **shared clock** (the mutualized mechanism that also runs your scheduled tasks and database backups) checks your Cloudflare R2 storage once a day and emails you if you approach the free 10 GB (alert from 9 GB). No standalone machinery, no extra Cloudflare slot.
+
 ## What it creates for you
 
 - A **table report** with your current usage on the 6 main services
 - A **per-project** view when relevant (Neon in particular)
 - **Recommendations** to anticipate an overage
-- No change to your accounts or configurations, just a read-only report
+- No change to your accounts or plans: the report is read-only. The only thing `/quotas` may set up (the first time) is the **daily watch job** on your shared clock, so you get warned by email between two reports
 
 ## Prerequisites
 
@@ -44,7 +46,7 @@ Shows where your usage stands on each service against the free-plan caps. Handy 
 ## Tips
 
 {{callout:tip|Run it every month}}
-A regular glance (at the start of each month) saves you the unpleasant surprise of an overage. It is especially useful for Neon (which has per-project quotas) and Resend (3,000 emails / month goes fast if you have several apps).
+A regular glance (at the start of each month) saves you the unpleasant surprise of an overage. It is especially useful for Neon (which has per-project quotas) and Resend (3,000 emails / month goes fast if you have several apps). And between two reports, the daily watch on your shared clock keeps an eye on your storage for you.
 {{/callout}}
 
 {{callout:info|Free plans = genuinely comfortable}}

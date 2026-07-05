@@ -82,28 +82,58 @@ Otherwise (`false`), say nothing.
 
 ---
 
-## Step 2 bis - Self-heal Worker quota-monitor (silent)
+## Step 2 bis - Self-heal quota watch (silent)
 
-Before rendering the table, check that the **Cloudflare Worker `quota-monitor`** is deployed. This Worker runs daily and sends an email (via Brevo) if a quota crosses its threshold - currently R2 storage at 9 GB out of the 10 GB free tier. It is a safety net in case the user has not re-run `/start` since the version that sets up this Worker.
+Before rendering the table, check that the **quota watch job** is registered in the unified shared worker **`hypervibe-jobs`** (ONE Cloudflare Worker for all the account-wide scheduled jobs: cron pings, database backups, quota alerts). The job runs daily and sends an email (via Brevo) if a quota crosses its threshold - currently R2 storage at 9 GB out of the 10 GB free tier. It is a safety net in case the user has not re-run `/start` since the version that sets up this job.
 
-⚠️ **Why a custom Worker and not the native Cloudflare alert**: the previous version used `billing_usage_alert` from Cloudflare's Notifications API, but (1) this feature is officially reserved for Pro+ plans and (2) the format of the `limit` field is ambiguous on free accounts - the first version triggered a false instant alert. The custom Worker works around both problems cleanly.
+⚠️ **Why a custom job and not the native Cloudflare alert**: the previous version used `billing_usage_alert` from Cloudflare's Notifications API, but (1) this feature is officially reserved for Pro+ plans and (2) the format of the `limit` field is ambiguous on free accounts - the first version triggered a false instant alert. The custom job works around both problems cleanly.
 
-Run the idempotent script (fast if already deployed):
+**(a) Ensure the shared worker is provisioned** (idempotent, fast when already deployed):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/ensure-quota-monitor-worker.mjs"
+eval "$(node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs")"
+node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/ensure.mjs"
 ```
 
-JSON output on stdout (`status` value varies):
+JSON output on stdout: `{ ok, status: "created" | "already_present", dir, workerName, workerUrl, jobs, ... }`. If `ok: false` → skip step (b) and show the failure message below.
 
-- `already_present` → say nothing, the Worker is already deployed.
-- `created` → mention discreetly **before the table**, only once:
-  > 💡 *Note: I deployed a Cloudflare Worker (`quota-monitor`) that watches your R2 storage daily and will email you via Brevo if you approach the 10 GB free tier. Config in `~/.quota-monitor-worker/wrangler.toml`.*
-- `needs_brevo_sender` → show **after the table** (right after the summary):
-  > ⚠️ *To activate the quota alert Worker, a verified Brevo sender is required. Details: `<howTo returned by the script>`. Not blocking - your current storage is at X%.*
-- `needs_prereq` → show after the table, short, without blocking:
-  > ⚠️ *The quota-monitor Worker could not be deployed: `<reason>`. Re-run `/start` if needed.*
-- `error` → same, even shorter, without blocking the rest.
+**(b) Ensure the quota job is registered**:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --list
+```
+
+If the returned `jobs` array contains a job named `quota-monitor` → **say nothing**, the watch is in place. (To adjust the threshold or the recipient later, re-run the registration command below with the new values: same job name = update in place.)
+
+If it does not, register it:
+
+1. **Recipient** = the Cloudflare account email:
+   ```bash
+   CFTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get CLOUDFLARE api_token)
+   curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user
+   ```
+   → take `result.email`.
+2. **Sender** = the first verified Brevo sender:
+   ```bash
+   BREVO_API_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get BREVO api_key)
+   curl -s https://api.brevo.com/v3/senders -H "api-key: $BREVO_API_KEY"
+   ```
+   → take the first entry with `"active": true`. If there is none → skip the registration and show the "no verified sender" message below.
+3. **Register** (also uploads the CLOUDFLARE_API_TOKEN + BREVO_API_KEY secrets, read from the vault):
+   ```bash
+   node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --kind quota --recipient <recipient> --sender-email <sender> --put-secrets
+   ```
+   Default threshold: 9 GB out of the 10 GB R2 free tier (override with `--r2-threshold-gb <N>`).
+
+**User-facing messages** (this step stays silent on success, like before):
+
+- Job already registered → say nothing.
+- Job just registered (first time only) → mention discreetly **before the table**:
+  > 💡 *Note: I set up a daily quota watch in your shared clock - the single Cloudflare Worker that runs all your account-wide scheduled jobs (registry in `~/.hypervibe-jobs/jobs.js`, git-versioned). It will email you via Brevo if you approach the 10 GB of the R2 free tier. Want a different threshold or recipient? Just ask - I re-register the job with the new values.*
+- No verified Brevo sender → show **after the table** (right after the summary):
+  > ⚠️ *To activate the quota alert, a verified Brevo sender is required. Verify one at https://app.brevo.com/senders (add your email, click the verification link you receive), then re-run `/quotas`. Not blocking - your current storage is at X%.*
+- Provisioning or registration returned `ok: false` → show after the table, short, without blocking:
+  > ⚠️ *The quota watch could not be set up: `<error>`. Re-run `/start` if needed.*
 
 Never let the table display fail because of this step. It is a bonus, not a critical step.
 

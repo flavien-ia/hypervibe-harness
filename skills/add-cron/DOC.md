@@ -17,28 +17,29 @@ Adds a task that runs automatically at a fixed time in your project. Ideal for s
 
 3. **Short name**: you give a kebab-case name for the task (`rapport-hebdo`, `sync-clients`, `nettoyage`).
 
-4. **Automatic clock choice**: Hypervibe decides for itself which infrastructure to use (you have no choice to make) among 3 options:
-  - **Dedicated Cloudflare Worker**: precise to the second, ideal for timing-critical tasks. 5 free spots per Cloudflare account.
-  - **Shared Cloudflare dispatcher**: a single Worker shared across all your projects. Precise to the minute. Ideal when the 5 Cloudflare spots are saturated (a single spot for N tasks).
-  - **GitHub Action**: free, unlimited, but with **a possible 30-60 min delay**. Ideal for reports, digests, cleanups where exact timing has no impact.
+4. **Automatic clock choice**: Hypervibe decides for itself which clock to use (you have no choice to make):
+  - **Your shared clock** (the default, for virtually everything): a single mechanism that serves **all** your projects. Precise to the minute, and zero extra cost no matter how many tasks you add. It is the same clock that already handles your database backups and your quota watch.
+  - **Dedicated Cloudflare Worker** (rare): only when the task needs its own isolated resources on Cloudflare (its own R2, KV or D1 space, or a secret that must not be shared with your other projects).
+  - **GitHub Action** (fallback): used only when Cloudflare is not set up on your computer. Free and unlimited, but with **a possible 30-60 min delay**.
 
-5. **Automatic configuration**: depending on the choice, Hypervibe scaffolds everything, the clock, the protected endpoint `/api/cron/<name>` on the Next.js side, the `CRON_SECRET` key (generated if missing), the GitHub secrets if applicable.
+5. **Automatic configuration**: Hypervibe scaffolds everything, the protected endpoint `/api/cron/<name>` on the Next.js side, the `CRON_SECRET` key (generated if missing), the registration of the schedule on the chosen clock (and the GitHub secrets if the GitHub clock is used).
 
-6. **Recap**: Hypervibe explains in one sentence **which clock was chosen and why** (for example: *"I put it on the GitHub clock because it's a weekly report, exact timing has no impact"*).
+6. **Recap**: Hypervibe explains in one sentence **which clock was chosen and why** (for example: *"I put it on your shared clock: precise to the minute, it serves all your projects at zero extra cost"*).
 
 7. **Up to you to code the logic**: the task is in place but does nothing yet. Hypervibe has prepared the file where you (or Claude) will write what it should run.
 
 ## What it creates for you
 
 - A **protected route** `/api/cron/<name>` on the Next.js side (with `CRON_SECRET` verification)
-- A **clock** on the appropriate infrastructure (Cloudflare Worker, shared dispatcher, or GitHub Action)
+- The task **registered on the right clock** (your shared clock by default; dedicated Worker or GitHub Action when justified)
+- On the shared clock: the schedule saved in a small **versioned registry** on your computer (every change is recorded, you can always see what changed and when)
 - The `CRON_SECRET` key in `.env` + Vercel
 - An update to `CLAUDE.md` with the task recap
 
 ## Prerequisites
 
 - The project must be Next.js deployed on Vercel (typically via `/bootstrap`)
-- For Cloudflare clocks: Cloudflare connected to your computer (`/start` handles it). If Cloudflare is not available, Hypervibe automatically switches to GitHub Action.
+- For the shared clock (and dedicated Workers): Cloudflare connected to your computer (`/start` handles it). If Cloudflare is not available, Hypervibe automatically switches to GitHub Action.
 
 ## Tips
 
@@ -52,8 +53,8 @@ Once the task is in place, simply tell Hypervibe:
 You have **nothing** to type in a terminal.
 {{/callout}}
 
-{{callout:info|Why 3 clocks}}
-Cloudflare is precise (to the second) but limited to 5 free spots. GitHub Actions is unlimited but can be 30-60 min late. The shared dispatcher is a smart compromise: precise to the minute, and uses a single Cloudflare spot for N tasks across N projects. Hypervibe picks the right option for you based on the nature of the task and the remaining room.
+{{callout:info|One clock for everything}}
+Behind the scenes, all your projects share **a single clock** (a mutualized Cloudflare mechanism called `hypervibe-jobs`). It handles your scheduled tasks, your database backups and your quota watch, ticks every minute, and consumes a single Cloudflare cron slot in total, whether you have 1 task or 50 spread across 10 projects. Its schedule list is versioned (git) on your computer, so every change leaves a trace. A dedicated clock is created only when a task really needs its own isolated resources.
 {{/callout}}
 
 {{callout:warning|Bad candidate for /add-cron}}

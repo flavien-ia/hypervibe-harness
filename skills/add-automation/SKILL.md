@@ -1,6 +1,6 @@
 ---
 name: add-automation
-description: "Add an automation to a Next.js project - scheduled task, background process, long-running worker, webhook handler isolated from the frontend, or heavy computation that exceeds Vercel function limits. Acts as a smart orchestrator: discovery phase to understand the user's actual need, then routes to the right architecture (simple cron via /add-cron, Cloudflare Worker for light/scheduled work, or Render Background Worker for heavy/24-7 processing). Optionally converts the project to Turborepo when needed."
+description: "Add an automation - scheduled task, background process, long-running worker, webhook handler, heavy computation, or a personal recurring AI mission. Acts as a smart orchestrator: discovery phase to understand the user's actual need, infers whether the job belongs to the APP (runs on the app's infrastructure: cron via /add-cron, Cloudflare Worker, or Render Background Worker) or to the OPERATOR (a Claude routine on the user's own account via _create-routine), recommends with plain-words reasoning, and delegates to the right sub-skill after validation. Optionally converts the project to Turborepo when a dedicated worker is needed."
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
 
@@ -16,7 +16,7 @@ This line loads `CLOUDFLARE_API_TOKEN` from the User scope (Windows registry / s
 
 # Add Automation - Discovery & routing
 
-You help the user add background processing capacity to their Next.js project.
+You help the user add an automation: to their project, or to their own toolkit.
 
 ## Communication
 - Detect the user's language from their messages and ALWAYS reply in that language (default: English). This applies to every user-facing message: questions, progress, confirmations, summaries, errors.
@@ -26,59 +26,74 @@ You help the user add background processing capacity to their Next.js project.
 
 This skill is **mostly orchestration**. Your job is:
 1. Understand what the user actually wants
-2. Decide on the right architecture (cron / Cloudflare Worker / Render Worker)
-3. Invoke the right helper skills to do the actual work
+2. Infer WHO the automation serves: the app, or the operator (see "The app/ops split")
+3. Decide on the right architecture and recommend it with reasons
+4. Invoke the right helper skill to do the actual work
 
 You will rarely write code yourself in this skill - you delegate to:
-- **`add-cron`** - for scheduled tasks that fit in a Vercel function (< 60s, no state, < 1×/min frequency)
-- **`add-agent`** - for AI-driven processes (LLM that decides actions, uses tools, has memory). See routing rule below.
+- **`add-cron`** - scheduled tasks that fit in a Vercel function (< 60s, stateless). Uses the unified shared hypervibe-jobs worker by default (1 Cloudflare slot for everything).
+- **`_create-routine`** - operator-side recurring AI missions (a Claude routine on the user's own account)
+- **`add-agent`** - AI-driven processes that are part of the PRODUCT (serve the app's end users)
 - **`_setup-wrangler`** - installs Wrangler CLI if missing
 - **`_setup-render`** - ensures the Render API key is in the vault (Render via REST API, no CLI)
 - **`_convert-to-turborepo`** - converts the project to a monorepo (idempotent)
 - **`_create-cloudflare-worker`** - scaffolds and deploys a Cloudflare Worker in `apps/worker/`
 - **`_create-render-worker`** - scaffolds a Render Background Worker in `apps/worker/`
 
-### Routing rule: AI agents → `/add-agent`
+---
 
-If, during discovery, the user describes a process that:
-- **Must understand / interpret / decide** something (not just run predefined code)
-- Explicitly mentions **AI agent, LLM, Claude, GPT, AI, intelligent, autonomous**
-- Wants to **write personalized text**, summarize content, classify emails, make decisions
-- Uses verbs like: *analyze, understand, summarize, decide, judge, write, converse, reason*
+## The app/ops split (the FIRST inference, before any architecture choice)
 
-→ **Stop** the `/add-automation` discovery, and explicitly offer the user to switch to `/add-agent`, which is designed for this case and asks more precise questions (Claude model, memory, budget cap, tools). Sample phrasing:
+Every automation belongs to one of two worlds, and mixing them up is the one unforgivable routing mistake:
 
-> What you are describing is an **AI agent** rather than a simple automation. I have a dedicated command, `/add-agent`, that is built for this: it asks the right questions (Claude model, memory between runs, budget cap, tools the agent needs) and scaffolds a clean agent with a circuit breaker, cost tracking, and detailed logs. Shall I hand off to `/add-agent`?
+**A job of the APP** - its output feeds the app or its end users: cleaning the database, sending emails to customers, syncing data the app displays, processing user uploads, webhooks. It must keep running no matter what happens to the operator's tools or subscriptions → it runs on the **app's infrastructure** (cron, Cloudflare Worker, Render).
 
-If the user says yes → invoke `/add-agent` with their description as an argument (`/add-agent "<description>"`). If the user says no → continue in `/add-automation` as a classic Worker (but this is probably a mistake on their part).
+**A job of the OPERATOR** - its output is for the user themselves (or their team): a morning brief, a weekly analysis, a watch that alerts them, a report, a triage with proposals. It is personal tooling → it runs as a **Claude routine on the user's own account** (their personal AI doing recurring work for them).
 
-**Edge cases**: a script that calls Claude a single time (no tool use, no loop) within a simple cron - this is more like `/add-cron` or a lightweight `/add-automation`, not `/add-agent`. The decisive criterion for `/add-agent` is: **agentic loop** (multi-turn tool use) or **autonomy** (the agent decides what comes next).
+### How to infer it (do NOT ask by default)
+
+Read the beneficiary of the output in the user's phrasing:
+- "send OUR USERS their weekly digest", "clean up expired sessions", "sync the catalog" → **app**
+- "send ME a brief", "alert ME when...", "analyze MY week", "watch my competitors and tell me" → **ops**
+
+Ask ONLY when genuinely ambiguous (e.g. *"a weekly report"* - for whom?). One short question:
+> This report, is it for **you** (your own tracking), or is it something **your app sends to its users**?
+
+### The safety rule, in both directions
+
+- An APP job must NEVER run as a routine: it would depend on the operator's personal Claude subscription (if they cancel, the app silently breaks), it costs AI usage for deterministic work, and routines have a minimum cadence of 1 hour with no strict timing guarantee.
+- An OPS job should not get app infrastructure by default: a Render worker + database + dashboard to send yourself a weekly brief is heavy machinery for a personal mission your Claude can just... do.
 
 ---
 
-## Step 0 - Cloudflare slot inventory (mandatory preflight)
+## Routing rule: AI-driven processes
 
-**⚠️ NEVER INFER the state of the Cloudflare slots from memory.** The user's CF account typically hosts workers from several projects - your memory of the current project only gives you a partial view. The ONLY source of truth is the script below.
+When the user describes a process that must **understand / interpret / decide / write** (mentions AI, Claude, GPT, agent, or uses verbs like *analyze, summarize, classify, judge, draft, reason*), combine it with the app/ops split:
 
-Run it BEFORE any discovery, BEFORE any recommendation, BEFORE any estimate:
+- **Ops + AI** ("brief me", "analyze and propose to me", "watch and alert me") → **`_create-routine`**. This is the sweet spot of routines: no infrastructure at all, the user's own Claude runs the mission on a schedule.
+- **App + AI** (the AI serves the end users: classify THEIR tickets, personalize THEIR emails, process THEIR documents) → offer to hand off to **`/add-agent`**, which scaffolds a production agent (Render worker, tools, memory, budget caps, full traceability). Sample phrasing:
+
+> What you are describing is an **AI agent that is part of your product**. I have a dedicated command, `/add-agent`, that is built for this: it asks the right questions (Claude model, memory between runs, budget cap, tools) and scaffolds a clean agent with a circuit breaker, cost tracking, and detailed logs. Shall I hand off to `/add-agent`?
+
+**Edge cases**: a script that calls Claude once (no tool loop) inside a simple app cron → that is `/add-cron` territory, not `/add-agent`. The decisive criterion for `/add-agent` is: agentic loop (multi-turn tool use) or autonomy, IN THE PRODUCT.
+
+---
+
+## Step 0 - Preflight: shared worker + Cloudflare availability
+
+First make sure the vault is unlocked (follow **`_ensure-vault`**): `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status` → if `locked`/`expired`, run `launch.mjs unlock`; if the vault does not exist, delegate to `_add-keyring`.
+
+Then ensure the unified shared worker is provisioned (idempotent, fast when already there):
 
 ```bash
 eval "$(node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs")"
-node "${CLAUDE_SKILL_DIR}/../../scripts/count-cf-cron-slots.mjs"
+result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/ensure.mjs")
 ```
 
-Parse the JSON and remember it for ALL the following steps:
-- `CF_USED` - number of active cron triggers on the account (sum of schedules per worker)
-- `CF_FREE` - free slots in the free tier (5 − `CF_USED`)
-- `PER_WORKER` - per-worker breakdown (useful if the user asks who occupies what)
+- `ok=true` → `CF_OK=true` (+ keep `WORKER_URL`, `dir`, `jobs`). If `status=created`, one sentence to the user: *"I set up your shared clock, a single mechanism that will serve all your projects (scheduled tasks, database backups, quota watch)."*
+- `ok=false` → `CF_OK=false`. Cloudflare is not usable on this machine: the cron option degrades to the GitHub clock, and the Cloudflare Worker option disappears from the recommendations. Suggest `/start` to enable Cloudflare when relevant. Do not abort - Render, GitHub and routines remain available.
 
-**If the script returns `{"error":"..."}`** : Cloudflare is not configured on the user's machine. Do not infer - either remove Cloudflare from the options offered in Step 3 (stay on GitHub Action or Render), or suggest `/start` to configure Cloudflare and resume.
-
-**When you present the options in Step 3, ALWAYS reference the real numbers from the script.** Examples:
-- ✅ *"You currently have 4 cron triggers used out of 5 (Cloudflare free tier). You have 1 slot left."*
-- 🔴 *"You have a few free slots I think"* ← FORBIDDEN.
-
-⚠️ **Note on Email Workers**: a worker that has no cron trigger (for example an Email Worker triggered by Cloudflare Email Routing) appears in `PER_WORKER` with `schedules: 0` and consumes **NO** cron slot. This is normal. Do not count it as an occupied slot.
+**Never estimate Cloudflare state from memory. If you need per-worker details (rare), run `count-cf-cron-slots.mjs`.**
 
 ---
 
@@ -87,9 +102,9 @@ Parse the JSON and remember it for ALL the following steps:
 Tell the user:
 > Before configuring anything, I need to understand what you want to do.
 >
-> **Describe your need in a few sentences**: what this worker will be used for, how often it should run, the nature of the work to be done, and anything else that seems important to you.
+> **Describe your need in a few sentences**: what this automation will do, how often it should run, and anything else that seems important to you.
 
-Wait for the user's response. Read it carefully.
+Wait for the user's response. Read it carefully. Apply the app/ops inference and the AI routing rule from the sections above BEFORE anything else: if it is clearly an ops mission or a product AI agent, short-circuit to the corresponding branch of Step 3.
 
 ## Step 2 - Clarify (max 3 questions, only if needed)
 
@@ -97,6 +112,7 @@ Analyze the user's description against these dimensions:
 
 | Dimension | Possible values | Why it matters |
 |---|---|---|
+| **Beneficiary** | the app / its users, or the operator | The FIRST split: infrastructure vs routine |
 | **Execution pattern** | event-driven (webhook, API), scheduled (cron), continuous (24/7 polling/streaming) | Determines cron vs worker |
 | **Load** | light (< 60s, < 100MB RAM), heavy (CPU/RAM intensive, large files, generative AI, transcoding) | Determines whether a Vercel function is enough or a dedicated worker is needed |
 | **Frequency** (if scheduled) | Daily, hourly, sub-minute, irregular | Determines the required precision |
@@ -108,7 +124,7 @@ If something is ambiguous, ask **at most 3 short, targeted questions**. Examples
 - *"You told me 'send a newsletter' - roughly how many emails per send?"*
 - *"You want to 'process videos' - what volume and what average length?"*
 - *"When you say 'continuously', do you really mean 24/7 or just during business hours?"*
-- *"Does the job need to keep state in memory between runs, or is each run completely independent?"*
+- *"This weekly summary, is it for you or for your app's users?"*
 
 **Rule**: no more than 3 questions. If after that it is still unclear, recap what you have understood and ask the user to confirm/correct in one sentence.
 
@@ -116,27 +132,27 @@ If something is ambiguous, ask **at most 3 short, targeted questions**. Examples
 
 Based on what you've learned, choose ONE architecture using these heuristics:
 
+### → Recommend a **Claude routine** (`_create-routine`) if:
+- Beneficiary = the operator (the output is for THEM, not for the app)
+- The work needs reading / analyzing / writing / judgment (an AI mission, not a fixed script)
+- Frequency ≥ 1 hour (typically daily or weekly)
+- **Examples**: morning market brief, weekly analysis of the project's errors with proposals, competitor watch with alerts, weekly cross-service stats digest for the founder
+
 ### → Recommend `add-cron` if:
-- Pattern = scheduled
-- Load = light (estimated < 30s per run, no heavy generative AI)
-- Frequency ≥ 1 minute
-- State = stateless
-- **Examples**: daily newsletter, nightly DB cleanup, hourly API sync, weekly report generation
-- Note: `add-cron` uses a Cloudflare Worker as a trigger + an `/api/cron` endpoint on Vercel. No GitHub Actions.
+- Beneficiary = the app; Pattern = scheduled; Load = light (< 30s per run); Frequency ≥ 1 minute; State = stateless
+- **Examples**: daily newsletter to subscribers, nightly DB cleanup, hourly API sync, weekly report emailed to customers
+- Note: `add-cron` registers the schedule on the unified shared hypervibe-jobs worker by default (one Cloudflare slot for all projects), with a GitHub fallback when Cloudflare is absent.
 
 ### → Recommend **Cloudflare Worker** if:
-- Pattern = event-driven (webhook, public API) **OR** scheduled with a need for sub-minute precision
-- Load = light (< 10ms CPU per request, < 128MB RAM)
-- Volume = high (up to 100k free requests/day)
-- Latency = critical (zero cold start)
-- **Examples**: Telegram/Discord/Stripe webhook, public API, lightweight reactive AI agent, edge function with geolocation, sub-minute cron
+- Beneficiary = the app; Pattern = event-driven (webhook, public API) **OR** scheduled with sub-minute precision
+- Load = light (< 10ms CPU per request, < 128MB RAM); Volume = high (up to 100k free requests/day); Latency = critical (zero cold start)
+- **Examples**: Telegram/Discord/Stripe webhook, public API, edge function with geolocation, sub-minute cron
+- Only when `CF_OK=true`.
 
 ### → Recommend **Render Background Worker** if:
-- Pattern = continuous (24/7 polling, queue consumer, persistent websocket)
-- Load = heavy (CPU/RAM intensive, exceeds Cloudflare Worker limits)
-- Duration = long (a job may run for several minutes or hours)
-- State = stateful (memory between runs, persistent DB connection)
-- **Examples**: video transcoding, massive scraping, AI agent that maintains a long context, Redis queue processor, persistent Discord bot
+- Beneficiary = the app; Pattern = continuous (24/7 polling, queue consumer, persistent websocket)
+- Load = heavy (CPU/RAM intensive, exceeds Cloudflare Worker limits); Duration = long (minutes/hours); State = stateful
+- **Examples**: video transcoding, massive scraping, Redis queue processor, persistent Discord bot
 - ⚠️ Free tier sleeps after 15min of inactivity → not suited to a service that truly needs to be awake at all times
 
 ### Present the recommendation
@@ -145,7 +161,7 @@ Tell the user, with explicit reasoning:
 
 > ## 📋 Recommendation: **<choice>**
 >
-> Given your need (<1-sentence summary>), I recommend **<add-cron | Cloudflare Worker | Render Background Worker>** because:
+> Given your need (<1-sentence summary>), I recommend **<a Claude routine | add-cron | Cloudflare Worker | Render Background Worker>** because:
 >
 > - <reason 1>
 > - <reason 2>
@@ -155,13 +171,19 @@ Tell the user, with explicit reasoning:
 >
 > ## ⚙️ What I am going to do concretely
 >
+> <if routine>
+> I am going to set up a **routine**: a mission that your own Claude runs for you on a schedule. No infrastructure, no code in your project: we write the mission together, we choose the schedule, and your Claude takes care of the rest. Two honest things to know before you say yes:
+> 1. It runs on **your Claude account** (it consumes a bit of your subscription usage, and stops if your subscription stops - which is fine, because this mission serves you, not your app).
+> 2. Depending on your setup it runs either in the cloud (works even with your computer off) or on this computer while the Claude app is open - I will tell you which.
+> </if>
+>
 > <if add-cron>
 > I am going to run the `add-cron` skill, which will:
 > 1. Create a protected `/api/cron` route in your Next.js app
-> 2. Deploy a lightweight Cloudflare Worker with a cron trigger that calls this route on the defined schedule
+> 2. Register the schedule on your shared clock (a single mechanism serving all your projects), which will call this route at the right time
 > 3. You will only need to edit the route to put your business logic in it
 >
-> No monorepo needed. The Cloudflare Worker just acts as a trigger. Setup in ~5 minutes.
+> No monorepo needed. Setup in ~5 minutes.
 > </if>
 >
 > <if cloudflare>
@@ -190,7 +212,7 @@ Tell the user, with explicit reasoning:
 
 **Wait for explicit user validation** before continuing.
 
-If the user disagrees with the recommendation, listen to their reasoning. They may have constraints you didn't know about (cost, existing infrastructure, personal preference). Adjust the recommendation accordingly. If the user is convinced of an option that's clearly wrong for their use case, push back politely once, but ultimately respect their choice.
+If the user disagrees with the recommendation, listen to their reasoning. They may have constraints you didn't know about (cost, existing infrastructure, personal preference). Adjust the recommendation accordingly. If the user is convinced of an option that's clearly wrong for their use case, push back politely once, but ultimately respect their choice. The ONE exception where you insist harder: an app-critical job on a routine (explain that their app would silently break if their Claude subscription stopped, and that the shared clock costs them nothing anyway).
 
 ## Step 4 - Execute
 
@@ -213,11 +235,15 @@ Invoke the **`add-cron`** skill. When it returns, skip to Step 5.
 2. Invoke **`_convert-to-turborepo`** (idempotent)
 3. Invoke **`_create-render-worker`**
 4. **If the user needs scheduled execution** → invoke **`add-cron`** *after* the worker is up. Tell the user explicitly:
-   > The Render free tier does not support native CRON. For scheduled runs, I am going to use a Cloudflare Worker with a cron trigger (via `add-cron`) that will call an HTTP endpoint. This endpoint lives in your Next.js app (`apps/web/src/app/api/cron/route.ts`) - it is the one that then has to trigger work in the worker, either by publishing a message to a shared queue, or by directly calling an HTTP route of the worker if it exposes one.
+   > The Render free tier does not support native CRON. For scheduled runs, I am going to use your shared clock (via `add-cron`) which will call an HTTP endpoint. This endpoint lives in your Next.js app (`apps/web/src/app/api/cron/route.ts`) - it is the one that then has to trigger work in the worker, either by publishing a message to a shared queue, or by directly calling an HTTP route of the worker if it exposes one.
+
+### Branch D - User accepted a Claude routine
+
+Invoke **`_create-routine`** with the goal and cadence gathered during discovery. It handles: mechanism detection (cloud/local), the honest warnings, the self-contained mission prompt (validated by the user), creation and verification. When it returns, skip to Step 5 (routine variant).
 
 ## Step 5 - Update CLAUDE.md
 
-Invoke `_update-claude-md` with:
+**Branches A/B/C** - invoke `_update-claude-md` with:
 - `custom`:
   - heading: `## Worker`
   - body:
@@ -236,7 +262,15 @@ If the project was just converted to a monorepo (Branch B or C), also invoke `_u
   - `- Monorepo: import shared code from \`@<PROJECT_NAME>/db\` (ou autres packages). Jamais de chemin relatif cross-app.`
   - `- Worker dev: \`pnpm dev --filter=worker\``
 
-## Step 6 - Offer to implement the business logic now
+**Branch D (routine)** - invoke `_update-claude-md` with:
+- `custom`:
+  - heading: `## Routines (opérateur)`
+  - body:
+    ```
+    - **<routine-id>** - <schedule in plain words> - <1-sentence mission>. Tourne sur le compte Claude de l'opérateur (<cloud | local>), PAS sur l'infra du projet. Gestion : demander à Claude ("mets ma routine en pause", "change l'heure").
+    ```
+
+## Step 6 - Offer to implement the business logic now (branches A/B/C only)
 
 The worker infrastructure is in place but the code only contains an empty `// TODO`. Offer the user to implement it right away or later:
 
@@ -258,6 +292,8 @@ The worker infrastructure is in place but the code only contains an empty `// TO
 - Update the "## Worker" section of CLAUDE.md: `Logique implantée : non (placeholder // TODO à compléter)`.
 - Remind them in the summary that they can come back later and say *"implement the worker logic"* - Claude will read the business role in CLAUDE.md and resume the conversation.
 
+(Branch D has no placeholder: the mission prompt IS the logic, and it was validated inside `_create-routine`.)
+
 ## RGPD - Privacy policy (only if Render route)
 
 If the branch chosen in Step 4 is **Render Background Worker**, add Render to the project's RGPD subprocessor registry:
@@ -266,7 +302,7 @@ If the branch chosen in Step 4 is **Render Background Worker**, add Render to th
 node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add render
 ```
 
-Why conditional: Cloudflare Workers and GitHub Actions do not store user data persistently (ephemeral stateless execution). Render hosts a long-running process, which in fact *can* manipulate/cache user data - declaring it as a subprocessor is more cautious.
+Why conditional: Cloudflare Workers and GitHub Actions do not store user data persistently (ephemeral stateless execution). Render hosts a long-running process, which in fact *can* manipulate/cache user data - declaring it as a subprocessor is more cautious. A Claude routine processes the OPERATOR's data on their own account, not the app users' data - nothing to declare either.
 
 The helper is idempotent. If the `politique-de-confidentialite/page.tsx` page exists (created by `/bootstrap`), it updates automatically.
 
@@ -274,10 +310,10 @@ The helper is idempotent. If the `politique-de-confidentialite/page.tsx` page ex
 
 Tell the user a concise recap. Adapt based on the branch taken AND based on whether the logic was implemented in Step 6:
 
-> ## ✅ Worker in place
+> ## ✅ <Worker in place | Routine in place>
 >
 > **Chosen architecture**: <choice>
-> **Setup completed**: <list of main actions: monorepo created, worker deployed, etc.>
+> **Setup completed**: <list of main actions: monorepo created, worker deployed, routine created with next run time, etc.>
 
 **If the logic was implemented in Step 6**:
 > 🎯 **Business logic implemented** - your worker now does `<1-sentence summary>`. You can test it locally with `<dev command>` or check the logs with `<logs command>`.
@@ -292,5 +328,8 @@ Tell the user a concise recap. Adapt based on the branch taken AND based on whet
 > <if render> Edit `apps/worker/src/index.ts` and replace the `// TODO` loop with your real logic. On every push to `main`, Render will automatically redeploy the worker. </if>
 >
 > You can also ask me to implement it later - I already know the intended business role (noted in `CLAUDE.md` → "Worker").
+
+**If Branch D (routine)**:
+> Your routine **<id>** is active: <mission in 1 sentence>, <schedule in plain words>, next run <date/time>. To manage it, just tell me: *"pause my routine"*, *"change the schedule"*, *"show me its last run"*, *"delete it"*.
 
 > If you change your mind about the architecture later, just run `/add-automation` again.

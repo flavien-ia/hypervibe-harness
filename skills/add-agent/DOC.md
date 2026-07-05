@@ -9,6 +9,8 @@ Creates an autonomous AI agent that runs in your project and decides on its own 
 - You want to watch a queue of events (orders, alerts, signals) and trigger smart actions
 - You want to automate a workflow that requires **understanding**: read a text, summarize it, classify it, write a personalized reply
 
+**Good to know**: when the mission is actually personal (a brief or digest **for you**, at a fixed cadence), Hypervibe first offers a much lighter path, a **routine** on your own Claude account, instead of scaffolding the full agent (see below).
+
 **Not suitable for**: a real-time chatbot on your site (user-facing conversational UI), a simple cron without AI, a non-AI process. Hypervibe automatically redirects you to the right command if it detects a mismatch.
 
 ## How it works
@@ -22,11 +24,13 @@ Creates an autonomous AI agent that runs in your project and decides on its own 
   - **Q4**: Which Claude model? (Sonnet by default, a good price/quality tradeoff; Opus for complex tasks; Haiku for very repetitive ones)
   - **Q5**: What cost cap? (default: 5 USD/day, 50 USD/month, the agent pauses if it exceeds it and warns you by email)
 
-3. **Anthropic key check**: Hypervibe looks at whether you have a valid `ANTHROPIC_API_KEY`. If not, it guides you through generating it on console.anthropic.com.
+3. **The routine shortcut**: right after the goal question, Hypervibe checks WHO the mission serves. If the output is for **you** (a morning brief, a weekly digest, a watch report) and it runs at fixed times (every hour or less often), it offers a **routine** instead: your own Claude runs the mission on schedule, with zero infrastructure, zero code, ready in 2 minutes. The full agent remains the right choice when the agent serves **your app's users**, must watch something **continuously** (24/7), or must be triggered from a dashboard with detailed, auditable execution logs. You pick, Hypervibe does the rest.
 
-4. **Monorepo conversion if needed**: to host the agent alongside your Next.js, Hypervibe converts your project into a Turborepo (idempotent).
+4. **Anthropic key check**: Hypervibe looks at whether you have a valid `ANTHROPIC_API_KEY`. If not, it guides you through generating it on console.anthropic.com.
 
-5. **Scaffolding**:
+5. **Monorepo conversion if needed**: to host the agent alongside your Next.js, Hypervibe converts your project into a Turborepo (idempotent).
+
+6. **Scaffolding**:
   - The agent lives in its own folder under `apps/` (named after your agent), deployable on a **Render** Background Worker
   - A clean agentic loop (Anthropic SDK with `cache_control` on the system prompt and the tools)
   - Default tools: `http-fetch` (read URLs), `send-email` (write to you), `db-query` (read the DB, SELECT only)
@@ -35,9 +39,9 @@ Creates an autonomous AI agent that runs in your project and decides on its own 
   - Automatic **circuit breaker**: tracks cost in real time, pauses the agent if the cap is exceeded, warns you by email
   - **Full persistence**: each run + each decision turn is saved in Postgres tables for audit
 
-6. **Deployment on Render**: Hypervibe generates `render.yaml`, commits, pushes. You confirm on the Render dashboard side (Blueprint creation, 1 step that can't be automated).
+7. **Deployment on Render**: Hypervibe generates `render.yaml`, commits, pushes. You confirm on the Render dashboard side (Blueprint creation, 1 step that can't be automated).
 
-7. **Optional dashboard**: Hypervibe then offers to add `/admin/agents`, a dashboard to monitor your agents (`/add-agent-dashboard`).
+8. **Optional dashboard**: Hypervibe then offers to add `/admin/agents`, a dashboard to monitor your agents (`/add-agent-dashboard`).
 
 ## What it creates for you
 
@@ -48,6 +52,8 @@ Creates an autonomous AI agent that runs in your project and decides on its own 
 - `render.yaml` for deployment
 - The **stack diagram** updated in `CLAUDE.md`
 
+(If you chose the routine shortcut instead, none of the above is created: you get a recurring mission on your own Claude account, plus a note in `CLAUDE.md`.)
+
 ## Prerequisites
 
 - The project must be in Next.js (typically initialized by `/bootstrap`)
@@ -57,6 +63,10 @@ Creates an autonomous AI agent that runs in your project and decides on its own 
 - A Render account (starter plan ~7 USD/month for the worker)
 
 ## Tips
+
+{{callout:tip|A brief for yourself? A routine is enough}}
+If the goal is a scheduled mission whose output is for **you** (morning brief, weekly digest, watch report), you do not need a server, database tables, or a dashboard: a **routine** on your own Claude account does it with zero infrastructure. Honest counterpart: it consumes a bit of your Claude subscription and stops if the subscription stops. Fine for a personal mission, never acceptable for something your app depends on: those keep the full agent machinery.
+{{/callout}}
 
 {{callout:warning|The circuit breaker is your best friend}}
 By default, the agent stops automatically if it exceeds **5 USD/day or 50 USD/month**. This is crucial: an agent that loops can consume quickly. You receive an alert email, and you can decide to raise the cap or dig into the bug. **Never disable the circuit breaker.**

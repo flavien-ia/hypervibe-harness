@@ -1,6 +1,6 @@
 ---
 name: add-agent
-description: "Scaffold an autonomous AI agent into the user's project. The agent runs on Render Background Worker, uses Anthropic Claude (Sonnet 4.6 by default) with prompt caching, has tools (http-fetch, send-email, db-query by default; more added based on the agent's job), optional Postgres KV memory, a daily/monthly cost circuit breaker (default 5 USD/day, 50 USD/month - kills runs over budget and emails the admin), and persists every invocation + every loop turn to Postgres for full traceability. Use this when the user wants an LLM-driven process that decides actions, uses tools, and optionally has memory - distinct from /add-automation which handles non-AI background processing. Discovery phase asks ~5 questions about the agent's job (goal, trigger, memory needs, model, budget) then runs setup-agent.mjs to scaffold and deploy. NOT for chatbots (real-time per-user UI agents) - those need a dedicated /add-chatbot skill (not yet built). Suitable for: cron-driven agents (digest emails, scheduled analysis), continuous background agents (email surveillance, monitoring), and on-demand agents (triggered manually from a dashboard)."
+description: "Scaffold an autonomous AI agent into the user's project. The agent runs on Render Background Worker, uses Anthropic Claude (Sonnet 4.6 by default) with prompt caching, has tools (http-fetch, send-email, db-query by default; more added based on the agent's job), optional Postgres KV memory, a daily/monthly cost circuit breaker (default 5 USD/day, 50 USD/month - kills runs over budget and emails the admin), and persists every invocation + every loop turn to Postgres for full traceability. Use this when the user wants an LLM-driven process that is part of the PRODUCT (serves the app or its end users), decides actions, uses tools, and optionally has memory - distinct from /add-automation which handles non-AI background processing. When the mission is actually a personal recurring task for the OPERATOR (a brief, a watch, a weekly analysis for themselves) at a cadence of 1 hour or more, the discovery short-circuits to the much lighter _create-routine (a Claude routine on the user's own account, zero infrastructure). Discovery phase asks ~5 questions about the agent's job (goal, trigger, memory needs, model, budget) then runs setup-agent.mjs to scaffold and deploy. NOT for chatbots (real-time per-user UI agents) - those need a dedicated /add-chatbot skill (not yet built). Suitable for: continuous background agents (email surveillance, monitoring), cron-driven product agents, and on-demand agents (triggered manually from a dashboard)."
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
@@ -27,7 +27,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs" 2>/dev/null
 You help the user set up an AI agent in their project. You ask few questions (max 5 needed), and you do the scaffolding + deployment work for them.
 
 The deterministic code (scaffold templates, install deps, push schema, etc.) lives in `scripts/setup-agent.mjs`. This SKILL:
-1. Asks the discovery questions
+1. Asks the discovery questions (and short-circuits to `_create-routine` when the mission is operator-side and low-frequency - see Q1.bis)
 2. Self-heals the Anthropic key if missing
 3. Delegates to `_convert-to-turborepo` if the project is not a monorepo
 4. Runs `setup-agent.mjs` with the right args
@@ -94,6 +94,21 @@ If the user already gave a description as a command argument (`/add-agent <descr
 > What's yours?
 
 → Capture as `<USER_DESCRIPTION>`. Used for Q2 (inferring the trigger), for the system prompt, and for the additional tools.
+
+### Q1.bis - The routine shortcut (check BEFORE going further)
+
+Look at WHO the mission serves and HOW OFTEN it runs:
+
+- **Operator-side + scheduled (cadence >= 1 hour)** - the output is for the user themselves (a brief, a digest, an analysis, a watch report) and it runs at fixed moments (daily, weekly...). Two of the three Q1 examples are in this case (the morning RSS brief, the weekly stats digest). → This does NOT need the full agent machinery (Render worker, database tables, dashboard, budget caps). Offer the light path:
+
+> Good news: for this kind of personal recurring mission, you don't need any infrastructure at all. I can set it up as a **routine**: your own Claude runs the mission on schedule (it consumes a bit of your Claude subscription, and it serves you personally - not your app). Zero code, zero hosting, ready in 2 minutes.
+>
+> The full agent (with its own server, database traces and dashboard) stays the right choice if you want this to run for your app's users, or if you want detailed execution logs you can audit. Which do you prefer, the **routine** (recommended here) or the **full agent**?
+
+If the user picks the routine → invoke **`_create-routine`** with the goal + cadence, and STOP here (no Step 2-7; `_create-routine` handles everything including the final summary).
+If the user picks the full agent (or the mission is genuinely product-side / continuous / on-demand for a team) → continue with Q2.
+
+- **Product-side, continuous, or on-demand dashboard** - the agent serves the app's end users, must watch something 24/7 (routines cannot: 1 hour minimum between runs), or must be triggered from an admin dashboard with full traceability. → Continue with Q2, this skill is the right tool.
 
 ### Q2 - When should the agent run? (trigger)
 
