@@ -49,16 +49,20 @@ Then run the `get` from Step 1 again.
 ## Step 2 - Change the nameservers (PUT)
 
 ```bash
-curl -s -o /tmp/hns.json -w "%{http_code}" -X PUT \
+# Portable temp path (Windows + macOS): os.tmpdir() normalized to forward slashes.
+# Never hardcode /tmp/... : on Windows Git Bash, curl -o /tmp/hns.json writes to C:\tmp (missing) and fails.
+HNS="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/hns.json'")"
+curl -s -o "$HNS" -w "%{http_code}" -X PUT \
   -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
   "https://developers.hostinger.com/api/domains/v1/portfolio/<domain>/nameservers" \
   -d "{\"ns1\":\"<ns1_cloudflare>\",\"ns2\":\"<ns2_cloudflare>\"}"
+echo; echo "RESPONSE_BODY=$HNS"; cat "$HNS"
 ```
 
 - **HTTP 200/2xx** -> success, go to Step 3.
 - **401/403** -> invalid/expired token: offer to re-enter it (Step 1b with a re-paste), or switch to manual mode (Step 4).
 - **404** -> the domain is not in this Hostinger account: check the spelling / the correct account, otherwise manual mode.
-- **422/other** -> show the error message from `/tmp/hns.json` and switch to manual mode.
+- **422/other** -> show the error message from the response body (the block prints it as `RESPONSE_BODY=…` + its content) and switch to manual mode.
 
 ## Step 3 - Verify
 

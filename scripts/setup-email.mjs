@@ -19,14 +19,16 @@
 //
 // Args:
 //   --provider <resend|brevo>     required
-//   --name <project-name>         required (used for Resend API key naming + Brevo sender name default)
+//   --name <project-name>         required (used as the Brevo sender name default)
 //   --web-dir <path>              default: cwd
 //   --brevo-sender <email>        required if --provider brevo (must be verified in Brevo dashboard)
 //   --brevo-sender-name <name>    optional, default = project-name
 //
 // Prerequisites assumed by the script:
-//   - Resend: the `resend` CLI is installed AND logged in (Claude validates this in SKILL Step 1).
-//   - Brevo: the BREVO_API_KEY env var is set (Claude validates this in SKILL Step 1).
+//   - The API key is in the Bitwarden vault (item RESEND / BREVO, field "api_key") and the
+//     vault is unlocked (Claude ensures both in SKILL Step 1 via the _get-secret pattern).
+//     No provider CLI is involved: everything goes through the vault + the REST API / SDK.
+//     A legacy RESEND_API_KEY / BREVO_API_KEY env var is still accepted as a fallback.
 //   - The project has a working T3 scaffold (Next.js + tRPC + setup-security from /bootstrap,
 //     because the contact router uses rateLimitedProcedure).
 //

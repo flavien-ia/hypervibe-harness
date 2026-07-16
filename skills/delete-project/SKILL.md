@@ -95,7 +95,7 @@ At the end, the script writes `{status, zipPath, zipSize, ...}` to stdout. Captu
 
 **If the snapshot fails** (script exit 1 or `status: "error"`): **stop the `/delete-project` skill** and warn the user. We never delete without a successful backup when the user has explicitly requested one. Display the error and offer: (a) re-run `/save-project` manually to diagnose, (b) re-run `/delete-project` afterwards saying that they already have the backup, (c) abort.
 
-### 0.4 Double confirmation via `AskUserQuestion`
+### 0.4 Double confirmation (Q1 via `AskUserQuestion`, Q2 as a free-text reply)
 
 **Question 1**: "Do you confirm that you want to **permanently delete** the project `<PROJECT_NAME>` and that you accept the irreversible loss of all of its data?"
 - Options: `Yes, I confirm` / `No, just pause it` / `No, cancel`
@@ -104,8 +104,11 @@ At the end, the script writes `{status, zipPath, zipSize, ...}` to stdout. Captu
 → If **"cancel"**: stop the skill.
 → If **"Yes"**: continue with Q2.
 
-**Question 2**: "Final confirmation: type `<PROJECT_NAME>` exactly to confirm."
-- Single option "I will type the name" + Other. The Other answer must match exactly (case-sensitive). Otherwise, refuse and stop.
+**Question 2** (free-text confirmation, **NOT** `AskUserQuestion`).
+Ask it as a plain chat message. Do not use `AskUserQuestion`: it requires ≥2 preset options and cannot be a free-text field, so a single-option call fails validation with `too_small: options expected array to have >=2 items`. Send:
+> "Final confirmation: reply with the exact name `<PROJECT_NAME>` (nothing else) to confirm the deletion."
+
+Then compare the user's next reply to `<PROJECT_NAME>` **exactly** (case-sensitive, trimmed of surrounding whitespace). If it matches, proceed. If it does not match, refuse and stop.
 
 **Under NO pretext should you proceed to the scan or the execution before these two explicit confirmations.** Even if the user wrote "delete everything without asking me again", the double-check is intentional.
 
@@ -114,9 +117,16 @@ At the end, the script writes `{status, zipPath, zipSize, ...}` to stdout. Captu
 ## Phase 1 - Inventory (1 script call)
 
 ```bash
+# Portable temp path (Windows + macOS): os.tmpdir() normalized to forward slashes,
+# so bash redirection, node, and the Read tool all resolve the SAME file.
+# NEVER hardcode /tmp/... here: on Windows Git Bash, `> /tmp/x` and node's readFileSync('/tmp/x')
+# point at different places (C:\tmp), which fails with ENOENT.
+INV="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/delete-project-inventory.json'")"
 node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/discover-resources.mjs" \
   --project "<PROJECT_NAME>" \
-  --project-dir "<detected-project-path>" > /tmp/delete-project-inventory.json
+  --project-dir "<detected-project-path>" > "$INV"
+echo "INVENTORY_FILE=$INV"
+cat "$INV"
 ```
 
 The script scans the 17 surfaces in parallel: Vercel, Neon (REST API), Cloudflare Workers / R2 (global+EU) / DNS / Email Routing, db-backup worker (BACKUP_TARGETS), cron ping jobs of the shared `hypervibe-jobs` worker (matched by their `project` field in the registry), Render, Stripe (webhooks + products), Upstash, env vars (Vercel pull + diff whitelist) → detection of third-party services (Sentry, PostHog, Mapbox, OpenAI, etc.), local folder + package.json, Claude memory, GitHub repo, Google/GitHub OAuth via present vars.
@@ -155,7 +165,7 @@ The resulting JSON has the form:
 
 Any section may also carry an **`excluded`** array: resources whose name matched but that were re-attributed to a **more specific sibling project** (`street-cool` when deleting `street`), or recognized as **shared Hypervibe infrastructure** (the `hypervibe-jobs` worker). They are NEVER deleted; surface them in section 2.4 with their `excludedReason`.
 
-Read this JSON and move on to Phase 2.
+The block prints the inventory JSON directly (and echoes its absolute path as `INVENTORY_FILE=…`). Read the JSON from that output. Phase 3 recomputes the exact same `$INV` path with the identical one-liner, so the file bridges the two phases without you having to hardcode any path. Move on to Phase 2.
 
 ---
 
@@ -213,9 +223,14 @@ Build the `scope` JSON array from the Phase 2.5 choices. Possible categories:
 If the user chose "Delete everything", pass `["all"]`. Otherwise remove the categories they want to keep.
 
 ```bash
+# Same portable temp paths as Phase 1 (recomputed identically; shell state does not persist between calls).
+INV="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/delete-project-inventory.json'")"
+REPORT="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/delete-project-report.json'")"
 node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/execute-deletions.mjs" \
-  --inventory /tmp/delete-project-inventory.json \
-  --scope '["all"]' > /tmp/delete-project-report.json
+  --inventory "$INV" \
+  --scope '["all"]' > "$REPORT"
+cat "$REPORT"
+rm -f "$INV" "$REPORT"
 ```
 
 Create a todo list with one entry per scope category. Mark "in_progress" before the run and "completed" after (a single script run ⇒ you mark them within 2 seconds max).

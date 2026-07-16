@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.3 (16 juillet 2026)
+
+### Améliorations
+- **Suppression de projet (`/delete-project`)** : la confirmation finale, où l'on retape le nom du projet, échouait et bloquait la skill. Elle se fait désormais par une simple réponse dans le chat. La double vérification avant toute suppression reste inchangée.
+- **Fiabilité sous Windows** : la suppression de projet et le changement de serveurs de noms chez Hostinger écrivaient leurs fichiers de travail à un endroit introuvable sous Windows, ce qui les faisait échouer. Les chemins sont maintenant calculés pour fonctionner sur Windows comme sur Mac, et les messages d'erreur des services sont affichés en clair.
+
+### Coulisses
+- Nettoyage de la documentation interne de la mise en place de l'email : elle décrivait encore une ligne de commande Resend abandonnée depuis, alors que la clé est lue dans le coffre-fort et que tout passe par l'API. Aucun changement de comportement.
+
 ## v2.5.2 (5 juillet 2026)
 
 ### Nouveautés
