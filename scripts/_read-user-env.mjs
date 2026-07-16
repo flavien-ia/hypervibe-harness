@@ -20,13 +20,15 @@
 //
 // THIS HELPER
 // -----------
-// Looks up a variable name in this order:
-//   1. process.env (current shell - fast path, works whenever the env is loaded)
-//   2. OS-specific User scope:
+// Looks up a variable name. The order depends on whether it is a MIGRATED GLOBAL KEY
+// (one of the VAULT_MAP names below):
+//   - mapped names: vault → process.env → OS User scope
+//   - other names:  process.env → OS User scope
+// where "OS User scope" is:
 //      - Windows: PowerShell `[Environment]::GetEnvironmentVariable('VAR', 'User')`
 //      - macOS:   parse ~/.zshrc, ~/.bashrc, ~/.profile (in this order)
 //      - Linux:   parse ~/.bashrc, ~/.profile, ~/.zshrc
-//   3. None found → return null (CLI: exit 2)
+// Nothing found → return null (CLI: exit 2)
 //
 // CLI USAGE
 // ---------
@@ -49,8 +51,16 @@ import { join } from "node:path";
 
 // Migrated global keys now live in the Bitwarden vault. Map the legacy env-var name
 // to its vault item/field so EVERY existing readUserEnv("X") call becomes vault-aware
-// without touching each caller. Fast path (process.env) still wins; vault is only hit
-// for these names when not already in the environment.
+// without touching each caller.
+//
+// For these names THE VAULT WINS over the environment. Before the env→vault migration,
+// /start persisted them as User-scope env vars (`setx` on Windows, `export` in ~/.zshrc).
+// A leftover one belongs to the user's OLD personal account, so letting it shadow the
+// vault silently provisions the WRONG account: the shared worker lands on a personal
+// Cloudflare, backups point at a personal Neon, and nothing errors out. Callers such as
+// shared-worker/ensure.mjs and shared-worker/register.mjs read these through
+// readUserEnv() without attempting the vault themselves, so this ordering is the only
+// thing standing between them and the wrong account.
 const VAULT_MAP = {
   CLOUDFLARE_API_TOKEN: ["CLOUDFLARE", "api_token"],
   CF_API_TOKEN: ["CLOUDFLARE", "api_token"],
@@ -60,22 +70,74 @@ const VAULT_MAP = {
   HOSTINGER_API_TOKEN: ["HOSTINGER", "api_token"],
 };
 
+// Per-process memo. Reading the vault costs a spawn (node → bw), and now that it comes
+// FIRST for mapped names, a run that reads several of them would pay it every time
+// (shared-worker/register.mjs alone reads CLOUDFLARE_API_TOKEN twice, plus NEON_API_KEY
+// and BREVO_API_KEY). A key cannot change mid-process, so caching the answer - null
+// included - is safe and keeps the reordering free.
+const vaultMemo = new Map();
+// Set when the vault answered "locked/expired" rather than "absent": it HAS the value,
+// we just cannot read it right now. That distinction decides whether falling back to the
+// environment is routine or dangerous.
+let vaultLocked = false;
+const warned = new Set();
+
 function tryVault(item, field) {
+  const memoKey = `${item}.${field}`;
+  if (vaultMemo.has(memoKey)) return vaultMemo.get(memoKey);
+
+  let value = null;
   try {
-    // Lazy import to avoid a hard dependency cycle / cost when not needed.
-    // vault.mjs is sync (spawnSync bw) and throws if locked/absent → caught here.
+    // vault.mjs is sync (spawnSync bw) and exits non-zero if locked/absent → caught here.
     const url = new URL("./vault/vault.mjs", import.meta.url);
-    // Synchronous require-style is unavailable for ESM; use a cached dynamic import
-    // resolved synchronously via a tiny spawn is overkill - instead call bw via the
-    // same mechanism vault.mjs uses. Simplest: shell out to the vault CLI entrypoint.
     const out = execSync(
       `node "${fileURLToPathSafe(url)}" get ${item} ${field}`,
       { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
     );
-    return out && out.length > 0 ? out : null;
-  } catch {
-    return null;
+    // vault.mjs writes the raw value with `process.stdout.write` and appends no newline,
+    // so there is nothing to trim (and trimming could corrupt a secret ending in space).
+    value = out && out.length > 0 ? out : null;
+  } catch (e) {
+    // 2 = locked, 3 = expired session (vault.mjs exit codes). Anything else (notably
+    // 4 = item absent) is a genuine miss and must stay silent.
+    if (e && (e.status === 2 || e.status === 3)) vaultLocked = true;
+    value = null;
   }
+
+  vaultMemo.set(memoKey, value);
+  return value;
+}
+
+/**
+ * The vault answered AND the environment holds a different value for the same name:
+ * that env value is a pre-vault leftover pointing at an old personal account. It is
+ * ignored, but say so once, because it should be cleaned up.
+ * Identical values are NOT reported: that is the normal case after
+ * `eval "$(node wrangler-env-init.mjs)"`, which exports the vault's own value.
+ */
+function warnStaleEnv(varName, vaultValue) {
+  const env = process.env[varName];
+  if (!env || env === vaultValue || warned.has(varName)) return;
+  warned.add(varName);
+  process.stderr.write(
+    `[hypervibe] ${varName}: a DIFFERENT value is still set in this machine's environment ` +
+    `(left over from before the vault). It was ignored - the vault wins. Remove it.\n`,
+  );
+}
+
+/**
+ * The vault is locked and we are about to trust the environment for a key the vault owns.
+ * That is exactly how a stale token silently reaches the wrong account, so it must be
+ * loud rather than silent.
+ */
+function warnLockedFallback(varName) {
+  if (warned.has(varName)) return;
+  warned.add(varName);
+  process.stderr.write(
+    `[hypervibe] ${varName}: the vault is LOCKED, falling back to this machine's ` +
+    `environment. If that value predates the vault it may point at the WRONG account. ` +
+    `Unlock the vault and retry to be certain.\n`,
+  );
 }
 
 function fileURLToPathSafe(url) {
@@ -86,7 +148,9 @@ function fileURLToPathSafe(url) {
 }
 
 /**
- * Read a User-scope env var. Order: process.env → vault (for migrated keys) → OS scope.
+ * Read a global key.
+ * Order: vault → process.env → OS scope for VAULT_MAP names (the vault is the source of
+ * truth for those), and process.env → OS scope for every other name.
  *
  * @param {string} varName  - The env var name to look up.
  * @returns {string | null} - The value, or null if not found anywhere.
@@ -94,23 +158,29 @@ function fileURLToPathSafe(url) {
 export function readUserEnv(varName) {
   if (!varName || !/^[A-Z_][A-Z0-9_]*$/.test(varName)) return null;
 
-  // 1. Current process env - fast path.
-  if (process.env[varName] && process.env[varName].length > 0) {
-    return process.env[varName];
+  const mapped = VAULT_MAP[varName];
+
+  // 1. Vault first for migrated global keys. It owns these values since the env→vault
+  //    migration, so an env var of the same name can only be an older, personal one.
+  if (mapped) {
+    const v = tryVault(mapped[0], mapped[1]);
+    if (v) {
+      warnStaleEnv(varName, v);
+      return v;
+    }
   }
 
-  // 2. Vault (only for migrated global keys; skipped silently if locked/absent).
-  if (VAULT_MAP[varName]) {
-    const v = tryVault(VAULT_MAP[varName][0], VAULT_MAP[varName][1]);
-    if (v) return v;
+  // 2. Current process env - fast path, and the only path for unmapped names.
+  if (process.env[varName] && process.env[varName].length > 0) {
+    if (mapped && vaultLocked) warnLockedFallback(varName);
+    return process.env[varName];
   }
 
   // 3. OS-specific persistent storage
   const os = platform();
-  if (os === "win32") {
-    return readFromWindowsRegistry(varName);
-  }
-  return readFromShellRc(varName, os);
+  const v = os === "win32" ? readFromWindowsRegistry(varName) : readFromShellRc(varName, os);
+  if (v && mapped && vaultLocked) warnLockedFallback(varName);
+  return v;
 }
 
 function readFromWindowsRegistry(varName) {

@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.4 (16 juillet 2026)
+
+### Améliorations
+- **Le coffre-fort fait autorité sur les réglages de ton ordinateur** : si une ancienne clé d'accès traînait encore dans les réglages de ta machine (comme en posaient les versions d'avant le coffre-fort), elle pouvait passer devant le coffre sans rien dire. Résultat possible : Hypervibe installait les tâches de fond sur le mauvais compte Cloudflare, ou branchait les sauvegardes sur la mauvaise base de données, sans afficher la moindre erreur. Le coffre est désormais consulté en premier, et une vieille clé restée en place est ignorée, puis signalée pour que tu puisses la retirer.
+- **Plus de repli silencieux quand le coffre est verrouillé** : si Hypervibe a besoin d'une clé alors que ton coffre est fermé, il te le dit clairement au lieu de se rabattre sans prévenir sur une valeur peut-être périmée.
+
+### Coulisses
+- Une clé lue plusieurs fois au cours d'une même commande n'est plus redemandée au coffre à chaque fois : elle est gardée en mémoire le temps de la commande. Les opérations qui en consultent plusieurs (sauvegardes, alertes de quota) s'en trouvent accélérées.
+
 ## v2.5.3 (16 juillet 2026)
 
 ### Améliorations
