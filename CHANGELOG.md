@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.5.5 (23 juillet 2026)
+
+### Nouveautés
+- **`/add-routine`** : confier une mission récurrente à votre propre Claude (un brief chaque matin, une analyse le vendredi, une veille qui vous alerte). Aucun code, aucune infrastructure : la routine tourne sur votre compte Claude, au rythme que vous choisissez.
+- **`/add-workflow`** : ajouter à votre app un enchaînement d'étapes déclenché par un événement (un document déposé, un formulaire envoyé, un paiement reçu), avec des étapes intelligentes là où il en faut. Tout tourne dans votre app, et chaque exécution est tracée étape par étape dans votre base. C'est ce que beaucoup de gens appellent « un agent », sans qu'un agent soit nécessaire.
+
+### Améliorations
+- **`/add-automation`** oriente maintenant vers ces deux nouvelles portes : une mission récurrente pour vous part en routine Claude, une chaîne déclenchée par un événement part en workflow, et les traitements lourds ou continus restent sur un vrai worker (Cloudflare ou Render).
+- **`/save-project`** : les sauvegardes récupèrent enfin le contenu de votre stockage de fichiers dans tous les cas (lecture directe avec les clés de votre projet, sans dépendre d'un outil en ligne de commande), et le téléchargement est nettement plus rapide. La sauvegarde de la base de données fonctionne à nouveau avec les versions récentes du pilote Neon. Surtout, une sauvegarde qui se retrouverait vide s'annonce désormais comme une erreur au lieu de passer pour un succès.
+
 ## v2.5.4 (16 juillet 2026)
 
 ### Améliorations

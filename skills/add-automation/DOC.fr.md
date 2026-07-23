@@ -10,7 +10,7 @@ Ajoute une automatisation : un traitement qui tourne en arrière-plan pour votre
 - Vous avez un **état persistant** à garder entre les exécutions (queue interne, cache mémoire)
 - Vous voulez une **mission récurrente pour vous-même** : un brief du matin, une analyse hebdo, une veille qui vous alerte
 
-Si votre besoin est une simple tâche périodique courte (< 60s, stateless), Hypervibe vous redirige vers `/add-cron`. Si c’est un **agent IA qui fait partie de votre produit**, elle vous bascule sur `/add-agent`.
+Si votre besoin est une simple tâche périodique courte (< 60s, stateless), Hypervibe vous redirige vers `/add-cron`. Si c’est une **chaîne intelligente finie déclenchée par un événement** (« quand X arrive, fais A puis B puis C »), elle vous route vers `/add-workflow` : le cas le plus fréquent derrière « je veux un agent », qui tourne dans votre app sans infrastructure en plus. Si c’est un **vrai agent IA qui fait partie de votre produit** (boucle autonome avec outils), elle vous bascule sur `/add-agent`. Et une mission récurrente pour vous-même passe directement par `/add-routine`.
 
 ## Comment ça se passe
 
@@ -33,6 +33,7 @@ Si votre besoin est une simple tâche périodique courte (< 60s, stateless), Hyp
 4. **Décision automatique** :
   - **Mission IA récurrente pour vous** → **routine Claude** (votre propre Claude l’exécute au bon moment ; aucune infrastructure)
   - **Tâche périodique simple pour l’app** → délègue à `/add-cron` (qui l’inscrit par défaut sur votre horloge partagée)
+  - **Chaîne finie déclenchée par un événement, éventuellement intelligente** → délègue à `/add-workflow` (la chaîne tourne dans votre app, chaque exécution tracée étape par étape ; aucune infrastructure en plus)
   - **Worker léger / event-driven / précision sous la minute** → **Cloudflare Worker** (rapide à déployer, scale auto, gratuit jusqu’à 100k requêtes/jour)
   - **Process lourd / continu 24h-7j / état persistant** → **Render Background Worker** (peut tourner indéfiniment, vraies ressources serveur, ~7$/mois sur le plan starter)
   - **IA au service des utilisateurs de votre app** → passe la main à `/add-agent` (agent de production avec plafonds de budget et traçabilité complète)
@@ -67,8 +68,8 @@ Si votre besoin est une simple tâche périodique courte (< 60s, stateless), Hyp
 Un job qui sert **votre app** part sur l’infrastructure de l’app : il doit continuer de tourner même si vous changez d’outils ou résiliez des abonnements. Un job qui sert **vous** peut devenir une **routine** : votre propre Claude l’exécute, sans aucune infrastructure. Deux choses honnêtes sur les routines : chaque exécution consomme un peu de votre abonnement Claude, et si votre abonnement s’arrête, la routine s’arrête avec. C’est exactement pour ça que rien de ce dont votre app dépend ne va JAMAIS sur une routine. Bon à savoir aussi : cadence minimum 1 heure ; les routines cloud tournent même ordinateur éteint, les locales tournent quand l’app Claude est ouverte.
 {{/callout}}
 
-{{callout:info|4 chemins, 1 commande}}
-`/add-automation` est un **orchestrateur** : selon votre besoin, elle vous redirige vers la bonne commande spécialisée (`/add-cron`, `/add-agent`), scaffold un worker (Cloudflare ou Render), ou met en place une routine Claude. Vous n’avez pas à choisir vous-même : vous décrivez, Hypervibe décide et vous explique pourquoi.
+{{callout:info|4 formes, 1 commande}}
+`/add-automation` est un **orchestrateur** au-dessus des 4 formes d’automatisation : `/add-cron` (tâche planifiée), `/add-workflow` (chaîne intelligente dans l’app), `/add-agent` (agent autonome du produit), `/add-routine` (mission récurrente pour vous). Elle sait aussi scaffolder un worker dédié (Cloudflare ou Render) pour les cas lourds ou continus. Chaque forme reste invocable en direct ; vous n’avez pas à choisir vous-même : vous décrivez, Hypervibe décide et vous explique pourquoi.
 {{/callout}}
 
 {{callout:warning|Render = payant pour le worker}}

@@ -62,8 +62,11 @@ async function getQueryFn() {
     return {
       driver: "@neondatabase/serverless",
       query: async (text) => {
-        const rows = await sql(text);
-        return rows;
+        // Recent @neondatabase/serverless refuses the conventional call
+        // `sql(text)` and requires either a tagged template or `sql.query()`.
+        // `sql.query(text)` returns the rows array directly.
+        if (typeof sql.query === "function") return await sql.query(text);
+        return await sql(text); // older driver versions
       },
       end: async () => {},
     };

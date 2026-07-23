@@ -10,7 +10,7 @@ Adds an automation: a process that runs in the background for your app, or a rec
 - You have **persistent state** to keep between runs (internal queue, memory cache)
 - You want a **recurring mission for yourself**: a morning brief, a weekly analysis, a watch that alerts you
 
-If your need is a simple short periodic task (< 60s, stateless), Hypervibe redirects you to `/add-cron`. If it is an **AI agent that is part of your product**, it switches you to `/add-agent`.
+If your need is a simple short periodic task (< 60s, stateless), Hypervibe redirects you to `/add-cron`. If it is a **finite intelligent chain triggered by an event** ("when X happens, do A then B then C"), it routes you to `/add-workflow`: the most common case behind "I want an agent", running inside your app with no extra infrastructure. If it is a **true AI agent that is part of your product** (an autonomous loop with tools), it switches you to `/add-agent`. And a recurring mission for yourself can go straight through `/add-routine`.
 
 ## How it works
 
@@ -33,6 +33,7 @@ If your need is a simple short periodic task (< 60s, stateless), Hypervibe redir
 4. **Automatic decision**:
   - **Personal recurring AI mission** → **Claude routine** (your own Claude runs it on schedule; no infrastructure at all)
   - **Simple periodic task for the app** → delegates to `/add-cron` (which registers it on your shared clock by default)
+  - **Finite event-triggered chain, possibly intelligent** → delegates to `/add-workflow` (the chain runs inside your app, every run traced step by step; no new infrastructure)
   - **Light worker / event-driven / sub-minute precision** → **Cloudflare Worker** (fast to deploy, auto-scaling, free up to 100k requests/day)
   - **Heavy process / continuous 24/7 / persistent state** → **Render Background Worker** (can run indefinitely, real server resources, ~7$/month on the starter plan)
   - **AI serving your app's end users** → hands off to `/add-agent` (a production agent with budget caps and full traceability)
@@ -67,8 +68,8 @@ If your need is a simple short periodic task (< 60s, stateless), Hypervibe redir
 A job that serves **your app** goes on the app's infrastructure: it must keep running even if you change tools or cancel subscriptions. A job that serves **you** can become a **routine**: your own Claude runs it, with zero infrastructure. Two honest things about routines: each run consumes a bit of your Claude subscription, and if your subscription stops, the routine stops with it. That is exactly why anything your app depends on NEVER goes on a routine. Also good to know: minimum cadence 1 hour; cloud routines run even with your computer off, local ones run while the Claude app is open.
 {{/callout}}
 
-{{callout:info|4 paths, 1 command}}
-`/add-automation` is an **orchestrator**: depending on your need, it redirects you to the right specialized command (`/add-cron`, `/add-agent`), scaffolds a worker (Cloudflare or Render), or sets up a Claude routine. You don't have to choose yourself: you describe, Hypervibe decides and explains why.
+{{callout:info|4 shapes, 1 command}}
+`/add-automation` is an **orchestrator** over the 4 automation shapes: `/add-cron` (scheduled task), `/add-workflow` (intelligent chain inside the app), `/add-agent` (autonomous product agent), `/add-routine` (recurring mission for yourself). It can also scaffold a dedicated worker (Cloudflare or Render) for the heavy or continuous cases. Each shape stays directly invocable; you never have to choose yourself: you describe, Hypervibe decides and explains why.
 {{/callout}}
 
 {{callout:warning|Render = paid for the worker}}

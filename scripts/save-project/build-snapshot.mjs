@@ -213,6 +213,14 @@ function stepDbDump() {
     logStep("db-dump", "error", { error: payload.reason || (r.stderr || "").slice(0, 200) });
     return;
   }
+  // Loud failure: a DATABASE_URL was found, so finding no table means the dump
+  // silently produced nothing. Never report that as a success.
+  if ((payload.tableCount ?? 0) === 0) {
+    logStep("db-dump", "error", {
+      error: "database reachable but 0 table found - the snapshot would contain no data",
+    });
+    return;
+  }
   logStep("db-dump", "ok", { driver: payload.driver, tableCount: payload.tableCount, totalRows: payload.totalRows });
 }
 
@@ -222,18 +230,16 @@ function stepDbDump() {
 function stepR2Download() {
   if (SKIP_STORAGE) { logStep("r2-download", "skipped", { reason: "--skip-storage" }); return; }
 
-  const wCheck = run("wrangler", ["--version"]);
-  if (wCheck.status !== 0) {
-    logStep("r2-download", "skipped", { reason: "wrangler CLI not installed" });
-    return;
-  }
-
+  // No wrangler pre-check: download-r2 works from the .env R2 credentials via
+  // the S3 API and only falls back to wrangler, so requiring the CLI here would
+  // wrongly skip projects that have R2 but no wrangler.
   const storageDir = join(SNAP_DIR, "storage");
   mkdirSync(storageDir, { recursive: true });
   const r = run("node", [
     join(SCRIPT_DIR, "download-r2.mjs"),
     "--project", PROJECT,
     "--out-dir", storageDir,
+    "--project-dir", PROJECT_DIR,
   ]);
   let payload = {};
   try {
@@ -242,11 +248,17 @@ function stepR2Download() {
   } catch {
     payload = { status: "error", reason: "could not parse download-r2 output" };
   }
+  // "skipped" = this project genuinely has no R2 storage configured.
+  if (payload.status === "skipped") {
+    logStep("r2-download", "skipped", { reason: payload.reason });
+    return;
+  }
   if (r.status !== 0 || payload.status === "error") {
     logStep("r2-download", "error", { error: payload.reason || (r.stderr || "").slice(0, 200) });
     return;
   }
   logStep("r2-download", "ok", {
+    mode: payload.mode,
     bucketsScanned: payload.bucketsScanned,
     totalObjects: payload.totalObjects,
     totalSize: humanSize(payload.totalBytes || 0),

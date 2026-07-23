@@ -1,6 +1,6 @@
 ---
 name: add-automation
-description: "Add an automation - scheduled task, background process, long-running worker, webhook handler, heavy computation, or a personal recurring AI mission. Acts as a smart orchestrator: discovery phase to understand the user's actual need, infers whether the job belongs to the APP (runs on the app's infrastructure: cron via /add-cron, Cloudflare Worker, or Render Background Worker) or to the OPERATOR (a Claude routine on the user's own account via _create-routine), recommends with plain-words reasoning, and delegates to the right sub-skill after validation. Optionally converts the project to Turborepo when a dedicated worker is needed."
+description: "Add an automation - scheduled task, in-app agentic workflow, background process, long-running worker, webhook handler, heavy computation, or a personal recurring AI mission. Acts as a smart orchestrator over the four shapes: /add-cron (scheduled app task), /add-workflow (finite event-triggered pipeline running inside the app, some steps intelligent), /add-agent (autonomous product agent), /add-routine (personal recurring AI mission on the user's own Claude account) - plus dedicated workers (Cloudflare, Render) for the heavy/continuous cases. Discovery phase to understand the actual need, infers whether the job belongs to the APP or to the OPERATOR, recommends with plain-words reasoning, and delegates after validation. Optionally converts the project to Turborepo when a dedicated worker is needed."
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
 
@@ -32,8 +32,9 @@ This skill is **mostly orchestration**. Your job is:
 
 You will rarely write code yourself in this skill - you delegate to:
 - **`add-cron`** - scheduled tasks that fit in a Vercel function (< 60s, stateless). Uses the unified shared hypervibe-jobs worker by default (1 Cloudflare slot for everything).
-- **`_create-routine`** - operator-side recurring AI missions (a Claude routine on the user's own account)
-- **`add-agent`** - AI-driven processes that are part of the PRODUCT (serve the app's end users)
+- **`add-workflow`** - finite event-triggered pipelines running INSIDE the app (2-8 known steps, some intelligent via the Claude API, bounded duration). The most common shape behind "I want an agent".
+- **`_create-routine`** - operator-side recurring AI missions (a Claude routine on the user's own account). Direct user entry: **`add-routine`** (thin front over the same engine - when routing from here, call the engine directly).
+- **`add-agent`** - AI-driven processes that are part of the PRODUCT (serve the app's end users) with a true agentic loop or autonomy
 - **`_setup-wrangler`** - installs Wrangler CLI if missing
 - **`_setup-render`** - ensures the Render API key is in the vault (Render via REST API, no CLI)
 - **`_convert-to-turborepo`** - converts the project to a monorepo (idempotent)
@@ -71,11 +72,12 @@ Ask ONLY when genuinely ambiguous (e.g. *"a weekly report"* - for whom?). One sh
 When the user describes a process that must **understand / interpret / decide / write** (mentions AI, Claude, GPT, agent, or uses verbs like *analyze, summarize, classify, judge, draft, reason*), combine it with the app/ops split:
 
 - **Ops + AI** ("brief me", "analyze and propose to me", "watch and alert me") → **`_create-routine`**. This is the sweet spot of routines: no infrastructure at all, the user's own Claude runs the mission on a schedule.
-- **App + AI** (the AI serves the end users: classify THEIR tickets, personalize THEIR emails, process THEIR documents) → offer to hand off to **`/add-agent`**, which scaffolds a production agent (Render worker, tools, memory, budget caps, full traceability). Sample phrasing:
+- **App + AI, finite pipeline** (an event triggers a KNOWN sequence of 2-8 steps, some intelligent: "when a document lands, analyze it, extract, notify"; "on form submit, enrich, summarize, save") → **`add-workflow`**. This is the MOST COMMON case behind the words "I want an agent": no agent is needed, the app itself runs the chain within a serverless function, every run traced step by step. Check it BEFORE reaching for `/add-agent`.
+- **App + AI, true agent** (the AI decides its own next actions in a loop with tools, or runs with autonomy: an open-ended assistant for THEIR tickets, a process that plans and acts) → offer to hand off to **`/add-agent`**, which scaffolds a production agent (Render worker, tools, memory, budget caps, full traceability). Sample phrasing:
 
 > What you are describing is an **AI agent that is part of your product**. I have a dedicated command, `/add-agent`, that is built for this: it asks the right questions (Claude model, memory between runs, budget cap, tools) and scaffolds a clean agent with a circuit breaker, cost tracking, and detailed logs. Shall I hand off to `/add-agent`?
 
-**Edge cases**: a script that calls Claude once (no tool loop) inside a simple app cron → that is `/add-cron` territory, not `/add-agent`. The decisive criterion for `/add-agent` is: agentic loop (multi-turn tool use) or autonomy, IN THE PRODUCT.
+**Edge cases**: a script that calls Claude once (no tool loop) inside a simple SCHEDULED job → `/add-cron` territory. The same single call triggered by an EVENT, or chained with other steps → `/add-workflow`. The decisive criterion for `/add-agent` is: agentic loop (multi-turn tool use) or autonomy, IN THE PRODUCT - a finite chain, however smart, is a workflow.
 
 ---
 
@@ -143,11 +145,17 @@ Based on what you've learned, choose ONE architecture using these heuristics:
 - **Examples**: daily newsletter to subscribers, nightly DB cleanup, hourly API sync, weekly report emailed to customers
 - Note: `add-cron` registers the schedule on the unified shared hypervibe-jobs worker by default (one Cloudflare slot for all projects), with a GitHub fallback when Cloudflare is absent.
 
+### → Recommend `add-workflow` if:
+- Beneficiary = the app; Pattern = event-driven (a user action, an upload, an incoming webhook) or on-demand
+- The work is a **finite chain of known steps** (2-8), possibly with intelligent steps (Claude API), each run bounded (seconds to a couple of minutes) and stateless between runs (state in the DB)
+- **Examples**: analyze an uploaded document then notify, enrich a form submission through 2 APIs then summarize, generate and send an invoice on payment, classify an incoming request and draft a reply
+- This is the default answer to most "I want an agent" requests, and to most webhooks: the chain lives INSIDE the app, no new infrastructure at all.
+
 ### → Recommend **Cloudflare Worker** if:
-- Beneficiary = the app; Pattern = event-driven (webhook, public API) **OR** scheduled with sub-minute precision
-- Load = light (< 10ms CPU per request, < 128MB RAM); Volume = high (up to 100k free requests/day); Latency = critical (zero cold start)
-- **Examples**: Telegram/Discord/Stripe webhook, public API, edge function with geolocation, sub-minute cron
-- Only when `CF_OK=true`.
+- Beneficiary = the app; Pattern = scheduled with **sub-minute precision**, or event-driven at a scale/latency the app should not absorb (very high volume, zero-cold-start requirement, edge geolocation), or needing **its own isolated Cloudflare resources** (dedicated R2/KV/D1, a secret that must not be shared)
+- Load = light (< 10ms CPU per request, < 128MB RAM)
+- **Examples**: sub-minute cron, very-high-volume public endpoint, edge function with geolocation
+- Only when `CF_OK=true`. For an ordinary webhook (Stripe, Telegram at normal volume), prefer `add-workflow`: the app can absorb it, one less deployment.
 
 ### → Recommend **Render Background Worker** if:
 - Beneficiary = the app; Pattern = continuous (24/7 polling, queue consumer, persistent websocket)
@@ -161,7 +169,7 @@ Tell the user, with explicit reasoning:
 
 > ## 📋 Recommendation: **<choice>**
 >
-> Given your need (<1-sentence summary>), I recommend **<a Claude routine | add-cron | Cloudflare Worker | Render Background Worker>** because:
+> Given your need (<1-sentence summary>), I recommend **<a Claude routine | add-cron | an in-app workflow | Cloudflare Worker | Render Background Worker>** because:
 >
 > - <reason 1>
 > - <reason 2>
@@ -184,6 +192,15 @@ Tell the user, with explicit reasoning:
 > 3. You will only need to edit the route to put your business logic in it
 >
 > No monorepo needed. Setup in ~5 minutes.
+> </if>
+>
+> <if workflow>
+> I am going to run the `add-workflow` skill, which will set up **an intelligent chain inside your app**:
+> 1. The trigger you described (<user action | secured webhook | schedule>)
+> 2. The steps, executed in order, with automatic retry on network hiccups<if AI steps> - the intelligent ones call Claude with your own API key</if>
+> 3. A trace of every run, step by step, in your database
+>
+> No new infrastructure, no deployment beyond your app itself. Setup in ~5-10 minutes.
 > </if>
 >
 > <if cloudflare>
@@ -219,6 +236,10 @@ If the user disagrees with the recommendation, listen to their reasoning. They m
 ### Branch A - User accepted `add-cron`
 
 Invoke the **`add-cron`** skill. When it returns, skip to Step 5.
+
+### Branch W - User accepted the in-app workflow
+
+Invoke the **`add-workflow`** skill with the discovery material (trigger, steps, which steps are intelligent). It handles its own scaffolding, duration gate, CLAUDE.md section and summary - when it returns, go straight to Step 7 (skip Steps 5 and 6, already covered).
 
 ### Branch B - User accepted Cloudflare Worker
 
