@@ -139,13 +139,35 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/setup-map.mjs" --web-dir "<WEB_DIR>" --l
 With `<layout>` ∈ `embedded` (default) | `mapfirst`.
 
 The script:
-1. Installs `maplibre-gl` + `react-map-gl` in `<WEB_DIR>`
+1. Installs `maplibre-gl@^5.24.0` + `react-map-gl` in `<WEB_DIR>` (the MapLibre major is pinned on purpose - see the version-pin warning below)
 2. Always copies `src/components/site/map.tsx` (the client MapView, with ResizeObserver + fitBounds + onLoad resize **baked in**) and `src/components/site/map-loader.tsx` (the SSR-safe wrapper)
 3. If `--layout=mapfirst`, also copies `src/components/site/map-shell.tsx` (generic chassis with viewport lock + sidebar slot + mobile Sheet)
 4. **Automatically detects i18n**: if `next-intl` is in place in the project, the script writes the i18n variant of `map-loader.tsx` (which uses `useTranslations("map")` for the "Loading map…" text) and merges the `map.*` keys into each `messages/<locale>.json`. Otherwise, it writes the plain variant with hardcoded FR strings.
 5. Prints a JSON `{ success, layout, mapFile, loaderFile, shellFile, actions, warnings }` parseable on the last line. If `warnings` contains `SHEET_MISSING` (the project does not have the shadcn/ui Sheet component while we are in mapfirst), invoke `npx shadcn@latest add sheet` before continuing to Step 5.
 
 If the script fails (non-zero exit): read the error message, fix it, retry. Typical case: `pnpm add` fails (pnpm not in the PATH) -> run `node "${CLAUDE_SKILL_DIR}/../../scripts/_ensure-tools-path.mjs"` first (it adds pnpm's global bin to the PATH).
+
+### ⚠️ `maplibre-gl` is pinned to `^5.24.0` - do NOT let it drift to v6
+
+**Symptom if the pin is lost**: the page dies on a white screen with `Application error: a client-side exception has occurred`, and the console shows:
+
+```
+TypeError: Cannot read properties of undefined (reading 'center')
+    at transformToViewState (...)
+    at Maplibre._onCameraEvent (...)
+```
+
+**Cause**: MapLibre GL JS v6 (released 2026-07-22) stopped having `Map extend Camera`, which removed the public `map.transform` property. `react-map-gl` 8.x still reads `this._map.transform` inside `_onCameraEvent`, so **every** camera event (initial resize, pan, zoom, `fitBounds`) throws and takes the page down. It is not a timing bug - do not try to fix it with a `try/catch` around `resize()`, that only hides the first symptom while pan/zoom keep failing.
+
+**Why nothing warns you**: `react-map-gl` declares `"maplibre-gl": ">=1.13.0"` as an optional peer dependency, so pnpm happily installs v6 and stays silent.
+
+**When to lift the pin**: only once `react-map-gl` (or `@vis.gl/react-maplibre`) ships a release that declares MapLibre v6 support. As of 2026-07-30 the latest is 8.1.1 and it does **not**. Check with:
+
+```bash
+npm view @vis.gl/react-maplibre version peerDependencies --json
+```
+
+If a maintained project already sits on a broken v6, fix it with `pnpm add "maplibre-gl@^5.24.0"`, then clear the build cache (`rm -rf .next`) and restart the dev server - Turbopack caches the old module resolution and will keep reporting phantom `Module not found` errors otherwise.
 
 ### What the `map.tsx` template does for you (do not reimplement)
 

@@ -83,10 +83,16 @@ const warnings = [];
 const actions = [];
 
 // ─── 1. Install deps ─────────────────────────────────────────────────
+// maplibre-gl is pinned to the v5 line on purpose. MapLibre v6 stopped
+// extending Camera on the Map class, which removed the public `map.transform`
+// that react-map-gl 8.x still reads in _onCameraEvent -> every camera event
+// throws "Cannot read properties of undefined (reading 'center')" and the
+// page dies with a client-side exception. Lift the pin once react-map-gl
+// ships v6 support.
 console.log("▸ Installing maplibre-gl + react-map-gl");
 const pnpmAdd = spawnSync(
   "pnpm",
-  ["add", "maplibre-gl", "react-map-gl"],
+  ["add", "maplibre-gl@^5.24.0", "react-map-gl"],
   { cwd: webDir, stdio: "inherit", shell: true },
 );
 if (pnpmAdd.status !== 0) {

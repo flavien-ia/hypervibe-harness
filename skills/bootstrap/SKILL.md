@@ -99,11 +99,39 @@ The only solution that works: launch the script in the background with output to
 
 **1. Choose the parent folder**
 
-Move to the **parent** folder where the app should be created:
-- **Windows** (git-bash): `cd /c/DEV` (or `cd /c/Users/$USER/dev`)
-- **macOS / Linux**: `cd ~/dev` (or your convention)
+⚠️ **Never hardcode `C:\DEV` (or `~/dev`) and never create a folder silently.**
+Participants routinely make their own `DEV` folder on the Desktop (called
+`Bureau` on a French Windows, often redirected into OneDrive). Creating a
+second one elsewhere leaves them with an empty folder on one side and their
+project on the other, with nothing to explain it. Detect first, confirm, then
+create.
 
-If the folder does not exist, create it (`mkdir -p <path>`).
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/detect-projects-dir.mjs" --cwd "$(pwd)"
+```
+
+The script returns `candidates` (existing folders that already hold projects,
+including the Desktop / OneDrive / Documents variants), a `recommended` hint and
+an `ambiguous` flag. Decide like this:
+
+- **`ambiguous: false` and `recommended` already exists** → announce it in plain
+  words and use it: *"I'll create your app in `<path>`, where your other
+  projects are. That works for you?"* Wait for a yes.
+- **`ambiguous: true`** (several plausible folders) → **you MUST ask** with
+  `AskUserQuestion`, listing the candidates with their project counts so the
+  choice is obvious. Never pick for them.
+- **Nothing exists yet** → propose the convention (`C:\DEV` on Windows,
+  `~/dev` otherwise), **say explicitly that you are about to create it**, and
+  wait for the go: *"I don't see a projects folder yet. I'll create `C:\DEV` and
+  put your app there, ok? Tell me if you prefer another location."*
+
+The user can always give a different path: use it as-is, no argument.
+
+Only once the location is confirmed: `cd` into it, and `mkdir -p <path>` if it
+does not exist yet.
+
+> If `cwd.insideProject` is true, you are inside an existing project: go up to
+> its parent rather than nesting a project inside another.
 
 **1b. Guard the project name against collisions**
 

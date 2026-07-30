@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.6.1 (30 juillet 2026)
+
+### Corrections
+- **Cartes** : les cartes ajoutées avec `/add-map` ne s'affichaient plus et faisaient planter la page avec un message d'erreur. En cause, une nouvelle version de MapLibre (la brique qui dessine les cartes) publiée le 22 juillet, devenue incompatible avec la couche React utilisée par le plugin. L'installation s'appuie désormais sur la dernière version stable compatible. Un projet déjà touché se répare en relançant `/add-map`. Le piège est documenté pour qu'il ne revienne pas.
+
+### Améliorations
+- **Création de projet** : `/bootstrap` ne décide plus tout seul de créer un dossier `DEV` à la racine du disque. Il regarde d'abord où vous rangez déjà vos projets, y compris sur le Bureau ou dans OneDrive, et vous demande confirmation quand plusieurs emplacements sont possibles. Fini le projet créé dans un dossier introuvable.
+
 ## v2.6.0 (25 juillet 2026)
 
 ### Nouveautés

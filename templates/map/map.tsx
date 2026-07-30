@@ -26,6 +26,13 @@ import "maplibre-gl/dist/maplibre-gl.css";
 //       "https://tiles.stadiamaps.com/styles/osm_bright.json"
 //   • Self-host PMTiles sur Cloudflare R2 (~$3/mois) :
 //       voir docs/self-host-tiles.md
+//
+// ⚠️ `maplibre-gl` est épinglé en ^5.24.0 dans package.json - NE PAS passer en
+// v6. En v6 la classe Map n'étend plus Camera, donc `map.transform` disparaît,
+// alors que react-map-gl 8.x la lit encore dans _onCameraEvent : chaque
+// resize/pan/zoom jette "Cannot read properties of undefined (reading
+// 'center')" et tue la page. Lever l'épinglage seulement quand react-map-gl
+// annoncera le support de MapLibre v6.
 // ───────────────────────────────────────────────────────────────────────────
 const TILE_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 
