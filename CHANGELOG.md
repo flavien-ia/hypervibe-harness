@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.6.2 (30 juillet 2026)
+
+### Nouveautés
+- **Sauvegarde de ta configuration** : la nouvelle commande `/save-config` met à l'abri tout ce que Claude sait de toi et de tes projets (tes règles, tes skills, sa mémoire, tes plugins) dans un dépôt GitHub privé qui t'appartient. Elle archive aussi ton historique de conversations et l'état de ta barre de gauche dans ton cloud (Dropbox, OneDrive, iCloud, Google Drive, Nextcloud). Tes clés n'en font jamais partie : elles restent dans ton coffre. Au passage, elle te propose de programmer cette sauvegarde tous les jours, pour ne plus jamais y penser.
+
+### Améliorations
+- **Première installation** : `/start` propose désormais de mettre en place cette sauvegarde une fois ton environnement prêt. Une question, une réponse, c'est réglé. Si tu dis non, il n'insiste pas.
+
+### Coulisses
+- Le fichier de réglages est sauvegardé avec les valeurs de son bloc `env` masquées : c'est l'endroit où une clé API atterrit par accident, et le dépôt de sauvegarde part sur GitHub.
+
 ## v2.6.1 (30 juillet 2026)
 
 ### Corrections

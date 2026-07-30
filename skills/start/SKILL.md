@@ -602,6 +602,30 @@ Based on the result displayed by the script:
 
 ---
 
+## Step 9bis - Offer to back up their setup
+
+Everything installed so far - the global rules, the vault, and soon their skills and the memory
+Claude builds about their projects - lives in one folder on this machine. Offer the safety net now,
+while it is cheap; later they will have written things they would hate to lose.
+
+Ask once, plainly:
+
+> One last thing: everything Claude learns about you and your projects (your rules, your skills, the
+> memory it keeps) lives in a single folder on this computer. Want me to set up an automatic backup?
+> It saves it to a **private** GitHub repository you own, plus a copy of your conversation history in
+> your cloud storage. Your keys are never part of it - they stay in your vault.
+
+- **Yes** → invoke the **`save-config`** skill. It creates the private repository, runs the first
+  backup, and offers to arm the daily routine at the end. Report its summary in one or two lines.
+- **No** → say it in one sentence and move on. Do not insist:
+
+  > No problem. Whenever you want it, just ask me to back up your Claude configuration.
+
+Skip this step entirely if a backup is already set up (the state file
+`~/.claude/.hypervibe-save-config.json` exists).
+
+---
+
 ## Step 10 - Conclusion
 
 > **It's ready! ✨** Over to you.
