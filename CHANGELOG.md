@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.6.3 (30 juillet 2026)
+
+### Améliorations
+- **Documentation de `/save-config`** : la commande de sauvegarde de ta configuration a désormais sa fiche complète, en français et en anglais, avec ce qu'elle copie exactement, ce qu'elle ne copie jamais, et la marche à suivre le jour où tu dois tout remonter sur une machine neuve. Elle est rangée dans la catégorie Outils.
+
 ## v2.6.2 (30 juillet 2026)
 
 ### Nouveautés

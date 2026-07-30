@@ -1,6 +1,6 @@
 ---
 name: save-config
-description: Back up the user's Claude Code configuration - CLAUDE.md, skills, commands, scripts, routine prompts, memory files, plugins - to their own private GitHub repository, plus versioned ZIP snapshots of their conversation history and desktop app state (left sidebar) in a cloud-synced folder. Sets everything up on first run, then is safe to re-run any time. Can arm a daily routine so it happens on its own. Use when the user says "back up my Claude config", "/save-config", "save my skills and memory", "snapshot my Claude setup", or after a big change to their CLAUDE.md, skills or memory.
+description: Back up the user's Claude Code setup (rules, skills, memory, routines, plugins) to a private GitHub repository they own, plus ZIP snapshots of their conversation history and app state in their cloud folder. Can arm a daily routine. Use for "/save-config", "back up my Claude config", "save my skills and memory".
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js and git; the GitHub push needs the gh CLI, the routine needs Claude Code >= 2.1.81 or the desktop app."
 allowed-tools: Bash, Read, Write, Edit, Skill
 ---
