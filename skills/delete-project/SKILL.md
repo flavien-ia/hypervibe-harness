@@ -8,7 +8,7 @@ compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; 
 # Delete Project - Complete decommissioning
 
 ## Communication
-- Detect the user's language from their messages and ALWAYS reply in that language (default: English). This applies to every user-facing message: questions, progress, confirmations, summaries, errors.
+- Detect the user's language from the conversation (the user's own messages, anywhere in the session - not just this invocation: a bare slash command like `/bootstrap` carries no language signal by itself). If nothing in the conversation gives a signal, fall back to the OS locale (`node -e "console.log(Intl.DateTimeFormat().resolvedOptions().locale)"`) before defaulting to English. ALWAYS reply in that language for every user-facing message: questions, progress, confirmations, summaries, errors - including any example text quoted in this skill, which is illustrative and must be translated, never sent verbatim.
 - Use plain, non-technical business language. Never expose internal script names (*.mjs) or jargon; describe actions in human terms.
 - When generating user-facing content for the scaffolded project (UI labels, emails, copy), write it in the user's language too.
 - Show progress as a short natural-language checklist (in-progress and done states).
@@ -74,7 +74,16 @@ Use `AskUserQuestion`:
 
 #### If a snapshot is requested: run it inline
 
-First ask, via `AskUserQuestion`, "Include the Cloudflare R2 content (can be heavy)?" - options `Yes` / `No, skip R2`. No need to ask again for the project (we already have it) or the output folder (the default `~/Dropbox/Download/` is fine for this case).
+First, silently check whether the project actually has R2 storage configured, so you never ask about a bucket that doesn't exist:
+
+```bash
+(cd "<detected-project-path>" && node "${CLAUDE_SKILL_DIR}/../../scripts/check-deps.mjs" storage)
+```
+
+- If `storage.ok === false` (no R2 wired up for this project): skip the question entirely, go straight to running the script with `--skip-storage`.
+- If `storage.ok === true`: ask via `AskUserQuestion`, "Include the Cloudflare R2 content (can be heavy)?" - options `Yes` / `No, skip R2`.
+
+No need to ask again for the project (we already have it) or the output folder (the default `~/Dropbox/Download/` is fine for this case).
 
 Then run:
 
@@ -82,7 +91,7 @@ Then run:
 node "${CLAUDE_SKILL_DIR}/../../scripts/save-project/build-snapshot.mjs" \
   --project "<PROJECT_NAME>" \
   --project-dir "<detected-project-path>" \
-  [--skip-storage if the user said no]
+  [--skip-storage if the user said no, or if no R2 storage was detected]
 ```
 
 While it runs, relay the script's `[step] status` logs on stderr to the user (one `↳ ...` per step that finishes).

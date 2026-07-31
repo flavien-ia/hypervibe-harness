@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.6.4 (31 juillet 2026)
+
+### Améliorations
+- **Claude te parle dans ta langue dès la première question** : jusqu'ici, lancer une commande seule (par exemple `/bootstrap`, sans rien écrire d'autre) faisait démarrer Claude en anglais, faute d'indice sur ta langue. Il se base désormais sur l'ensemble de la conversation et, à défaut, sur la langue de ton ordinateur. Le changement porte sur toutes les commandes du plugin.
+- **Suppression d'un projet** : Claude ne demande plus s'il faut supprimer l'espace de stockage de fichiers quand le projet n'en a pas. La question n'apparaît que s'il en existe vraiment un.
+
+### Suppressions
+- **`/save-config`** (sauvegarde de ta configuration Claude vers un dépôt privé) : retirée du plugin. Elle avait été ajoutée la veille et n'a pas été retenue.
+
+### Coulisses
+- Consigne de langue harmonisée sur les 82 commandes du plugin, y compris les commandes internes appelées par les autres.
+
 ## v2.6.3 (30 juillet 2026)
 
 ### Améliorations

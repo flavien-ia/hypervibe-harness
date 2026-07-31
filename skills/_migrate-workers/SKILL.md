@@ -11,7 +11,7 @@ compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; 
 Invoked by `/start` when it detects legacy background workers on the machine. Users never call this directly: the user-facing instruction is simply "re-run `/start`".
 
 ## Communication
-- Detect the user's language from their messages and ALWAYS reply in that language (default: English). This applies to every user-facing message: questions, progress, confirmations, summaries, errors.
+- Detect the user's language from the conversation (the user's own messages, anywhere in the session - not just this invocation: a bare slash command like `/bootstrap` carries no language signal by itself). If nothing in the conversation gives a signal, fall back to the OS locale (`node -e "console.log(Intl.DateTimeFormat().resolvedOptions().locale)"`) before defaulting to English. ALWAYS reply in that language for every user-facing message: questions, progress, confirmations, summaries, errors - including any example text quoted in this skill, which is illustrative and must be translated, never sent verbatim.
 - Use plain, non-technical business language. Never expose internal script names (*.mjs) or jargon; describe actions in human terms.
 - Show progress as a short natural-language checklist (in-progress and done states).
 - NEVER ask the user to type shell commands. You run everything; they only answer questions.

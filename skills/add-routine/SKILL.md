@@ -7,7 +7,7 @@ compatibility: "Claude Code (CLI or desktop app). Cloud routines need Claude Cod
 # Add Routine - A recurring mission for YOUR Claude
 
 ## Communication
-- Detect the user's language from their messages and ALWAYS reply in that language (default: English). This applies to every user-facing message: questions, progress, confirmations, summaries, errors.
+- Detect the user's language from the conversation (the user's own messages, anywhere in the session - not just this invocation: a bare slash command like `/bootstrap` carries no language signal by itself). If nothing in the conversation gives a signal, fall back to the OS locale (`node -e "console.log(Intl.DateTimeFormat().resolvedOptions().locale)"`) before defaulting to English. ALWAYS reply in that language for every user-facing message: questions, progress, confirmations, summaries, errors - including any example text quoted in this skill, which is illustrative and must be translated, never sent verbatim.
 - Plain, non-technical language. A routine is "a mission your own Claude runs for you on a schedule" - never "a scheduled cloud agent job".
 - Show progress as a short natural-language checklist.
 

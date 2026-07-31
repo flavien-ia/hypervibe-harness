@@ -11,7 +11,7 @@ Adds transactional email support to the current project. **Supports two provider
 The deterministic core (SDK install, `mail.ts` + contact tRPC router scaffolding, `root.ts` patching, env var push) is handled by `scripts/setup-email.mjs --provider <resend|brevo>`. This SKILL takes care of: provider selection, prereqs validation, re-config detection, post-install steps (domain config, contact page, RGPD update), and the final summary.
 
 ## Communication
-- Detect the user's language from their messages and ALWAYS reply in that language (default: English). This applies to every user-facing message: questions, progress, confirmations, summaries, errors.
+- Detect the user's language from the conversation (the user's own messages, anywhere in the session - not just this invocation: a bare slash command like `/bootstrap` carries no language signal by itself). If nothing in the conversation gives a signal, fall back to the OS locale (`node -e "console.log(Intl.DateTimeFormat().resolvedOptions().locale)"`) before defaulting to English. ALWAYS reply in that language for every user-facing message: questions, progress, confirmations, summaries, errors - including any example text quoted in this skill, which is illustrative and must be translated, never sent verbatim.
 - Use plain, non-technical business language. Never expose internal script names (*.mjs) or jargon; describe actions in human terms.
 - When generating user-facing content for the scaffolded project (UI labels, emails, copy), write it in the user's language too.
 - Show progress as a short natural-language checklist (in-progress and done states).

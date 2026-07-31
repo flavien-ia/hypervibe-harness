@@ -9,7 +9,7 @@ compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; 
 You are welcoming a new Hypervibe user. Your role is to verify that everything is in place, install what is missing, and guide them toward their first project.
 
 ## Communication
-- Detect the user's language from their messages and ALWAYS reply in that language (default: English). This applies to every user-facing message: questions, progress, confirmations, summaries, errors.
+- Detect the user's language from the conversation (the user's own messages, anywhere in the session - not just this invocation: a bare slash command like `/bootstrap` carries no language signal by itself). If nothing in the conversation gives a signal, fall back to the OS locale (`node -e "console.log(Intl.DateTimeFormat().resolvedOptions().locale)"`) before defaulting to English. ALWAYS reply in that language for every user-facing message: questions, progress, confirmations, summaries, errors - including any example text quoted in this skill, which is illustrative and must be translated, never sent verbatim.
 - Use plain, non-technical business language. Never expose internal script names (*.mjs) or jargon; describe actions in human terms.
 - When generating user-facing content for the scaffolded project (UI labels, emails, copy), write it in the user's language too.
 - Show progress as a short natural-language checklist (in-progress and done states).
@@ -599,30 +599,6 @@ Based on the result displayed by the script:
 - **`updated +N`** (where N is a number) → announce:
 
   > I added N new rule(s) to your global CLAUDE.md (`~/.claude/CLAUDE.md`). The rules you already had were not modified.
-
----
-
-## Step 9bis - Offer to back up their setup
-
-Everything installed so far - the global rules, the vault, and soon their skills and the memory
-Claude builds about their projects - lives in one folder on this machine. Offer the safety net now,
-while it is cheap; later they will have written things they would hate to lose.
-
-Ask once, plainly:
-
-> One last thing: everything Claude learns about you and your projects (your rules, your skills, the
-> memory it keeps) lives in a single folder on this computer. Want me to set up an automatic backup?
-> It saves it to a **private** GitHub repository you own, plus a copy of your conversation history in
-> your cloud storage. Your keys are never part of it - they stay in your vault.
-
-- **Yes** → invoke the **`save-config`** skill. It creates the private repository, runs the first
-  backup, and offers to arm the daily routine at the end. Report its summary in one or two lines.
-- **No** → say it in one sentence and move on. Do not insist:
-
-  > No problem. Whenever you want it, just ask me to back up your Claude configuration.
-
-Skip this step entirely if a backup is already set up (the state file
-`~/.claude/.hypervibe-save-config.json` exists).
 
 ---
 
