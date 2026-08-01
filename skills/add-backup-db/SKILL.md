@@ -197,14 +197,14 @@ If it is empty:
 > 1. Go to **https://console.neon.tech/app/settings/api-keys**
 > 2. Click **Create new API key**
 > 3. Name: `claude-code` (or whatever you want)
-> 4. Copy the key and paste it here
+> 4. Copy the key. A small window will then open on your machine: paste it in there, not in our conversation, so it never gets written into this chat.
 >
 > (The key gives access to all your Neon projects by default, which is perfect for backing up multiple projects with the same key.)
 
 Wait for the key. Store it in the **vault** (reusable for all projects) - a masked-input window, the value does not pass through Claude:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name NEON --service Neon --fields api_key:secret
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name NEON --service Neon --fields api_key:secret
 ```
 
 Store: item `NEON`, field `api_key`. (`_read-user-env.mjs NEON_API_KEY` will then read it back automatically, and so will the registration script.) If the vault is not set up yet, run `_add-keyring` first.

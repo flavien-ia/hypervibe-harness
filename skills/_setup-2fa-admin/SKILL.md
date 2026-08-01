@@ -30,7 +30,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status
 - `unlocked` -> continue.
 - `locked` / `expired` -> warn the user ("vault is locked, a window will open for your master password"), then:
   ```bash
-  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock
+  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>
   ```
   (blocking, the user enters their master pwd, auto-closes on success). Then continue.
 - Vault not installed -> delegate to `_add-keyring`, then continue.

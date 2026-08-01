@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.7.0 (1er août 2026)
+
+### Nouveautés
+- **Vos clés d'accès ne passent plus par la conversation** : dès qu'une clé ou un mot de passe est nécessaire, une petite fenêtre s'ouvre sur votre ordinateur pour la saisie. La valeur part ensuite soit dans votre coffre-fort, soit dans les réglages de votre projet. Plus rien n'est écrit dans le fil de discussion, qui lui reste consultable longtemps après.
+- **La fenêtre de saisie parle votre langue** : français ou anglais selon la langue de votre conversation, y compris à la création du coffre-fort et à son ouverture quotidienne.
+
+### Améliorations
+- **Suivi des quotas** : la partie base de données restait vide quand vous aviez beaucoup de projets. Elle s'affiche maintenant correctement, et un message clair remplace l'erreur technique quand un service met trop de temps à répondre.
+- **Passage d'un site en plusieurs langues** : sous Windows, le serveur d'aperçu bloquait la réorganisation des pages. Il est désormais arrêté puis relancé automatiquement.
+- **Mise en ligne** : la vérification qu'un déploiement a bien abouti ne s'interrompt plus au bout de deux minutes.
+
+### Coulisses
+- Nouvelle brique interne de collecte des secrets, qui remplace la précédente, et correction de chemins de modèles dans l'ajout de comptes utilisateurs.
+
 ## v2.6.4 (31 juillet 2026)
 
 ### Améliorations

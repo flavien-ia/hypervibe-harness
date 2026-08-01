@@ -46,7 +46,7 @@ Tell the user:
 
 Then store it in the vault (masked-input window, the value never passes through Claude):
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name RENDER --service Render --fields api_key:secret
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name RENDER --service Render --fields api_key:secret
 ```
 
 ## Step 4 - Verify

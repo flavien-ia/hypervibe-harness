@@ -73,7 +73,7 @@ When the user has their 2 values (Public Prefix + Secret), store them in the **v
 
 ```bash
 VAULT="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs"
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name IONOS --service IONOS --fields "prefix:text,secret:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name IONOS --service IONOS --fields "prefix:text,secret:secret"
 ```
 
 Then rebuild the key (IONOS format = `prefix.secret`) and validate:

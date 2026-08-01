@@ -31,7 +31,7 @@ Depending on `ST`:
 - **`locked` or `expired`** → notify the user in the chat, then open the unlock window (blocking), then re-check:
   > "Your key vault is closed - a window will open for your master password (once per day)."
   ```bash
-  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock
+  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>
   node "$VAULT" status   # should return "unlocked"
   ```
 - **Empty output / error** (no `bw`, no account connected → vault never configured) → the vault does not exist yet: **delegate to `_add-keyring`** (installs bw + creates the account + login + unlock), then re-check. If the user declines to set up the vault, flag it and stop cleanly (the skill will not be able to retrieve its keys).

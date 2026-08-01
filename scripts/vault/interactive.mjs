@@ -9,6 +9,11 @@
 //   node interactive.mjs login  [--server <url>]
 //   node interactive.mjs unlock
 //   node interactive.mjs add --name <ITEM> [--service <S>] [--fields "f1:secret,f2:text"] [--folder <F>]
+//   node interactive.mjs collect-env --keys "KEY:secret,..." --project-dir <dir> [--target ...] [--url <url>]
+//
+// Two destinations, one window: `add` stores a GLOBAL key in the vault, `collect-env`
+// stores a PROJECT secret in that project's .env + Vercel. Both keep the value inside
+// this process - it never crosses Claude's tool I/O.
 //
 // Session file (written by unlock, read by vault.mjs): ~/.hypervibe/bw-session  ("<ts>\n<token>")
 
@@ -18,6 +23,7 @@ import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
+import { resolveLang, makeT } from "./i18n.mjs";
 
 const IS_WIN = platform() === "win32";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -112,7 +118,7 @@ function ensureBw() {
   if (bwRuns()) return true;
   const installer = join(__dirname, "install-bw.mjs");
   if (!existsSync(installer)) return false;
-  console.log("Vault tool not found, running automatic installation...\n");
+  console.log(t("installing"));
   const r = spawnSync("node", ["--no-deprecation", installer], { encoding: "utf8", windowsHide: true });
   if (r.stdout) console.log(r.stdout.trim());
   BW_CMD = null;            // force re-resolution against the freshly installed binary
@@ -156,7 +162,12 @@ for (let i = 0; i < rest.length; i++) {
   }
 }
 
-const pause = () => promptVisible("\nPress Enter to close...");
+// The window cannot see the conversation, so it cannot infer the user's language.
+// The calling skill passes `--lang fr`; without it we fall back to the OS locale.
+const LANG = resolveLang(flags.lang);
+const t = makeT(LANG);
+
+const pause = () => promptVisible(t("pressEnter"));
 
 // ── commands ──────────────────────────────────────────────────────────
 async function doLogin() {
@@ -168,7 +179,7 @@ async function doLogin() {
     status = parseJson(bw(["status"]).stdout, {});
   }
   if (status.status && status.status !== "unauthenticated") {
-    console.log(`Already logged in as ${status.userEmail} on ${status.serverUrl}.`);
+    console.log(t("alreadyLoggedIn", { email: status.userEmail, server: status.serverUrl }));
     return;
   }
   // Collect email (visible) and master password OURSELVES so the password field shows
@@ -176,16 +187,16 @@ async function doLogin() {
   // `bw login` (inherit), bw's own password input is FULLY hidden (no stars at all),
   // which feels broken to users. We pass the password via env (--passwordenv) and let
   // bw handle only the 2FA step interactively (it prompts by itself when 2FA is on).
-  const email = await promptVisible("Email: ");
-  if (!email) throw new Error("Email required.");
-  const pwd = await promptMasked("Master password: ");
+  const email = await promptVisible(t("email"));
+  if (!email) throw new Error(t("emailRequired"));
+  const pwd = await promptMasked(t("masterPassword"));
   console.log("");
-  console.log("Signing in...");
+  console.log(t("signingIn"));
   console.log("");
-  console.log("If two-factor authentication (2FA) is enabled on your account, a CODE will be requested right after.");
-  console.log("  - Depending on your setup, this code arrives either in your authenticator app (Google Authenticator, etc.),");
-  console.log("    or by EMAIL (check your inbox, the message arrives at sign-in time).");
-  console.log("  - Type the code into this window, then Enter.");
+  console.log(t("twoFactorIntro"));
+  console.log(t("twoFactorWhere"));
+  console.log(t("twoFactorMail"));
+  console.log(t("twoFactorType"));
   console.log("");
   const loginCmd = resolveBwCmd();
   const res = spawnSync(loginCmd, ["login", email, "--passwordenv", "BW_PASSWORD_LOGIN"], {
@@ -195,8 +206,8 @@ async function doLogin() {
     shell: IS_WIN && loginCmd === "bw",
     windowsHide: true,
   });
-  if (res.status !== 0) throw new Error("Sign-in failed (wrong password or 2FA code?). Run again to retry.");
-  console.log("\nSigned in. Next step: unlock.");
+  if (res.status !== 0) throw new Error(t("signInFailed"));
+  console.log(t("signedIn"));
 }
 
 async function doUnlock() {
@@ -206,13 +217,13 @@ async function doUnlock() {
   const statusRes = bw(["status"]);
   const status = parseJson(statusRes.stdout, null);
   if (status === null) {
-    throw new Error("Cannot run the vault tool (bw not found). Run _add-keyring again to reinstall the tool.");
+    throw new Error(t("bwCannotRun"));
   }
   if (!status.status || status.status === "unauthenticated") {
-    throw new Error("No account signed in on this machine. Sign in first (login step) before unlocking.");
+    throw new Error(t("notSignedIn"));
   }
-  console.log(`Unlocking vault for ${status.userEmail}...`);
-  const pwd = await promptMasked("Master password: ");
+  console.log(t("unlocking", { email: status.userEmail }));
+  const pwd = await promptMasked(t("masterPassword"));
   const unlockCmd = resolveBwCmd();
   const res = spawnSync(unlockCmd, ["unlock", "--passwordenv", "BW_PASSWORD_UNLOCK", "--raw"], {
     encoding: "utf8",
@@ -221,23 +232,23 @@ async function doUnlock() {
     windowsHide: true,
   });
   const token = (res.stdout || "").trim();
-  if (!token) throw new Error("Unlock failed (wrong password?).");
+  if (!token) throw new Error(t("unlockFailed"));
   if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
   writeFileSync(SESSION_FILE, `${Math.floor(Date.now() / 1000)}\n${token}`, "utf8");
-  console.log("Vault unlocked. Session valid for 12h.");
+  console.log(t("unlocked"));
 }
 
 async function doAdd() {
   const session = readValidSession();
-  if (!session) throw new Error("Vault locked or session expired. Unlock first.");
+  if (!session) throw new Error(t("vaultLocked"));
 
   let name = flags.name, service = flags.service, fieldsSpec = flags.fields || "value:secret";
   const folder = flags.folder || "Global";
   if (!name) {
-    name = await promptVisible("Item name (e.g., CLOUDFLARE): ");
-    if (!name) throw new Error("Name required.");
-    service = await promptVisible("Service (optional): ");
-    const fi = await promptVisible("Fields (name:type,... ; default value:secret): ");
+    name = await promptVisible(t("itemName"));
+    if (!name) throw new Error(t("nameRequired"));
+    service = await promptVisible(t("serviceOptional"));
+    const fi = await promptVisible(t("fieldsPrompt"));
     if (fi) fieldsSpec = fi;
   }
 
@@ -245,7 +256,7 @@ async function doAdd() {
     const [n, t = "secret"] = s.trim().split(":");
     return { name: n.trim(), type: t.trim().toLowerCase() };
   });
-  for (const s of specs) if (s.type !== "secret" && s.type !== "text") throw new Error(`Bad field type: ${s.type}`);
+  for (const s of specs) if (s.type !== "secret" && s.type !== "text") throw new Error(t("badFieldType", { type: s.type }));
 
   bw(["sync", "--quiet"], { session });
   const folders = parseJson(bw(["list","folders"],{session}).stdout, []);
@@ -254,16 +265,16 @@ async function doAdd() {
     const enc = bw(["encode"], { input: JSON.stringify({ name: folder }) }).stdout;
     folderObj = parseJson(bw(["create","folder"],{input:enc,session}).stdout, null);
   }
-  if (!folderObj || !folderObj.id) throw new Error(`Cannot resolve/create the folder '${folder}' in the vault.`);
+  if (!folderObj || !folderObj.id) throw new Error(t("folderFailed", { folder }));
   const folderId = folderObj.id;
   const search = parseJson(bw(["list","items","--search",name],{session}).stdout, []);
   const existing = search.find((i) => i.name === name && i.folderId === folderId);
 
-  console.log(`\nStoring '${name}' in folder '${folder}'${service ? ` (service: ${service})` : ""}\n`);
+  console.log(t("storingItem", { name, folder, service: service ? t("serviceSuffix", { service }) : "" }));
   const fields = [];
   for (const s of specs) {
-    const val = s.type === "secret" ? await promptMasked(`${s.name} (hidden): `) : await promptVisible(`${s.name}: `);
-    if (!val) throw new Error(`Empty value for '${s.name}'.`);
+    const val = s.type === "secret" ? await promptMasked(t("hiddenPrompt", { name: s.name })) : await promptVisible(t("plainPrompt", { name: s.name }));
+    if (!val) throw new Error(t("emptyValue", { name: s.name }));
     fields.push({ name: s.name, value: val, type: s.type === "secret" ? 1 : 0, linkedId: null });
   }
 
@@ -277,20 +288,98 @@ async function doAdd() {
   const res = existing
     ? bw(["edit", "item", existing.id], { input: enc, session })
     : bw(["create", "item"], { input: enc, session });
-  if (res.status !== 0) throw new Error(`Failed to ${existing ? "update" : "create"} '${name}'.`);
-  console.log(`${existing ? "Updated" : "Created"} '${name}'.`);
+  if (res.status !== 0) throw new Error(t("saveFailed", { name }));
+  console.log(t(existing ? "savedUpdated" : "savedCreated", { name }));
+}
+
+// ── collect-env - same masked window, but the value lands in the PROJECT ──
+//
+// Second destination of the "no secret ever transits through the conversation"
+// convention. `add` is for GLOBAL keys reused across projects (they go to the
+// vault); `collect-env` is for secrets that belong to ONE project (DATABASE_URL,
+// a project-scoped API key...), which by convention live in the project's .env
+// plus Vercel, not in the vault.
+//
+// The value is typed in this window, handed straight to push-env-vars.mjs from
+// this same process, and never crosses Claude's tool I/O. Deliberately does NOT
+// need the vault: a project may have no vault at all.
+//
+//   interactive.mjs collect-env --keys "STRIPE_SECRET_KEY:secret,APP_ID:text" \
+//     --project-dir C:/DEV/app [--target production,preview] [--url https://...]
+async function doCollectEnv() {
+  const keysSpec = flags.keys;
+  const projectDir = flags["project-dir"];
+  if (!keysSpec) throw new Error(t("keysRequired"));
+  if (!projectDir) throw new Error(t("projectDirRequired"));
+  if (!existsSync(projectDir)) throw new Error(t("projectNotFound", { dir: projectDir }));
+
+  const specs = keysSpec.split(",").map((s) => {
+    const [n, t = "secret"] = s.trim().split(":");
+    return { name: n.trim(), type: t.trim().toLowerCase() };
+  });
+  for (const s of specs) {
+    if (!s.name) throw new Error(t("emptyKeyName"));
+    if (s.type !== "secret" && s.type !== "text") throw new Error(t("badFieldType", { type: s.type }));
+  }
+
+  // Optional: send the user to the page where the value is generated.
+  if (flags.url && flags.url !== "true") {
+    console.log(t("openingUrl", { url: flags.url }));
+    console.log(t("grabValue"));
+    spawnSync("node", [join(__dirname, "..", "open-url.mjs"), flags.url], { stdio: "ignore" });
+  }
+
+  console.log(t("collectIntro", { count: specs.length, dir: projectDir }));
+  console.log(t("collectWhere"));
+  console.log(t("collectNeverChat"));
+
+  const pairs = [];
+  for (const s of specs) {
+    const val = s.type === "secret"
+      ? await promptMasked(t("hiddenPrompt", { name: s.name }))
+      : await promptVisible(t("plainPrompt", { name: s.name }));
+    if (!val) throw new Error(t("emptyValue", { name: s.name }));
+    pairs.push(`${s.name}=${val}`);
+  }
+
+  const args = [join(__dirname, "..", "push-env-vars.mjs")];
+  if (flags.target && flags.target !== "true") args.push(`--target=${flags.target}`);
+  args.push(...pairs);
+
+  // cwd = the project, so push-env-vars finds the right .env and Vercel link.
+  //
+  // Capture its output instead of inheriting: push-env-vars speaks to Claude, not to
+  // a human ("[vercel] Project not linked (no .vercel/project.json)"). In this window
+  // the reader is the user, so we swallow the technical log and print a translated
+  // summary instead. On failure we DO surface the raw output: that is the one moment
+  // where the technical detail is worth more than the tidy sentence.
+  const res = spawnSync("node", args, { cwd: projectDir, encoding: "utf8" });
+  const raw = `${res.stdout || ""}${res.stderr || ""}`.trim();
+  if (res.status !== 0) throw new Error(t("collectFailed", { detail: raw || String(res.status) }));
+
+  const names = specs.map((s) => s.name).join(", ");
+  const pushedToVercel = /Pushed .* to Vercel|\[vercel\] Pushing to Vercel/i.test(raw)
+    && !/Skipping Vercel push/i.test(raw);
+  console.log(t(pushedToVercel ? "collectSavedVercel" : "collectSavedLocal", { names }));
 }
 
 (async () => {
   try {
+    // collect-env writes to the project, not to the vault - so it must NOT
+    // require bw to be installed. Handle it before the bw self-heal.
+    if (cmd === "collect-env") {
+      await doCollectEnv();
+      await pause();
+      process.exit(0);
+    }
     // Self-heal: ensure the bw tool exists (auto-install once) before any command runs.
     if (!ensureBw()) {
-      throw new Error("The vault tool (bw) was not found and automatic installation failed. Check your connection, or install it manually: https://bitwarden.com/help/cli/");
+      throw new Error(t("bwMissing"));
     }
     if (cmd === "login") await doLogin();
     else if (cmd === "unlock") await doUnlock();
     else if (cmd === "add") await doAdd();
-    else { console.error("Usage: interactive.mjs <login|unlock|add> [flags]"); process.exit(1); }
+    else { console.error("Usage: interactive.mjs <login|unlock|add|collect-env> [flags]"); process.exit(1); }
     await pause();
     process.exit(0);
   } catch (e) {

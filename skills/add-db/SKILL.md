@@ -21,7 +21,7 @@ The deterministic core (provisioning, driver swap, schema push, env var push) is
 
 ## Preflight - vault unlocked
 
-This skill reads the Neon key from the vault, so first make sure the vault is unlocked (follow **`_ensure-vault`**): `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status` then, if `locked`/`expired`, run `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (window, once a day); if the vault does not exist yet, delegate to `_add-keyring`.
+This skill reads the Neon key from the vault, so first make sure the vault is unlocked (follow **`_ensure-vault`**): `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status` then, if `locked`/`expired`, run `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (window, once a day); if the vault does not exist yet, delegate to `_add-keyring`.
 
 ---
 
@@ -87,13 +87,13 @@ VAULT="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs"
 node "$VAULT" get NEON api_key >/dev/null 2>&1; RC=$?
 ```
 - **`RC=0`** then the key is present, go to **Step 4** (REST provisioning via `setup-db.mjs`, which reads the key from the vault itself).
-- **`RC=2/3`** (vault locked/expired) then warn the user, `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (blocking), retry.
+- **`RC=2/3`** (vault locked/expired) then warn the user, `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking), retry.
 - **`RC=4`** (key missing) then have it created + stored in the vault:
   > To create your database, I need a Neon key (just once - I'll store it in your vault).
   > 1. Go to https://console.neon.tech/app/settings/api-keys then **Create new API key** then copy it.
   > 2. A window will open: paste it in (masked input).
   ```bash
-  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name NEON --service Neon --fields "api_key:secret"
+  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name NEON --service Neon --fields "api_key:secret"
   ```
   Then retry the `get` then **Step 4**.
 

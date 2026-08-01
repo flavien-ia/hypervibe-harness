@@ -49,12 +49,12 @@ Guide the user (the account's old "API Keys" are deprecated by Gandi - only use 
 >    - **Manage domain technical configurations** (required to change the NS)
 >    - **See and renew domain names** (read access)
 > 8. Click **"Create"** -> copy the token (shown only once)
-> 9. Paste it here, I will store it properly.
+> 9. A small window will then open on your machine: paste the token in there, not in our conversation, so it never gets written into this chat.
 
 Once the user has created their PAT, store it **directly in the vault** (masked entry in a window - the value never passes through the chat):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name GANDI --service Gandi --fields api_token:secret
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name GANDI --service Gandi --fields api_token:secret
 ```
 
 Then load it into the session and validate it without logging it:

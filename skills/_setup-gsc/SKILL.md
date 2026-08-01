@@ -28,7 +28,7 @@ This is a **one-time setup per machine**: once done, all future `/gsc` runs (on 
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status 2>/dev/null
 ```
 - `unlocked` → continue to Step 2.
-- `expired` / `locked` → open the unlock: `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (blocking), then re-test.
+- `expired` / `locked` → open the unlock: `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking), then re-test.
 - Error (no `bw`, no account) → the vault is not installed: delegate to **`_add-keyring`** first, then come back here.
 
 ---

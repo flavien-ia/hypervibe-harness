@@ -24,7 +24,7 @@ TOK=$(node "$GSCTOKEN" --readonly); RC=$?     # read (audit, inspection)
 ```
 Handling `RC`:
 - **0** -> we have the token.
-- **2 / 3** (vault locked / expired) -> warn the user, `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (blocking), retry.
+- **2 / 3** (vault locked / expired) -> warn the user, `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking), retry.
 - **4** (GSC not configured: no `GSC_SERVICE_ACCOUNT` in the vault) -> delegate to the internal skill **`_setup-gsc`** (creates the service account + stores the key in the vault + authorizes it on GSC), then retry.
 
 The token is valid for 1h; re-forge it if a session exceeds this duration. **Never display `$TOK`.**

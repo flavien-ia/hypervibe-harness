@@ -29,7 +29,7 @@ TOK=$(node "$VAULT" get HOSTINGER api_token 2>/dev/null); RC=$?
 
 Handle `RC`:
 - **0** -> we have the token, go to Step 2.
-- **2 or 3** (vault locked / session expired) -> warn the user ("your vault is locked, a window is going to open"), run `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (blocking), then run the `get` again.
+- **2 or 3** (vault locked / session expired) -> warn the user ("your vault is locked, a window is going to open"), run `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking), then run the `get` again.
 - **4** (Hostinger key not in the vault yet) -> add it (see Step 1b), then run the `get` again.
 
 ### Step 1b - Add the Hostinger token to the vault (if RC=4)
@@ -41,7 +41,7 @@ Handle `RC`:
 > 3. A window is going to open: paste the key into it (masked input, I never see it).
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name HOSTINGER --service Hostinger --fields "api_token:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name HOSTINGER --service Hostinger --fields "api_token:secret"
 ```
 
 Then run the `get` from Step 1 again.

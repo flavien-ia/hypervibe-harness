@@ -71,7 +71,7 @@ Guide the user:
 Once the user has generated their 3 keys, store them in the **vault** (masked-input window - the values never pass through the chat):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name OVH --service OVH --fields "app_key:text,app_secret:secret,consumer_key:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name OVH --service OVH --fields "app_key:text,app_secret:secret,consumer_key:secret"
 ```
 
 Then load them into the current session to continue right away:

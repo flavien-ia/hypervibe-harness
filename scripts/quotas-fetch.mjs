@@ -64,6 +64,13 @@ const billingCycle = {
 };
 
 // ─── Fetch helper with timeout ───────────────────────────────────────
+//
+// The 10s default fits endpoints that return a fixed-size payload. Listing
+// endpoints that enumerate every project/bucket of an account grow with the
+// account and need an explicit, longer budget at the call site (see fetchNeon):
+// on a loaded account the listing alone exceeds 10s, the AbortController fires,
+// and the WHOLE service is reported as unavailable ("This operation was
+// aborted") even though the key and the API are perfectly fine.
 async function fetchJson(url, options = {}, timeoutMs = 10000) {
   const ac = new AbortController();
   const t = setTimeout(() => ac.abort(), timeoutMs);
@@ -136,9 +143,14 @@ async function fetchNeon() {
   });
   const plan = orgs.ok ? orgs.json.organizations?.[0]?.plan || "free" : "unknown";
 
+  // 45s (not the 10s default): this endpoint enumerates EVERY project of the
+  // account with its storage/compute counters, so it gets slower as the account
+  // fills up. The free tier allows 100 projects; at that scale the listing
+  // routinely takes >10s and the default budget would abort the whole Neon
+  // block, reporting "indisponible" on a perfectly healthy account.
   const r = await fetchJson("https://console.neon.tech/api/v2/projects?limit=400", {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-  });
+  }, 45000);
   if (!r.ok) return svc("neon", "Neon (Postgres)", false, [], `API Neon: HTTP ${r.status}`);
 
   const projects = r.json.projects || [];
@@ -685,7 +697,14 @@ async function safeRun(name, fn) {
   try {
     return await fn();
   } catch (e) {
-    return svc(name, name, false, [], `Erreur: ${e.message?.slice(0, 200)}`);
+    // An aborted fetch is a timeout, not an outage. The raw message ("This
+    // operation was aborted") reads like the service is down and sends the
+    // reader chasing a non-existent API problem, so name the real cause.
+    const aborted = e?.name === "AbortError" || /aborted/i.test(e?.message || "");
+    const note = aborted
+      ? "Service trop lent a repondre (delai depasse). Le compte et la cle sont probablement bons : relance /quotas, et si ca persiste c'est que le service met trop longtemps a lister tes ressources."
+      : `Erreur: ${e.message?.slice(0, 200)}`;
+    return svc(name, name, false, [], note);
   }
 }
 

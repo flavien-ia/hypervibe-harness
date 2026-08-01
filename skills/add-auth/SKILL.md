@@ -121,11 +121,13 @@ The sub-skill handles the script + UserMenu (users mode) + CLAUDE.md + summary. 
 
 ## UPGRADE Section - Add a mode (Claude drives, no script)
 
-No script - the risk of corrupting the existing `auth.ts` is too high. Claude reads the existing file, reads the reference templates in `templates/auth/`, and patches contextually. Check `pnpm tsc --noEmit` at the end to validate.
+No script - the risk of corrupting the existing `auth.ts` is too high. Claude reads the existing file, reads the reference templates in `${CLAUDE_SKILL_DIR}/../../templates/auth/`, and patches contextually. Check `pnpm tsc --noEmit` at the end to validate.
+
+> **Template paths in this section are relative to the PLUGIN ROOT, not to this skill's folder.** Always resolve them through `${CLAUDE_SKILL_DIR}/../../templates/…`, exactly as written below. Dropping that prefix makes the path resolve inside `skills/add-auth/`, where no `templates/` folder exists, and the read fails with "No such file or directory".
 
 ### Case A - Add `users` on top of an existing `admin`
 
-Reference templates: `templates/auth/users/{auth.ts, password.ts, schema-additions.ts, schema-additions-reset-tokens.ts, auth-router*.ts, route.ts}`.
+Reference templates: `${CLAUDE_SKILL_DIR}/../../templates/auth/users/{auth.ts, password.ts, schema-additions.ts, schema-additions-reset-tokens.ts, auth-router*.ts, route.ts}`.
 
 Steps (all driven by Claude):
 
@@ -146,7 +148,7 @@ Steps (all driven by Claude):
 
 ### Case B - Add `admin` on top of an existing `users`
 
-Reference templates: `templates/auth/admin/{auth.ts, password.ts}` (for the snippets to integrate).
+Reference templates: `${CLAUDE_SKILL_DIR}/../../templates/auth/admin/{auth.ts, password.ts}` (for the snippets to integrate).
 
 1. **Hash passwords**: DEV via stdin (`printf '%s' "Admin1234!" | node "<path>/hash-password.mjs"`), PROD via `--generate --length 24 --format alphanumeric`. Capture `password=` and `hash=`.
 2. **Push env vars**: `_push-env-vars --target=all ADMIN_USERNAME=admin ADMIN_PASSWORD_HASH_DEV=<dev> ADMIN_PASSWORD_HASH_PROD=<prod>`.
@@ -166,7 +168,7 @@ Reference templates: `templates/auth/admin/{auth.ts, password.ts}` (for the snip
 
 ### Case C - Enable password reset on an existing `users` (email already OK)
 
-1. **Append `password_reset_tokens`** to schema.ts from `templates/auth/users/schema-additions-reset-tokens.ts`.
+1. **Append `password_reset_tokens`** to schema.ts from `${CLAUDE_SKILL_DIR}/../../templates/auth/users/schema-additions-reset-tokens.ts`.
 2. **`pnpm db:push`**.
 3. **Replace `src/server/api/routers/auth.ts`** with the `auth-router-with-reset-{resend,brevo}.ts` template (depending on the detected provider).
 4. **Create `/forgot-password/page.tsx` and `/reset-password/page.tsx`** from the templates.

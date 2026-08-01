@@ -97,6 +97,14 @@ The script takes ~3-5 min. Two Claude Code harness constraints to know about:
 - **Synchronous `Bash` buffers everything** until the end → the user would wait blind for 3-5 min.
 - **Long `sleep`s at the start of a command (≥ ~30s) are blocked** by a harness safety rail ("Blocked: sleep 45 ..."). No manual `sleep 45 && tail` pattern. It is locked.
 
+The same two rails apply **any time you wait for a Vercel deployment**, later in this skill or in any other one. Never hand-roll a polling loop (`for i in $(seq 1 20); do vercel ls ...; sleep 10; done`): it dies on the 2-minute `Bash` timeout, having proved nothing. Use the bundled waiter, which does all its waiting inside a single process:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/check-deploy.mjs" --project-dir <project-dir> --timeout 600
+```
+
+Add `--sha $(git rev-parse HEAD)` to wait for **that** commit, `--target preview` for a preview deploy. It prints one JSON object (URL, commit, inspector URL) and exits `0` ready, `1` failed, `2` timeout, `3` not configured. For a long deploy, launch it with `run_in_background` rather than raising the `Bash` timeout.
+
 The only solution that works: launch the script in the background with output to a log, then arm a **`Monitor`** that tails the log and emits a notification on each newly detected sub-step. The Monitor exits automatically when it sees the final banner.
 
 **1. Choose the parent folder**

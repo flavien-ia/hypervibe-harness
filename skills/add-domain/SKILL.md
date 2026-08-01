@@ -260,6 +260,14 @@ Invoke `_push-env-vars` with:
 
 The helper updates the local `.env` AND Vercel (production/preview/development) in a single operation, idempotently.
 
+A Vercel env var only takes effect on the **next** build, so the site keeps serving the old URL until a redeploy lands. When you need to confirm that redeploy before checking the domain, **never hand-roll a polling loop** (`for i in $(seq 1 20); do vercel ls ...; sleep 10; done`) - it dies on the harness's 2-minute `Bash` timeout without proving anything. Use the bundled waiter, which waits inside a single process:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/check-deploy.mjs" --project-dir <WEB_DIR> --timeout 600
+```
+
+Exit codes: `0` ready, `1` failed, `2` timeout, `3` not configured. Use `run_in_background` for a long deploy.
+
 ### 3. Eliminate the vercel.app URLs from the code
 
 **This step is critical for SEO.** If `*.vercel.app` URLs remain in the code (sitemaps, metadata, JSON-LD, Open Graph), Google indexes the wrong URLs and the ranking is diluted.

@@ -196,9 +196,18 @@ Show the user:
 > 2. Open the matching project
 > 3. In the **Roles & Databases** tab, find the role (often `neondb_owner`)
 > 4. Click **⋯ → Reset password**
-> 5. Copy the full new connection URL from the **Connection details** tab and paste it here
+> 5. Copy the full new connection URL from the **Connection details** tab
+>
+> A small window will then open on your machine: paste the URL in there, not in our conversation. It contains the new database password, so it must not end up written in this chat.
 
-Capture the new `DATABASE_URL`. Push it via `_push-env-vars`.
+A connection URL carries a password: it is a secret, and a project-scoped one. Follow `_collect-secret` and take it through the window, which stores it in `.env` + Vercel directly:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "DATABASE_URL:secret" --project-dir "<PROJECT_DIR>"
+```
+
+Read the exit code before continuing: non-zero means the user cancelled, so the rotation is incomplete and the app still points at the old password.
 
 ⚠️ **Neon important**: rotating the password immediately cuts active connections. The next Vercel redeploy will use the new URL - but production has a 30-60s outage while the new deploy takes over. Warn the user:
 
@@ -222,7 +231,7 @@ console.log("vault:" + putItem(process.env.VITEM, [{ name: process.env.VFIELD, v
 '
 ```
 
-`vault:updated` expected. If the vault is locked (error), run `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` then try again.
+`vault:updated` expected. If the vault is locked (error), run `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` then try again.
 
 ## Step 5 - Propagate to other runtimes (Cloudflare Workers, Render)
 

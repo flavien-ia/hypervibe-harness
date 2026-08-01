@@ -69,13 +69,13 @@ If **yes**:
 > 6. **Validity**: choose **Illimitée** (Unlimited) (or 1 year if you prefer)
 > 7. Confirm with your Infomaniak password
 > 8. **Copy the token immediately** (it won't be shown again afterward)
-> 9. Give it to me, I'll store it properly.
+> 9. A small window will then open on your machine: paste the token in there, not in our conversation, so it never gets written into this chat.
 
 When the user has created their token, store it in the **vault** (item `INFOMANIAK`, masked-input window - the value does not pass through the chat):
 
 ```bash
 VAULT="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs"
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name INFOMANIAK --service Infomaniak --fields api_token:secret
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name INFOMANIAK --service Infomaniak --fields api_token:secret
 ```
 
 Then load it and validate it:

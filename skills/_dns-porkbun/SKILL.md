@@ -58,7 +58,7 @@ Guide the user:
 Store them in the **vault** once received (masked-input window - the values do not pass through the chat):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name PORKBUN --service Porkbun --fields "api_key:secret,secret_key:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name PORKBUN --service Porkbun --fields "api_key:secret,secret_key:secret"
 ```
 
 Then load them into the current session:

@@ -51,11 +51,18 @@ Tell the user:
 > 3. Give it a meaningful name (for example: `github-actions-{project-name}`)
 > 4. Choose whatever expiration you want (`No expiration` is fine for a personal project)
 > 5. Click **Create** and **copy the token immediately** (you will not be able to see it again afterward)
-> 6. Paste it here for me
+> 6. A small window will then open on your machine: paste the token in there, not in our conversation, so it never gets written into this chat.
 >
 > ⚠️ This token will have your Vercel account's permissions. Keep it secret and do not commit it.
 
-**Do not continue until the user has provided the token.**
+This token is account-wide, not project-specific, so it belongs in the **vault**. Follow `_collect-secret`, then (after `_ensure-vault`):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> \
+  --name VERCEL --service Vercel --fields "api_token:secret"
+```
+
+**Do not continue until the command returns 0.** A non-zero exit means the user cancelled and there is no token to work with.
 
 ## Step 3 - Read project info from `.vercel/project.json`
 
@@ -67,10 +74,12 @@ Extract `orgId` and `projectId`. They are needed for the workflow.
 
 ## Step 4 - Store the 3 secrets in GitHub
 
+`orgId` and `projectId` are identifiers, not secrets, so `--body` is fine for those. The **token is a secret**: putting it in `--body` would write it into the command line, which lands in the conversation exactly like a chat paste. `gh secret set` reads the value from **stdin** when `--body` is omitted, so pipe it straight out of the vault, in a single call, never printed:
+
 ```bash
 gh secret set VERCEL_ORG_ID --body "<orgId from .vercel/project.json>"
 gh secret set VERCEL_PROJECT_ID --body "<projectId from .vercel/project.json>"
-gh secret set VERCEL_TOKEN --body "<token provided by user>"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get VERCEL api_token | gh secret set VERCEL_TOKEN
 ```
 
 Verify all 3 are set:
@@ -176,6 +185,14 @@ gh run list --workflow=deploy.yml --limit 1
 ```
 
 If the run is queued or in progress, that's fine - note it but continue. If the run failed immediately (most often a missing secret), investigate and fix before continuing.
+
+If you do want to confirm that the deployment actually landed, **do not hand-roll a polling loop** (`for i in $(seq 1 20); do vercel ls ...; sleep 10; done`) - it dies on the harness's 2-minute `Bash` timeout without proving anything. Use the bundled waiter, which waits inside a single process:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/check-deploy.mjs" --sha $(git rev-parse HEAD) --timeout 600
+```
+
+Exit codes: `0` ready, `1` failed, `2` timeout, `3` not configured. Use `run_in_background` for a long deploy.
 
 ## Step 7 - Update CLAUDE.md
 

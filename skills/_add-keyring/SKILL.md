@@ -109,7 +109,7 @@ Wait for the user to confirm they have created their account (and enabled 2FA). 
 Launch the connection with the server of the region remembered at Step 3 (EU by default; US only if the user said they have a US account):
 ```bash
 # Europe / new account:
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" login --server https://vault.bitwarden.eu
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" login --lang <LANG> --server https://vault.bitwarden.eu
 # (US account: replace with --server https://vault.bitwarden.com)
 ```
 The command **blocks until the window is closed and now returns the real exit code** (0 = success, non-zero = failure: wrong password or wrong 2FA code). **NEVER assume success just because the window closed.** Always re-check with `bw status`:
@@ -123,7 +123,7 @@ The command **blocks until the window is closed and now returns the real exit co
 > Last step: we open the vault for the day. A window will open - type your **master password**. The vault stays open for 12h, so you only retype it once a day.
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>
 ```
 Blocks until closed. The window **self-repairs and re-checks the state before unlocking**: if the `bw` tool is missing, it reinstalls it automatically; if it shows "No account connected" (`bw status` = `unauthenticated`), **do NOT loop back on the unlock**, return to **Step 3** (login) first. Then confirm the result:
 ```bash

@@ -118,7 +118,25 @@ export const config = {
 
 ## Step 4 - Restructure app directory
 
+### ⚠️ Pre-flight - stop the dev server FIRST (mandatory on Windows)
+
+A running dev server holds an open handle on `src/app/` and on `.next/`. On Windows that handle makes the directory **unrenamable**: `git mv` and `mv` both fail with `Permission denied`, and so does clearing `.next/` afterwards. The error names no culprit, so it reads like a filesystem or rights problem and sends you chasing the wrong thing. Do this before touching any file:
+
+```bash
+# Is something serving the project? (adapt the port if the project uses another one)
+netstat -ano | grep -E ":3000.*LISTENING" || echo "port 3000 free"
+```
+
+- **A preview started by Hypervibe** → stop it with `preview_stop` (get its `serverId` from `preview_list`).
+- **A server started by the user** (nothing in `preview_list`, yet the port is taken) → tell them you need to stop it for the move, then stop it: `taskkill //PID <pid> //F` on Windows, `kill <pid>` elsewhere.
+
+Restart the dev server only at the end of the skill, for the Step 8 verification. If a move still fails with `Permission denied` while the port is free, an editor or a file explorer is sitting inside the folder: ask the user to close it rather than retrying the same command.
+
+### The move
+
 Move the existing pages (`page.tsx`, `not-found.tsx`, the `politique-de-confidentialite/` and `mentions-legales/` folders if present, and any other application page) from `src/app/` to `src/app/[locale]/`. Do not move `api/` (API routes stay at the root, no localization of endpoints).
+
+After the move, clear the build cache (`rm -rf .next`): Turbopack caches the old route resolution and keeps reporting phantom `Module not found` errors on the paths you just moved.
 
 **404 pattern (mandatory - a `not-found.tsx` under `[locale]/` is NOT enough)**: a `not-found.tsx` inside `[locale]/` only renders for explicit `notFound()` calls - unknown URLs match no route at all, so Next.js silently serves its default bare 404 in production. The `setup-i18n.mjs` script has already created the two required pieces on the `[locale]` side: `src/app/[locale]/[...rest]/page.tsx` (catch-all that calls `notFound()`) and a basic `src/app/[locale]/not-found.tsx` (only if the project had none - if you moved a custom one in, delete the generated one). You must add the third piece yourself **after** the move: a root `src/app/not-found.tsx` global fallback for URLs that bypass the middleware. Since the root layout is a passthrough, it must render its own `<html>`/`<body>` with inline styles (no Tailwind classes - the CSS pipeline is not guaranteed in this context). Restyle it with the site's palette (background, accent color on the "404", button):
 

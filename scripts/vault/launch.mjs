@@ -8,6 +8,11 @@
 //   node launch.mjs login  [--server <url>]
 //   node launch.mjs unlock
 //   node launch.mjs add --name <ITEM> [--service <S>] [--fields "..."] [--folder <F>]
+//   node launch.mjs collect-env --keys "KEY:secret,..." --project-dir <dir> [--target ...] [--url <url>]
+//
+// `add` and `collect-env` are the two destinations of the "no secret ever transits through
+// the conversation" convention: a GLOBAL key reused across projects goes to the vault, a
+// PROJECT secret goes to that project's .env + Vercel. Same window, same guarantee.
 //
 // Design note: ALL secret logic is in interactive.mjs (cross-OS Node). This launcher only
 // knows how to OPEN a window per OS - the single piece of OS-specific code in the vault layer.
@@ -17,13 +22,14 @@ import { existsSync, rmSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { platform, tmpdir } from "node:os";
+import { resolveLang, makeT } from "./i18n.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INTERACTIVE = join(__dirname, "interactive.mjs");
 
 const [cmd, ...passthrough] = process.argv.slice(2);
-if (!["login", "unlock", "add"].includes(cmd)) {
-  console.error("Usage: launch.mjs <login|unlock|add> [flags]");
+if (!["login", "unlock", "add", "collect-env"].includes(cmd)) {
+  console.error("Usage: launch.mjs <login|unlock|add|collect-env> [flags]");
   process.exit(1);
 }
 
@@ -60,8 +66,11 @@ if (os === "win32") {
 
   // UX safety net: if the window does not open (permission denied, no emulator...), the user
   // immediately sees what to run by hand instead of waiting for the timeout.
-  console.error(`[vault] A Terminal window will open for the "${cmd}" operation.`);
-  console.error(`[vault] If nothing opens, run this manually in a terminal:\n           ${nodeCmd}`);
+  // These two lines are read by the USER, so they follow --lang like the window itself.
+  const langFlagIdx = passthrough.indexOf("--lang");
+  const t = makeT(resolveLang(langFlagIdx >= 0 ? passthrough[langFlagIdx + 1] : null));
+  console.error(t("willOpen", { cmd }));
+  console.error(t("ifNothingOpens", { cmd: nodeCmd }));
 
   if (os === "darwin") {
     // `do script` returns as soon as Terminal has started the command, so the osascript status
@@ -70,8 +79,8 @@ if (os === "win32") {
     const osa = `tell application "Terminal"\n  activate\n  do script ${JSON.stringify(runLine)}\nend tell`;
     const r = spawnSync("osascript", ["-e", osa], { encoding: "utf8" });
     if (r.status !== 0) {
-      console.error(`[vault] Failed to open Terminal via osascript${r.stderr ? ": " + r.stderr.trim() : ""}.`);
-      console.error("[vault] Allow Terminal in System Settings -> Privacy & Security -> Automation, then try again - or run the command above manually.");
+      console.error(t("osascriptFailed", { detail: r.stderr ? ": " + r.stderr.trim() : "" }));
+      console.error(t("osascriptFix"));
       process.exit(1);
     }
   } else {
@@ -88,7 +97,7 @@ if (os === "win32") {
       if (r.status === 0) { spawn(bin, args, { stdio: "ignore", detached: true }).unref(); launched = true; break; }
     }
     if (!launched) {
-      console.error(`[vault] No terminal emulator found. Run manually: ${nodeCmd}`);
+      console.error(t("noEmulator", { cmd: nodeCmd }));
       process.exit(1);
     }
   }
@@ -96,7 +105,7 @@ if (os === "win32") {
   // Block until the sentinel appears (user finished in the window). Timeout ~15 min.
   const deadline = Date.now() + 15 * 60 * 1000;
   while (!existsSync(sentinel)) {
-    if (Date.now() > deadline) { console.error("[vault] Timed out waiting for the terminal window."); process.exit(1); }
+    if (Date.now() > deadline) { console.error(t("windowTimeout")); process.exit(1); }
     await new Promise((r) => setTimeout(r, 500));
   }
   // Propagate the inner exit code written into the sentinel (0 = success).

@@ -91,7 +91,7 @@ Guide the user (3 actions on the same page):
 When the user provides the username + ApiKey, store them in the **vault** (masked-input window - the values do not pass through the chat):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name NAMECHEAP --service Namecheap --fields "user:text,api_key:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name NAMECHEAP --service Namecheap --fields "user:text,api_key:secret"
 ```
 
 Then load them into the session (the public IP is recomputed, not stored - it can change):

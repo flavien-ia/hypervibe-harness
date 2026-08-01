@@ -66,11 +66,11 @@ KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get PAGESPEED api
 ```
 
 - **exit 0**: key present, continue.
-- **exit 2 or 3** (vault locked / expired): warn the user ("the vault is locked, a window will open for your master password"), launch `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (blocking), then retry the read.
+- **exit 2 or 3** (vault locked / expired): warn the user ("the vault is locked, a window will open for your master password"), launch `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking), then retry the read.
 - **exit 4** (key absent): this is the first use of `seo-perf` on this machine. Guide the key creation by following the **"Create the PageSpeed Insights key" appendix** below (hardcoded how-to, follow it as-is). Once the user has the key, store it via the vault's masked window:
 
   ```bash
-  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name PAGESPEED --service PageSpeed --fields "api_key:secret"
+  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name PAGESPEED --service PageSpeed --fields "api_key:secret"
   ```
 
   (The value is entered in the window, it never passes through you.) Then re-read the key to confirm.
@@ -251,7 +251,7 @@ Guide the user, step by step:
 Then store the key in the vault (masked window):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name PAGESPEED --service PageSpeed --fields "api_key:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name PAGESPEED --service PageSpeed --fields "api_key:secret"
 ```
 
 ---

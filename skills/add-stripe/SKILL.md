@@ -250,6 +250,14 @@ Invoke `_update-claude-md` with:
     If you want to go back to test mode later: redo steps 1-2-4 with the `_test_` keys.
     ```
 
+The live keys are only active once that redeploy has landed, so confirm it before telling the user to test a real payment. **Do not hand-roll a polling loop** (`for i in $(seq 1 20); do vercel ls ...; sleep 10; done`) - it dies on the harness's 2-minute `Bash` timeout without proving anything. Use the bundled waiter, which waits inside a single process:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/check-deploy.mjs" --sha $(git rev-parse HEAD) --timeout 600
+```
+
+Exit codes: `0` ready, `1` failed, `2` timeout, `3` not configured. Use `run_in_background` for a long deploy.
+
 ## Step 10 - Propose Terms of Sale (CGV - Conditions Generales de Vente)
 
 Payments in France = mandatory terms of sale (CGV). Ask: *"I can generate the terms of sale now if you give me a few details (product type, price, withdrawal, refund, support). Shall we?"*

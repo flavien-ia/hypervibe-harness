@@ -32,7 +32,15 @@ If during discovery the need clearly falls in the right column, say so in one ho
 
 1. Invoke **`_detect-project-root`** → `PROJECT_NAME`, `IS_MONOREPO`, `WEB_DIR`, `IS_NEXTJS`. If not a Next.js project, stop: workflows live inside the app.
 2. Invoke **`_check-deps`** for the database. A real DB (Neon wired by `/add-db`) enables run logging in a table; without it the runner degrades to console logging (say so, and continue - do not force `/add-db`).
-3. **Anthropic key, ONLY if the pipeline will have intelligent steps** (checked again after discovery): look for `ANTHROPIC_API_KEY` in the project `.env`. If missing, guide the user: open https://console.anthropic.com/settings/keys with `_open-and-paste`, have them create a key, then push it with `_push-env-vars` (`ANTHROPIC_API_KEY=<value>`, local + Vercel). Never echo the value.
+3. **Anthropic key, ONLY if the pipeline will have intelligent steps** (checked again after discovery): look for `ANTHROPIC_API_KEY` in the project `.env`. If missing, follow `_collect-secret`: an API key is a secret, so it is never pasted into the conversation. Have them create the key at https://console.anthropic.com/settings/keys, then collect it through the masked window, which stores it in `.env` + Vercel itself:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "ANTHROPIC_API_KEY:secret" --project-dir "<PROJECT_DIR>" \
+  --url "https://console.anthropic.com/settings/keys"
+```
+
+Read the exit code before continuing; never echo the value.
 
 ## Step 1 - Discovery
 

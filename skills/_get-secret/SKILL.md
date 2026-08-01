@@ -53,6 +53,12 @@ fi
 echo "rc=$RC"   # log ONLY the code, never $VAL
 ```
 
+## `--lang` - always substitute it
+
+The window commands on this page carry `--lang <LANG>`. **Replace `<LANG>` with the two-letter code of the language you detected for the conversation** (`fr`, `en`, ...) before running them. Never send the literal `<LANG>`.
+
+The window is a separate process and cannot see the conversation, so it cannot detect the language by itself. Without the flag it falls back to the machine's locale, which is wrong precisely when the user's language and their OS language differ. Supported today: `fr`, `en`; anything else falls back to English.
+
 ## Auto-unlock (if RC = 2 or 3)
 
 When `RC` is 2 or 3, warn the user **in the chat** then open the unlock window (blocking), and **retry**:
@@ -60,7 +66,7 @@ When `RC` is 2 or 3, warn the user **in the chat** then open the unlock window (
 > "Your vault is locked - a window will open for your master password."
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock   # blocks until the window is closed
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>   # blocks until the window is closed
 # then redo the get
 VAL=$(node "$VAULT" get CLOUDFLARE api_token); RC=$?
 ```
@@ -72,7 +78,7 @@ The master password is typed **in the window**, never in the chat. The session s
 The item is not in the vault yet. Offer to add it (the value will be entered in a masked window, never via Claude):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name CLOUDFLARE --service Cloudflare --fields "api_token:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name CLOUDFLARE --service Cloudflare --fields "api_token:secret"
 ```
 
 For a multi-field key (e.g. Qonto): `--fields "api_key:secret,slug:text"`.

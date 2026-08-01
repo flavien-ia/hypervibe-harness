@@ -236,24 +236,30 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" ANTHROPIC_API_KEY
 
 If the command returns a value that starts with `sk-ant-`, OK, move to Step 3.
 
-Otherwise, ask the user:
+Otherwise, follow **`_collect-secret`**. An API key is a secret, so it is **never pasted into the conversation**: the user types it into a masked window, which stores it directly.
+
+Announce it:
 
 > To run the agent I need an **Anthropic API key**. It's free up to a certain volume, paid beyond that (but the budget guardrail prevents surprises).
 >
-> 1. Go to **https://console.anthropic.com/settings/keys**
+> 1. I'm opening **https://console.anthropic.com/settings/keys** in your browser
 > 2. Click **"Create Key"**, give it a name (e.g. `Hypervibe`)
 > 3. Copy the key that appears (starts with `sk-ant-...`)
-> 4. Paste it to me here (I store it locally, never in the repo)
+>
+> ⚠️ Anthropic shows this key **only once**. A small window will then open on your machine: paste it in there, not in our conversation, so it never gets written into this chat.
 
-When the user pastes the key:
-- Check the format: `^sk-ant-` + 50+ chars
-- Persist it at the User scope:
+Then open the window (it opens the browser page itself, so the key goes from the provider straight into the window):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/_write-user-env.mjs" ANTHROPIC_API_KEY "<the_pasted_key>"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "ANTHROPIC_API_KEY:secret" \
+  --project-dir "<PROJECT_DIR>" \
+  --url "https://console.anthropic.com/settings/keys"
 ```
 
-→ The key is now available for this session AND future ones.
+The command blocks until the user is done and stores the key in the project's `.env` **and** on Vercel. **Read its exit code**: non-zero means they cancelled or it failed, so do not continue as if the key were there. You will not see the value yourself, which is the point.
+
+If no window can open in this session (headless, remote, scheduled run), apply the fallback documented in `_collect-secret`: warn explicitly, let the user choose, and if they paste it in chat anyway, remind them at the end of the skill to rotate that key.
 
 ---
 

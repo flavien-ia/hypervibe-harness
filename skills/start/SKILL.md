@@ -206,11 +206,24 @@ bw status 2>/dev/null
 ```
 - `unlocked` → vault already ready, move on to Step 4.
 - `bw status` = `unauthenticated` (no connected account) → **immediately launch the `_add-keyring` skill by default, WITHOUT asking for confirmation**: the vault is MANDATORY, there is nothing to decide. NEVER ask a question like "do you want to set up your vault now?", do not wait for confirmation: go straight to `_add-keyring`, which guides the creation of the Bitwarden account (free, master password to write down offline, 2FA), the login, and the first unlock. Non-technical language.
-- `locked`/`expired` (account connected but vault closed) → open it: `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (blocking).
+- `locked`/`expired` (account connected but vault closed) → open it: `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking).
 
 > **Your key vault**: an encrypted place where I store your access keys (database, email, hosting, etc.). You type your master password once a day, and after that I use it without you having to copy anything over. ⚠️ This master password cannot be recovered by anyone. Write it down offline.
 
 Re-confirm `vault.mjs status` = `unlocked` before continuing.
+
+### The rule that follows from it: a secret never goes through the conversation
+
+Say this once, here, so the user understands the windows they will see later instead of finding them odd:
+
+> One habit worth knowing: **I will never ask you to paste a password or an access key into our conversation.** Every time one is needed, a small window opens on your machine and you type it there. Two reasons: what is written in our chat stays in this session's history, and a key that leaks is a key someone else can use in your name. Public identifiers (a site's tracking ID, for instance) are different, those you can just give me here.
+
+The convention itself is documented in **`_collect-secret`**, which every skill follows. Two destinations, decided by scope:
+
+- **Global key** reused across projects (Cloudflare, Neon, email, registrar tokens) → the vault, via `launch.mjs add`.
+- **Secret belonging to one project** (a project API key, `DATABASE_URL`) → that project's `.env` + Vercel, via `launch.mjs collect-env`.
+
+Non-secret identifiers (GA4 measurement ID, OAuth client ID, account ID) stay a plain chat paste: putting them behind a window would be friction with no benefit, and would teach the user to click through the window without thinking.
 
 ---
 
@@ -263,7 +276,7 @@ Present a clear report:
 
 Store it in the vault (masked input in a window, outside Claude's context):
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name CLOUDFLARE --service Cloudflare --fields "api_token:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name CLOUDFLARE --service Cloudflare --fields "api_token:secret"
 ```
 
 Then **validate** the token (read from the vault, never displayed):
@@ -504,7 +517,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/open-url.mjs" "https://console.neon.tech
 
 Store it in the vault:
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name NEON --service Neon --fields "api_key:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name NEON --service Neon --fields "api_key:secret"
 ```
 
 Confirm:
@@ -540,7 +553,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/open-url.mjs" "https://resend.com/api-ke
 Store it in the vault:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name RESEND --service Resend --fields "api_key:secret"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name RESEND --service Resend --fields "api_key:secret"
 ```
 
 Validate (read from the vault, never displayed):

@@ -111,13 +111,13 @@ VAULT="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs"
 node "$VAULT" get RESEND api_key >/dev/null 2>&1; RC=$?
 ```
 - `RC=0` then key present, move on to Step 3.
-- `RC=2/3` (vault locked/expired) then warn the user, `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (blocking), retry.
+- `RC=2/3` (vault locked/expired) then warn the user, `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking), retry.
 - `RC=4` (key missing) then have it created + stored in the vault:
   > To send emails, I need a Resend key (just once - I store it in your vault).
   > 1. Go to **https://resend.com/api-keys** then **Create API Key** then **Full Access** and copy it.
   > 2. A window will open: paste it in (masked input).
   ```bash
-  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name RESEND --service Resend --fields "api_key:secret"
+  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name RESEND --service Resend --fields "api_key:secret"
   ```
   Then retry the `get`.
 
@@ -132,13 +132,13 @@ VAULT="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs"
 node "$VAULT" get BREVO api_key >/dev/null 2>&1; RC=$?
 ```
 - `RC=0` then key present, move on to Step 3.
-- `RC=2/3` (vault locked/expired) then warn the user, `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock` (blocking), retry.
+- `RC=2/3` (vault locked/expired) then warn the user, `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking), retry.
 - `RC=4` (key missing) then have it created + stored in the vault:
   > To use Brevo, I need an API key (just once - I store it in your vault).
   > 1. Go to **https://app.brevo.com/settings/keys/api** then **Generate a new API key** (name `claude-code`) and copy it (`xkeysib-...`).
   > 2. A window will open: paste it in (masked input).
   ```bash
-  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --name BREVO --service Brevo --fields "api_key:secret"
+  node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name BREVO --service Brevo --fields "api_key:secret"
   ```
   Then retry the `get`.
 
