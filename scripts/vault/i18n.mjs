@@ -90,12 +90,12 @@ const STRINGS = {
     twoFactorMail: "    soit par EMAIL (regarde ta boite, le message arrive au moment de la connexion).",
     twoFactorType: "  - Saisis le code dans cette fenetre, puis Entree.",
     signInFailed: "Echec de la connexion (mauvais mot de passe ou mauvais code 2FA ?). Relance pour reessayer.",
-    signedIn: "\nConnecte. Etape suivante : le deverrouillage.",
+    signedIn: "\nLa connexion a reussi. Etape suivante : le deverrouillage.",
 
     notSignedIn: "Aucun compte n'est connecte sur cette machine. Connecte-toi d'abord, avant de deverrouiller.",
     unlocking: "Deverrouillage du coffre pour {email}...",
     unlockFailed: "Echec du deverrouillage (mauvais mot de passe ?).",
-    unlocked: "Coffre deverrouille. Valable 12h.",
+    unlocked: "Le coffre est ouvert. Valable 12h.",
 
     vaultLocked: "Coffre verrouille ou session expiree. Deverrouille-le d'abord.",
     itemName: "Nom de l'element (ex : CLOUDFLARE) : ",
@@ -110,8 +110,8 @@ const STRINGS = {
     plainPrompt: "{name} : ",
     emptyValue: "Aucune valeur saisie pour '{name}'.",
     saveFailed: "Impossible d'enregistrer '{name}'.",
-    savedCreated: "'{name}' cree.",
-    savedUpdated: "'{name}' mis a jour.",
+    savedCreated: "'{name}' est maintenant dans le coffre.",
+    savedUpdated: "'{name}' a bien ete mis a jour dans le coffre.",
 
     keysRequired: "--keys est obligatoire (ex : --keys \"STRIPE_SECRET_KEY:secret\").",
     projectDirRequired: "--project-dir est obligatoire.",
@@ -123,8 +123,8 @@ const STRINGS = {
     collectWhere: "Saisies ici, elles vont directement dans le .env du projet (et sur Vercel).",
     collectNeverChat: "Elles ne passent jamais par notre conversation.\n",
     collectFailed: "L'enregistrement a echoue. Details :\n{detail}",
-    collectSavedLocal: "\nEnregistre dans le .env du projet : {names}.",
-    collectSavedVercel: "\nEnregistre dans le .env du projet et pousse sur Vercel : {names}.",
+    collectSavedLocal: "\nC'est fait. Ces valeurs sont maintenant dans le .env du projet : {names}.",
+    collectSavedVercel: "\nC'est fait. Ces valeurs sont maintenant dans le .env du projet et sur Vercel : {names}.",
 
     willOpen: "[coffre] Une fenetre de terminal va s'ouvrir pour l'etape \"{cmd}\".",
     ifNothingOpens: "[coffre] Si rien ne s'ouvre, lance ceci a la main dans un terminal :\n           {cmd}",
@@ -140,6 +140,13 @@ const STRINGS = {
 // and we cannot reliably fix that from here. So the translations above are
 // written WITHOUT accents on purpose: slightly rough to read, but correct
 // everywhere. Do not "fix" them by adding accents back.
+//
+// CONSEQUENCE for French, and it bites: without its accent, a lone past participle
+// becomes an imperative. "Enregistre dans le .env" reads as an ORDER to the user
+// ("go and save it yourself") instead of a statement of fact ("saved"). Same trap
+// with "Connecte", "Deverrouille", "Cree", "Pousse". So never end on a bare past
+// participle: use a full clause ("C'est fait. Ces valeurs sont maintenant dans...",
+// "La connexion a reussi", "Le coffre est ouvert") or a noun ("Enregistrement de...").
 
 export function resolveLang(flag) {
   const candidate = flag && flag !== "true" ? flag : osLocale();
