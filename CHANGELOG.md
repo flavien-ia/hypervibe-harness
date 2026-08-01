@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.1 (1er août 2026)
+
+### Corrections
+- **Fenêtre de saisie des clés** : en français, le message de confirmation affiché une fois la clé enregistrée pouvait se lire comme une consigne à exécuter vous-même plutôt que comme une confirmation que c'était fait. Les phrases concernées ont été reformulées, à la fin de l'enregistrement comme à l'ouverture du coffre-fort.
+
 ## v2.7.0 (1er août 2026)
 
 ### Nouveautés
