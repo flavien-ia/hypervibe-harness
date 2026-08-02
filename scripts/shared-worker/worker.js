@@ -7,9 +7,11 @@
 //                     time, authenticated with the project's bearer secret.
 //                     (Replaces the old standalone "cron-dispatcher" worker.)
 //   kind "snapshot" - Neon database backup branches with rolling + aging
-//                     retention. (Replaces the old "db-backup" worker.)
-//   kind "quota"    - free-tier quota watch (currently Cloudflare R2 storage)
-//                     with a Brevo alert email. (Replaces "quota-monitor".)
+//                     retention, plus a Brevo alert email when a target fails.
+//                     (Replaces the old "db-backup" worker.)
+//   kind "quota"    - free-tier quota watch (Cloudflare R2 storage, plus Neon
+//                     egress / compute / storage) with a Brevo alert email.
+//                     (Replaces "quota-monitor".)
 //
 // Registry: ./jobs.js (versioned in the same git repo, managed by the
 // Hypervibe skills through scripts/shared-worker/register.mjs).
@@ -19,18 +21,22 @@
 //     "cron": "0 8 * * 1", "url": "https://myapp.vercel.app/api/cron/weekly-report",
 //     "secretName": "CRON_SECRET_MYAPP" }
 //   { "kind": "snapshot", "name": "neon-backups", "cron": "0 3 1,15 * *",
-//     "targets": [{ "name": "myapp", "projectId": "abc-123" }] }
+//     "targets": [{ "name": "myapp", "projectId": "abc-123" }],
+//     "config": { "recipient": "you@x.fr", "senderEmail": "you@x.fr",
+//                 "senderName": "Hypervibe" } }   // config optional: no config = no alert mail
 //   { "kind": "quota",    "name": "quota-monitor", "cron": "0 6 * * *",
 //     "config": { "cloudflareAccountId": "...", "recipient": "you@x.fr",
 //                 "senderEmail": "you@x.fr", "senderName": "Hypervibe",
-//                 "r2ThresholdGb": 9 } }
+//                 "r2ThresholdGb": 9, "neonThresholdPct": 60 } }
+//     (R2 needs CLOUDFLARE_API_TOKEN + cloudflareAccountId + r2ThresholdGb;
+//      the Neon block runs as soon as NEON_API_KEY is present.)
 //   Any job may carry "enabled": false to pause it without deleting it.
 //
 // Secrets (uploaded via `wrangler secret put`, never in git):
 //   ADMIN_TOKEN            - bearer for the manual /trigger and /status endpoints
 //   NEON_API_KEY           - for "snapshot" jobs
 //   CLOUDFLARE_API_TOKEN   - for "quota" jobs (Account Analytics: Read)
-//   BREVO_API_KEY          - for "quota" jobs (alert email)
+//   BREVO_API_KEY          - for "quota" and "snapshot" jobs (alert email)
 //   CRON_SECRET_<PROJECT>  - one per project, for its "ping" jobs
 //
 // Failure isolation: every due job runs in its own promise with its own catch;
@@ -40,6 +46,15 @@ import registry from "./jobs.js";
 
 const NEON = "https://console.neon.tech/api/v2";
 const R2_FREE_TIER_GB = 10;
+
+// Neon Free plan caps. Storage and compute are PER PROJECT; egress is the only
+// one pooled across the whole account, and typically the first one to break
+// (real-time sync features and unpaginated reads are the usual culprits).
+const NEON_FREE = {
+  egressGB: 5,
+  computeHoursPerProject: 100,
+  storageGBPerProject: 0.5,
+};
 
 export default {
   async scheduled(controller, env, ctx) {
@@ -199,12 +214,74 @@ export async function runSnapshotJob(job, env) {
   const results = await Promise.allSettled(
     targets.map((t) => backupTarget(t, env.NEON_API_KEY)),
   );
+  const failures = [];
   for (let i = 0; i < results.length; i++) {
     if (results[i].status === "rejected") {
       const reason = results[i].reason;
-      console.error(`[${targets[i].name}] snapshot FAILED: ${reason?.message || reason}`);
+      const message = String(reason?.message || reason);
+      console.error(`[${targets[i].name}] snapshot FAILED: ${message}`);
+      failures.push({ ...targets[i], message, ...diagnoseSnapshotFailure(targets[i], message) });
     }
   }
+
+  if (!failures.length) return;
+
+  // A failed target is doubly bad: backupTarget creates the new branch BEFORE
+  // pruning the old ones, so a project stuck at the plan's branch cap loses its
+  // backups AND its rotation, silently. Always try to surface it by email.
+  const cfg = job.config || {};
+  if (!env.BREVO_API_KEY || !cfg.senderEmail || !cfg.recipient) {
+    console.error(`[${job.name}] ${failures.length} snapshot failure(s) but Brevo not configured (BREVO_API_KEY secret + senderEmail + recipient in the job config) - cannot send alert.`);
+    return;
+  }
+
+  try {
+    await sendSnapshotFailureEmail(env, cfg, failures);
+    console.log(`[${job.name}] failure email sent to ${cfg.recipient} (${failures.length} target(s)).`);
+  } catch (e) {
+    console.error(`[${job.name}] email send failed: ${e.message}`);
+  }
+}
+
+// Turns a raw Neon API error into a plain-language cause plus a ready-to-paste
+// prompt for Claude Code. Each prompt must stand alone: whoever pastes it has
+// only the email in front of them, not this code.
+function diagnoseSnapshotFailure(target, message) {
+  // Classify on Neon's response body only: the request path always contains
+  // "/branches", which would otherwise make every error look branch-related.
+  const detail = message.replace(/^[A-Z]+ \/\S* -> \d+:\s*/, "");
+  const authFailed = /-> 40[13]:/.test(message);
+  const storageCapped = /storage/i.test(detail) && /(limit|exceed|quota)/i.test(detail);
+  const branchCapped =
+    !storageCapped &&
+    /branch/i.test(detail) && /(limit|exceed|maximum|quota|allow)/i.test(detail);
+
+  if (branchCapped) {
+    return {
+      cause: "Le projet a atteint le plafond de branches de son plan Neon (10 sur le plan Free).",
+      impact: "Aucune sauvegarde n'a ete creee, et la rotation des anciennes n'a pas eu lieu non plus (le worker cree avant de purger). Le projet reste bloque tant que des branches ne sont pas supprimees.",
+      prompt: `Le backup automatique Neon du projet "${target.name}" (projectId ${target.projectId}) echoue parce que le projet a atteint la limite de 10 branches du plan Free. Lis la cle Neon dans le coffre Bitwarden (item NEON, champ api_key), liste les branches du projet via l'API, et classe-les : "main", les backups automatiques (bk-${target.name}-r-<date> = rolling, bk-${target.name}-a-<date> = aging) et les snapshots manuels (tout le reste). Propose-moi lesquelles supprimer pour redescendre a 6 branches maximum, en gardant main et les backups automatiques les plus recents. Ne supprime rien sans mon accord explicite.`,
+    };
+  }
+  if (authFailed) {
+    return {
+      cause: "L'API Neon a refuse la cle du worker (401/403).",
+      impact: "Aucun projet n'a pu etre sauvegarde tant que la cle n'est pas retablie.",
+      prompt: `Le worker Cloudflare "hypervibe-jobs" n'arrive plus a appeler l'API Neon, elle repond 401 ou 403. Erreur exacte : ${message}. Compare la cle du coffre Bitwarden (item NEON, champ api_key) avec le secret NEON_API_KEY du worker, verifie qu'elle est toujours valide cote Neon, et remets-la a jour avec "wrangler secret put NEON_API_KEY" depuis le dossier ~/.hypervibe-jobs si besoin.`,
+    };
+  }
+  if (storageCapped) {
+    return {
+      cause: "Le projet a atteint le plafond de stockage de son plan Neon (0,5 Go sur le plan Free).",
+      impact: "La creation de branche echoue, et les ecritures en base sont probablement bloquees elles aussi.",
+      prompt: `Le projet Neon "${target.name}" (projectId ${target.projectId}) a atteint le plafond de stockage de 0,5 Go du plan Free, ce qui bloque le backup automatique et probablement les ecritures en base. Lis la cle Neon dans le coffre Bitwarden (item NEON, champ api_key), regarde la taille reelle du projet et la repartition par table, et propose-moi quoi purger ou archiver. Ne supprime aucune donnee sans mon accord explicite.`,
+    };
+  }
+  return {
+    cause: "Erreur inattendue de l'API Neon.",
+    impact: "Ce projet n'a pas ete sauvegarde lors de ce passage.",
+    prompt: `Le backup automatique Neon du projet "${target.name}" (projectId ${target.projectId}) a echoue avec cette erreur : ${message}. Le code du worker est dans ~/.hypervibe-jobs/worker.js (fonction backupTarget) et le registre des jobs dans ~/.hypervibe-jobs/jobs.js. Diagnostique la cause, verifie l'etat du projet via l'API Neon avec la cle du coffre Bitwarden (item NEON, champ api_key), et propose-moi un correctif.`,
+  };
 }
 
 async function neon(method, path, key, body) {
@@ -298,12 +375,20 @@ export async function runQuotaJob(job, env) {
     );
   }
 
+  if (env.NEON_API_KEY) {
+    checks.push(
+      checkNeonUsage(env, cfg).catch((e) => ({ _error: `Neon: ${e.message}` })),
+    );
+  }
+
   if (!checks.length) {
-    console.log(`[${job.name}] no quota checks configured (need CLOUDFLARE_API_TOKEN secret + cloudflareAccountId + r2ThresholdGb).`);
+    console.log(`[${job.name}] no quota checks configured (need CLOUDFLARE_API_TOKEN + cloudflareAccountId + r2ThresholdGb for R2, NEON_API_KEY for Neon).`);
     return;
   }
 
-  const results = await Promise.all(checks);
+  // A check may return one alert, null, or several alerts (Neon reports per
+  // project), so flatten before filtering.
+  const results = (await Promise.all(checks)).flatMap((r) => (Array.isArray(r) ? r : [r]));
   const alerts = results.filter((r) => r && !r._error);
   const errors = results.filter((r) => r && r._error);
   for (const e of errors) console.error(`[${job.name}] ${e._error}`);
@@ -390,6 +475,82 @@ async function checkR2Storage(env, cfg) {
   };
 }
 
+// Watches the three Neon Free caps. Egress is the headline: it is pooled across
+// the account, it is invisible from the console's project view, and it scales
+// with how OFTEN you read the data, not with how big the database is.
+async function checkNeonUsage(env, cfg) {
+  const pct = parseFloat(cfg.neonThresholdPct ?? 60);
+  if (!Number.isFinite(pct) || pct <= 0) return [];
+
+  const { projects } = await neon("GET", "/projects?limit=400", env.NEON_API_KEY);
+  if (!projects?.length) return [];
+
+  // The list endpoint carries storage but NOT the consumption counters, so each
+  // project needs its own GET. Fine for a once-a-day job.
+  const details = (
+    await Promise.all(
+      projects.map((p) =>
+        neon("GET", `/projects/${p.id}`, env.NEON_API_KEY)
+          .then((d) => d.project)
+          .catch((e) => {
+            console.error(`[neon] ${p.name}: ${e.message}`);
+            return null;
+          }),
+      ),
+    )
+  ).filter(Boolean);
+
+  const alerts = [];
+  let egressBytes = 0;
+
+  for (const p of details) {
+    egressBytes += p.data_transfer_bytes || 0;
+
+    const computeH = (p.compute_time_seconds || 0) / 3600;
+    if (computeH >= (NEON_FREE.computeHoursPerProject * pct) / 100) {
+      alerts.push({
+        service: `Neon / ${p.name}`,
+        metric: "Compute du mois",
+        used: `${computeH.toFixed(1)} CU-h`,
+        threshold: `${pct} % du plafond`,
+        limit: `${NEON_FREE.computeHoursPerProject} CU-h (par projet)`,
+        pctOfLimit: `${((computeH / NEON_FREE.computeHoursPerProject) * 100).toFixed(1)} %`,
+        hint: "Une requete lourde ou un endpoint qui ne se suspend plus. Regarde si un client garde une connexion ouverte en permanence.",
+      });
+    }
+
+    const storageGB = (p.synthetic_storage_size || 0) / 1073741824;
+    if (storageGB >= (NEON_FREE.storageGBPerProject * pct) / 100) {
+      alerts.push({
+        service: `Neon / ${p.name}`,
+        metric: "Stockage",
+        used: `${storageGB.toFixed(3)} GB`,
+        threshold: `${pct} % du plafond`,
+        limit: `${NEON_FREE.storageGBPerProject} GB (par projet)`,
+        pctOfLimit: `${((storageGB / NEON_FREE.storageGBPerProject) * 100).toFixed(1)} %`,
+        hint: "Au plafond, les ecritures echouent. Purge les vieilles lignes, ou supprime des branches de backup qui divergent beaucoup de main.",
+      });
+    }
+  }
+
+  const egressGB = egressBytes / 1073741824;
+  if (egressGB >= (NEON_FREE.egressGB * pct) / 100) {
+    alerts.push({
+      service: "Neon (tout le compte)",
+      metric: "Egress du mois",
+      used: `${egressGB.toFixed(3)} GB`,
+      threshold: `${pct} % du plafond`,
+      limit: `${NEON_FREE.egressGB} GB (compte entier)`,
+      pctOfLimit: `${((egressGB / NEON_FREE.egressGB) * 100).toFixed(1)} %`,
+      hint: "Cherche ce qui LIT en boucle, pas ce qui est gros : polling a intervalle court, requete sans pagination, ou fonction serverless qui refait la meme requete sans cache. C'est le profil type d'une synchro temps reel ou d'un polling agressif.",
+    });
+  } else {
+    console.log(`Neon egress OK: ${egressGB.toFixed(3)} GB / ${NEON_FREE.egressGB} GB (${pct} % threshold).`);
+  }
+
+  return alerts;
+}
+
 async function sendQuotaEmail(env, cfg, alerts) {
   const subject = alerts.length === 1
     ? `[Hypervibe] Quota ${alerts[0].service} a depasse le seuil`
@@ -406,6 +567,13 @@ async function sendQuotaEmail(env, cfg, alerts) {
         <td style="padding:8px;border:1px solid #ddd;">${a.limit}</td>
         <td style="padding:8px;border:1px solid #ddd;"><strong>${a.pctOfLimit}</strong></td>
       </tr>`,
+    )
+    .join("");
+
+  const hints = alerts
+    .filter((a) => a.hint)
+    .map(
+      (a) => `<li style="margin-bottom:8px;"><strong>${escapeHtml(a.service)}</strong> : ${escapeHtml(a.hint)}</li>`,
     )
     .join("");
 
@@ -426,6 +594,7 @@ async function sendQuotaEmail(env, cfg, alerts) {
         </thead>
         <tbody>${rows}</tbody>
       </table>
+      ${hints ? `<h3 style="margin-top: 24px;">Ou regarder</h3><ul style="font-size:14px;">${hints}</ul>` : ""}
       <h3 style="margin-top: 24px;">Que faire ?</h3>
       <ul>
         <li>Lance <code>/quotas</code> dans Claude Code pour voir le detail complet.</li>
@@ -441,6 +610,61 @@ async function sendQuotaEmail(env, cfg, alerts) {
     </div>
   `;
 
+  await sendBrevoEmail(env, cfg, subject, htmlContent);
+}
+
+async function sendSnapshotFailureEmail(env, cfg, failures) {
+  const subject = failures.length === 1
+    ? `[Hypervibe] Backup Neon en echec : ${failures[0].name}`
+    : `[Hypervibe] ${failures.length} backups Neon en echec`;
+
+  const blocks = failures
+    .map(
+      (f) => `
+      <div style="border:1px solid #ddd;border-radius:6px;padding:16px;margin-bottom:20px;">
+        <h3 style="margin:0 0 8px;">${escapeHtml(f.name)}</h3>
+        <p style="margin:0 0 4px;"><strong>Ce qui se passe :</strong> ${escapeHtml(f.cause)}</p>
+        <p style="margin:0 0 12px;"><strong>Consequence :</strong> ${escapeHtml(f.impact)}</p>
+        <p style="margin:0 0 6px;"><strong>A copier-coller dans Claude Code pour corriger :</strong></p>
+        <pre style="white-space:pre-wrap;word-break:break-word;background:#f7f7f7;border:1px solid #e2e2e2;border-radius:4px;padding:12px;font-size:13px;margin:0 0 12px;">${escapeHtml(f.prompt)}</pre>
+        <details>
+          <summary style="cursor:pointer;color:#666;font-size:13px;">Erreur brute renvoyee par Neon</summary>
+          <pre style="white-space:pre-wrap;word-break:break-word;color:#666;font-size:12px;margin:8px 0 0;">${escapeHtml(f.message)}</pre>
+        </details>
+      </div>`,
+    )
+    .join("");
+
+  const htmlContent = `
+    <div style="font-family: -apple-system, system-ui, sans-serif; max-width: 720px; margin: 0 auto; color: #222;">
+      <h2 style="color: #c0392b;">Backup Neon en echec</h2>
+      <p>
+        Le job <code>snapshot</code> du worker partage n'a pas pu sauvegarder
+        ${failures.length === 1 ? "un projet" : `${failures.length} projets`}.
+        Tant que ce n'est pas corrige, ${failures.length === 1 ? "ce projet n'a" : "ces projets n'ont"}
+        plus de sauvegarde automatique.
+      </p>
+      ${blocks}
+      <hr style="margin: 32px 0; border: none; border-top: 1px solid #eee;">
+      <p style="color: #888; font-size: 12px;">
+        Email envoye par le Worker Cloudflare <code>hypervibe-jobs</code> (worker partage Hypervibe).<br>
+        Configuration : <code>~/.hypervibe-jobs/jobs.js</code> (repo git local)<br>
+        Prochain essai automatique au prochain passage du job (le 1er et le 15 du mois).
+      </p>
+    </div>
+  `;
+
+  await sendBrevoEmail(env, cfg, subject, htmlContent);
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+async function sendBrevoEmail(env, cfg, subject, htmlContent) {
   const body = {
     sender: {
       email: cfg.senderEmail,

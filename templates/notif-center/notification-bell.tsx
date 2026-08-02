@@ -7,16 +7,37 @@
 //
 // UI optimiste : la pastille et l'état lu/non-lu se mettent à jour immédiatement,
 // la persistance part en arrière-plan (rollback si erreur).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "~/trpc/react";
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const utils = api.useUtils();
 
-  // Pastille : compteur rafraîchi en tâche de fond toutes les 30 s.
+  // Temps réel sans polling : si /add-push-notification est installé, le
+  // service worker rediffuse chaque push reçu aux onglets ouverts
+  // (postMessage "hv:new-notification") et on invalide le compteur ici.
+  // Sans service worker (pas de PWA/push), cet effet ne fait simplement rien.
+  useEffect(() => {
+    const sw = typeof navigator !== "undefined" ? navigator.serviceWorker : undefined;
+    if (!sw) return;
+    const onMessage = (event: MessageEvent) => {
+      if ((event.data as { type?: string } | null)?.type === "hv:new-notification") {
+        void utils.notifications.unreadCount.invalidate();
+        void utils.notifications.list.invalidate();
+      }
+    };
+    sw.addEventListener("message", onMessage);
+    return () => sw.removeEventListener("message", onMessage);
+  }, [utils]);
+
+  // Pastille : filet de sécurité toutes les 5 min. Ne JAMAIS redescendre sous
+  // 300 s : un poll plus court garde la base Neon éveillée en continu pour
+  // chaque onglet actif (elle ne s'autosuspend qu'après 5 min sans requête).
+  // Le retour sur l'onglet est déjà couvert par refetchOnWindowFocus (défaut
+  // TanStack Query), et le temps réel par le push ci-dessus quand il existe.
   const unread = api.notifications.unreadCount.useQuery(undefined, {
-    refetchInterval: 30_000,
+    refetchInterval: 300_000,
   });
   // Liste : chargée seulement quand le panneau est ouvert.
   const list = api.notifications.list.useQuery({ limit: 20 }, { enabled: open });

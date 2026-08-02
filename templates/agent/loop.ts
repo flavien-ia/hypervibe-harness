@@ -15,14 +15,6 @@
 // `agentName` column key in `agent_invocations` table). Keep it kebab-case.
 
 import Anthropic from "@anthropic-ai/sdk";
-import type {
-  Message,
-  MessageParam,
-  TextBlock,
-  ToolUseBlock,
-  Tool,
-  ToolResultBlockParam,
-} from "@anthropic-ai/sdk/resources/messages";
 import { db } from "./db.js";
 import {
   agentInvocations,
@@ -32,9 +24,19 @@ import { eq } from "drizzle-orm";
 import { trackCost, checkCircuitBreaker, type CostBreakdown } from "./cost-tracker.js";
 import { sendAgentFailureEmail } from "./mail.js";
 
+// Types come from the package root namespace, never from the deep
+// "@anthropic-ai/sdk/resources/messages" subpath: that subpath is internal
+// layout that moves between 0.x minors, the namespace is the public surface.
+type Message = Anthropic.Message;
+type MessageParam = Anthropic.MessageParam;
+type TextBlock = Anthropic.TextBlock;
+type ToolUseBlock = Anthropic.ToolUseBlock;
+type Tool = Anthropic.Tool;
+type ToolResultBlockParam = Anthropic.ToolResultBlockParam;
+
 // ─── Per-agent config (override per agent) ────────────────────────────
 const TEMPLATE_AGENT_NAME = "my-agent";              // slug, replace
-const TEMPLATE_MODEL = "claude-sonnet-4-6";          // Sonnet 4.6 default
+const TEMPLATE_MODEL = "claude-sonnet-5";            // overwritten by setup-agent.mjs
 const TEMPLATE_MAX_ITERATIONS = 10;
 const TEMPLATE_MAX_TOKENS_PER_CALL = 4096;
 
@@ -269,15 +271,27 @@ function extractText(response: Message): string {
 // Pricing (USD per 1M tokens). Update when Anthropic changes pricing.
 // cacheWrite = 1.25x input (5-min TTL); cacheRead = 0.1x input. Keys are the
 // model aliases passed as the model string.
+// There is no public pricing endpoint, so this table cannot be derived at
+// runtime: an unknown model falls back to Sonnet-tier rates and is FLAGGED in
+// the cost breakdown rather than silently mispriced.
 const PRICING_PER_MTOK: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  "claude-sonnet-4-6": { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
-  "claude-opus-4-7": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
+  "claude-opus-5": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
+  "claude-sonnet-5": { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
   "claude-haiku-4-5": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.10 },
+  "claude-opus-4-8": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
+  "claude-sonnet-4-6": { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
 };
 
 function computeTurnCost(response: Message, model: string): CostBreakdown {
   const u = response.usage;
-  const p = PRICING_PER_MTOK[model] ?? PRICING_PER_MTOK["claude-sonnet-4-6"]!;
+  const known = PRICING_PER_MTOK[model];
+  if (!known) {
+    console.warn(
+      `[cost] no pricing entry for "${model}" - billing this turn at Sonnet-tier rates. ` +
+        `Add the model to PRICING_PER_MTOK to get accurate costs.`,
+    );
+  }
+  const p = known ?? PRICING_PER_MTOK["claude-sonnet-5"]!;
   const inputTokens = u.input_tokens || 0;
   const outputTokens = u.output_tokens || 0;
   const cacheCreationTokens = u.cache_creation_input_tokens || 0;

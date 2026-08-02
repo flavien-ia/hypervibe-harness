@@ -2,7 +2,7 @@
 //
 // Two trigger sources, both feeding into runAgent():
 //   1. Internal cron (via node-cron)            - scheduled runs
-//   2. DB queue polling (every 5 s)             - manual triggers from dashboard
+//   2. DB queue polling (ADAPTIVE cadence)      - manual triggers from dashboard
 //                                                  (or any backend code that
 //                                                   inserts into agent_trigger_queue)
 //
@@ -10,13 +10,27 @@
 //   - Render Background Worker doesn't expose ports (Web Service does, but
 //     sleeps after 15 min on free tier - bad for an agent that must respond
 //     within a few seconds to manual triggers).
-//   - Polling a DB queue every 5 s is simple, reliable, no public surface to
-//     attack. The "trigger now" button in the dashboard just inserts a row
-//     and gets a row id back.
+//   - Polling a DB queue is simple, reliable, no public surface to attack.
+//     The "trigger now" button in the dashboard just inserts a row and gets
+//     a row id back.
+//
+// Why ADAPTIVE cadence (burst 5 s / idle 10 min) instead of a fixed 5 s?
+//   Every poll wakes the Neon compute, and Neon only autosuspends after
+//   5 min WITHOUT a query. A fixed 5 s loop therefore keeps the database
+//   awake 24/7: ~186 CU-hours/month at 0.25 CU, i.e. nearly twice the free
+//   plan's 100 CU-h/project budget - the agent alone kills the quota. With
+//   burst/idle, the loop is snappy right after any activity (a found
+//   trigger, a finished run, boot) and slow the rest of the time, letting
+//   the database sleep between bursts (~50 % duty cycle worst case, far
+//   less in practice). The trade-off is that an isolated manual trigger can
+//   wait up to POLL_IDLE_MS before pickup; the dashboard shows "queued".
+//   If the project already has a Redis (Upstash), a cheaper design is to
+//   poll a Redis wake-flag every 10 s (set by the dashboard alongside the
+//   DB row) and only touch Neon when the flag is up.
 //
 // Lifecycle:
 //   - On boot: register the cron schedule (if AGENT_CRON_SCHEDULE is set)
-//   - Loop forever: poll queue, run any pending triggers, sleep 5 s
+//   - Loop forever: poll queue, run any pending triggers, sleep (adaptive)
 //   - On SIGTERM (Render restart): finish in-flight invocations, exit clean
 
 import cron from "node-cron";
@@ -25,7 +39,11 @@ import { agentTriggerQueue } from "./schema.js";
 import { eq } from "drizzle-orm";
 import { runAgent } from "./loop.js";
 
-const POLL_INTERVAL_MS = 5_000;
+// Cadence adaptative (voir l'en-tête) : rapide juste après une activité,
+// lente au repos pour laisser la base Neon s'autosuspendre.
+const POLL_ACTIVE_MS = 5_000;            // burst : réactif pendant la fenêtre d'activité
+const POLL_IDLE_MS = 600_000;            // repos : 10 min, la base peut dormir entre deux polls
+const ACTIVITY_WINDOW_MS = 5 * 60_000;   // durée du burst après la dernière activité
 const AGENT_CRON_SCHEDULE = process.env.AGENT_CRON_SCHEDULE; // e.g. "0 7 * * *" - optional
 const AGENT_CRON_PROMPT = process.env.AGENT_CRON_PROMPT;     // prompt used for cron-triggered runs
 
@@ -60,8 +78,9 @@ if (AGENT_CRON_SCHEDULE) {
 }
 
 // ─── Polling loop for manual triggers ─────────────────────────────────
-async function pollOnce() {
-  if (shuttingDown) return;
+/** Draine la file. Renvoie le nombre de triggers traités (pour la cadence). */
+async function pollOnce(): Promise<number> {
+  if (shuttingDown) return 0;
   const pending = await db
     .select()
     .from(agentTriggerQueue)
@@ -69,7 +88,7 @@ async function pollOnce() {
     .limit(10);
 
   for (const trigger of pending) {
-    if (shuttingDown) return;
+    if (shuttingDown) return 0;
     // Mark as in-progress (atomic-ish - best effort with single-worker).
     await db
       .update(agentTriggerQueue)
@@ -103,16 +122,22 @@ async function pollOnce() {
       inflight--;
     }
   }
+  return pending.length;
 }
 
 async function pollLoop() {
+  // Boot compte comme une activité : un trigger inséré pendant un redeploy
+  // est ramassé dans les 5 s.
+  let lastActivityAt = Date.now();
   while (!shuttingDown) {
     try {
-      await pollOnce();
+      const processed = await pollOnce();
+      if (processed > 0) lastActivityAt = Date.now();
     } catch (e) {
       console.error("[agent] Poll error (continuing):", e);
     }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    const inBurst = Date.now() - lastActivityAt < ACTIVITY_WINDOW_MS;
+    await new Promise((r) => setTimeout(r, inBurst ? POLL_ACTIVE_MS : POLL_IDLE_MS));
   }
 }
 

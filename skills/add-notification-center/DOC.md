@@ -27,7 +27,7 @@ The two complement each other and can be installed **in any order**: as soon as 
 
 5. **API**: list the notifications, count the unread ones, mark as read (one or all).
 
-6. **The bell**: a ready-to-use component, placed in your header. Red badge with the counter, dropdown panel, instant update on every action (and a background refresh of the counter every 30 seconds).
+6. **The bell**: a ready-to-use component, placed in your header. Red badge with the counter, dropdown panel, instant update on every action. If push notifications are installed, the badge also updates **in real time** when a notification arrives (the site does not need to poll the database in a loop, which preserves your database quota); otherwise it refreshes when you come back to the tab and every 5 minutes.
 
 7. **Code verification**: typing and lint before wrapping up.
 

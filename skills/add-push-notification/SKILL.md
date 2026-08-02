@@ -100,7 +100,7 @@ These are **project-specific** secrets (like `AUTH_SECRET`): they go in `.env` +
 
 Insert the push handlers into the service worker created by `/add-pwa`. Read `templates/push/sw-push-handlers.ts`, replace `__APP_NAME__`, and insert its contents into `<WEB_DIR>/src/app/sw.ts` **right after** the `// hypervibe:push-handlers` marker line.
 
-**Idempotence**: if `src/app/sw.ts` already contains an `addEventListener("push"`, do not reinsert.
+**Idempotence**: if `src/app/sw.ts` already contains an `addEventListener("push"`, do not reinsert. **Exception**: if the existing push handler does NOT contain the `postMessage({ type: "hv:new-notification" })` broadcast (older installs), add that broadcast block to the existing handler — it is what lets the notification-center bell update in real time without aggressive polling (which keeps the Neon database awake: it only autosuspends after 5 min without a query).
 
 (The `public/sw.js` is regenerated at the next build: in dev the SW is disabled, so push can only be observed after deployment.)
 

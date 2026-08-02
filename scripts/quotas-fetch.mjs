@@ -138,9 +138,14 @@ async function fetchNeon() {
 
   // Try to read the actual plan from the org endpoint so we can be honest
   // about whether the displayed limits even apply.
+  // 45s like the list call below, and for the same non-obvious reason: the
+  // sibling service fetchers each run a SYNCHRONOUS vault read (spawnSync,
+  // seconds each) that blocks the event loop while this request is in flight.
+  // With the default 10s budget the timer expires DURING those blocks and
+  // aborts a request the API answered in <1s (seen 2026-08-02).
   const orgs = await fetchJson("https://console.neon.tech/api/v2/users/me/organizations", {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
-  });
+  }, 45000);
   const plan = orgs.ok ? orgs.json.organizations?.[0]?.plan || "free" : "unknown";
 
   // 45s (not the 10s default): this endpoint enumerates EVERY project of the
@@ -155,13 +160,37 @@ async function fetchNeon() {
 
   const projects = r.json.projects || [];
 
-  // Build per-project view. Both storage and compute have per-project caps on
-  // Free, so we surface the heaviest project for each axis.
-  const projectsView = projects.map((p) => ({
+  // ⚠️ The LIST endpoint does NOT carry the consumption counters
+  // (compute_time_seconds / data_transfer_bytes are absent from its items;
+  // only synthetic_storage_size is there). The old code read `cpu_used_sec`
+  // from the list and therefore always reported 0 h of compute - the exact
+  // blind spot that let a compute leak go unnoticed in July 2026. The
+  // authoritative counters live on the per-project GET, so fan out one GET
+  // per project (bounded concurrency, the whole block has a 45s budget).
+  const details = [];
+  const CHUNK = 8;
+  for (let i = 0; i < projects.length; i += CHUNK) {
+    const chunk = await Promise.all(
+      projects.slice(i, i + CHUNK).map(async (p) => {
+        const d = await fetchJson(`https://console.neon.tech/api/v2/projects/${p.id}`, {
+          headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+        }, 15000).catch(() => null);
+        return d?.ok ? d.json.project : p; // fall back to the list item (storage only)
+      }),
+    );
+    details.push(...chunk);
+  }
+
+  // Build per-project view. Storage and compute have per-project caps on
+  // Free; egress is pooled across the whole account (the only such quota,
+  // and the one that actually broke this account in July 2026).
+  const projectsView = details.map((p) => ({
     name: p.name,
     storageGB: (p.synthetic_storage_size || 0) / 1073741824,
-    computeH: (p.cpu_used_sec || 0) / 3600,
+    computeH: (p.compute_time_seconds || 0) / 3600,
+    egressGB: (p.data_transfer_bytes || 0) / 1073741824,
   }));
+  const egressTotalGB = projectsView.reduce((sum, p) => sum + p.egressGB, 0);
 
   const projectsByStorage = [...projectsView].sort((a, b) => b.storageGB - a.storageGB);
   const projectsByCompute = [...projectsView].sort((a, b) => b.computeH - a.computeH);
@@ -193,6 +222,13 @@ async function fetchNeon() {
       "h",
       "per-project-month",
     ),
+    asMetric(
+      "Egress (tout le compte)",
+      egressTotalGB,
+      isFree ? L.egressGBPerMonth : null,
+      "GB",
+      "account-month",
+    ),
     asMetric("Projets actifs", projects.length, isFree ? L.projectsMax : null, "projets", "account"),
   ];
 
@@ -208,6 +244,9 @@ async function fetchNeon() {
     label: p.name,
     storageGB: Math.round(p.storageGB * 1000) / 1000,
     computeH: Math.round(p.computeH * 100) / 100,
+    // Egress par projet : la limite est mutualisee sur le compte, mais c'est
+    // cette colonne qui dit QUEL projet la consomme quand elle chauffe.
+    egressGB: Math.round(p.egressGB * 1000) / 1000,
     overStorage: p.storageGB > L.storageGBPerProject,
     overCompute: p.computeH > L.computeHoursPerProject,
   })) : null;
@@ -701,6 +740,7 @@ async function safeRun(name, fn) {
     // operation was aborted") reads like the service is down and sends the
     // reader chasing a non-existent API problem, so name the real cause.
     const aborted = e?.name === "AbortError" || /aborted/i.test(e?.message || "");
+    if (process.env.QUOTAS_DEBUG) console.error("[debug " + name + "]", e?.name, e?.message, e?.stack?.slice(0, 900));
     const note = aborted
       ? "Service trop lent a repondre (delai depasse). Le compte et la cle sont probablement bons : relance /quotas, et si ca persiste c'est que le service met trop longtemps a lister tes ressources."
       : `Erreur: ${e.message?.slice(0, 200)}`;

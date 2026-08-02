@@ -131,6 +131,11 @@ Bash: date -u +%H
 # If you need to convert a local time to UTC
 ```
 
+**Cadence guard (Neon wake cost — apply BEFORE accepting the schedule).** If the cron route touches the database, every tick wakes the Neon compute for at least 5 minutes (its autosuspend window). The math adds up fast on the Free plan's 100 compute-hours per project per month: every 15 min ≈ 60 CU-h/month, every 20 min ≈ 34, hourly ≈ 15. So:
+- If the user asks for a sub-hourly cadence, check whether the actual send/processing windows tolerate hourly (a catch-up window in the handler almost always makes hourly enough — an idempotent handler with a 90-min window is always covered by an hourly tick). If so, propose hourly and explain the quota cost in one sentence.
+- Avoid night ticks when the task only matters during the day: prefer `0 6-22 * * *` over `0 * * * *` when it fits.
+- Never schedule below every 15 min without the user explicitly acknowledging the compute cost.
+
 Also ask:
 
 > Give a short name for this task, so we can recognize it easily later. For example: `rapport-hebdo`, `sync-clients`, `nettoyage`.

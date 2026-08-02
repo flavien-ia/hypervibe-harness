@@ -78,6 +78,8 @@ Templates/scripts path: `${CLAUDE_SKILL_DIR}/../../templates/notif-center/`.
 1. Copy `templates/notif-center/notification-bell.tsx` to `<WEB_DIR>/src/components/`. Adapt the colors (the badge is `bg-red-500` by default; tokens `border-border`/`bg-background`/`text-muted-foreground` to adjust to the palette if needed).
 2. Mount `<NotificationBell />` in the **header / navigation bar** of the logged-in areas. Locate the header component (`src/components/layout/header.tsx`, `navbar.tsx`, or similar) and place it near the user actions (avatar, menu). If the placement is not obvious, ask the user where they want the bell.
 
+**Freshness model (do not "improve" it by shortening the interval)**: the badge updates through three channels — (a) real time, via the service-worker broadcast `hv:new-notification` that the bell listens to (fires when `/add-push-notification` is installed; a no-op otherwise), (b) `refetchOnWindowFocus` when the user comes back to the tab, (c) a 5-minute polling **safety net**. Never set `refetchInterval` below 300_000: a shorter poll keeps the Neon database awake around the clock for every active tab (it only autosuspends after 5 min without a query), which burns the free plan's 100 monthly compute hours. If the user asks for a snappier badge, the answer is installing `/add-push-notification`, not shortening the poll.
+
 ---
 
 ## Step 6: CLAUDE.md + verification

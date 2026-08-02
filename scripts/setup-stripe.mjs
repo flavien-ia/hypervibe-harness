@@ -14,8 +14,14 @@
 //      Example tRPC procedure creating a Checkout session from a priceId.
 //      Only created when <web-dir>/src/server/api/trpc.ts exists.
 //
-// The Stripe API version defaults to "2025-04-30.basil". Override with
-// --api-version if a newer stable version is out (see Stripe changelog).
+// The Stripe API version is READ FROM THE INSTALLED SDK, never hardcoded.
+// stripe-node types the `apiVersion` option as the literal of its own latest
+// version, so writing a version string older than the installed SDK makes
+// `tsc --noEmit` fail in the generated project. Since `pnpm add stripe` always
+// installs the latest SDK, any hardcoded default here rots at Stripe's release
+// pace. We read <web-dir>/node_modules/stripe/cjs/apiVersion.js instead, and
+// fall back to omitting the option entirely (the SDK then uses its own version,
+// which always typechecks). --api-version still forces a specific value.
 //
 // What it does NOT do (Claude handles):
 //   - Ask the user for publishable / secret keys (they can't be created via API).
@@ -32,7 +38,7 @@ import { join } from "node:path";
 // ─── args ─────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
 let webDir = ".";
-let apiVersion = "2025-04-30.basil";
+let apiVersion = null;
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -42,6 +48,24 @@ for (let i = 0; i < args.length; i++) {
     console.error(`Unknown arg: ${a}`);
     process.exit(1);
   }
+}
+
+// ─── Stripe API version: read it from the SDK that was just installed ──
+// stripe-node ships the constant in cjs/apiVersion.js (esm/ mirrors it).
+function detectStripeApiVersion(dir) {
+  for (const rel of ["cjs/apiVersion.js", "esm/apiVersion.js"]) {
+    const p = join(dir, "node_modules", "stripe", rel);
+    if (!existsSync(p)) continue;
+    const m = /(?:Latest)?ApiVersion\s*=\s*['"]([^'"]+)['"]/.exec(readFileSync(p, "utf8"));
+    if (m) return m[1];
+  }
+  return null;
+}
+
+let apiVersionSource = "forced via --api-version";
+if (!apiVersion) {
+  apiVersion = detectStripeApiVersion(webDir);
+  apiVersionSource = apiVersion ? "read from the installed stripe SDK" : null;
 }
 
 const actions = [];
@@ -63,8 +87,9 @@ createIfAbsent(
   stripeClientPath,
   `import Stripe from "stripe";
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "${apiVersion}",
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {${
+    apiVersion ? `\n  apiVersion: "${apiVersion}",` : ""
+  }
   typescript: true,
 });
 `,
@@ -160,7 +185,9 @@ export const paymentRouter = createTRPCRouter({
 console.log("");
 for (const a of actions) console.log(`  ${a}`);
 console.log(`
-✅ Stripe scaffold done (API version ${apiVersion}).
+✅ Stripe scaffold done (API version: ${
+  apiVersion ? `${apiVersion}, ${apiVersionSource}` : "left to the SDK default - stripe/ not found under node_modules"
+}).
 
 Next (Claude handles):
   - Push env vars via _push-env-vars: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY + STRIPE_SECRET_KEY

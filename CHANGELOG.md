@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.7.2 (2 août 2026)
+
+### Améliorations
+- **Paiements Stripe** : la version d'API n'est plus figée dans le plugin, elle est lue dans le SDK au moment de l'installation. Les projets créés avec `/add-stripe` compilent de nouveau, quelle que soit la date à laquelle vous les créez.
+- **Agents** : `/add-agent` demande à Anthropic quel est son modèle le plus récent au lieu d'en garder un codé en dur, et le modèle retenu arrive vraiment dans l'agent généré (l'option `--model` restait sans effet).
+- **Coût de la base de données** : `/add-cron` vous prévient quand une cadence trop serrée maintient la base Neon éveillée en permanence, et le relevé de consommation affiche enfin le temps de calcul réel (il indiquait toujours 0 h).
+- **Déclenchement manuel d'un agent** : l'agent n'interroge plus sa file d'attente toutes les 5 secondes en continu. Il reste réactif pendant sa fenêtre d'activité puis espace ses vérifications à 10 minutes au repos, ce qui laisse la base s'endormir. Un agent au repos peut donc mettre jusqu'à 10 minutes à démarrer, le tableau de bord affiche « en file ».
+- **Notifications** : la cloche se rafraîchit à l'instant où une notification arrive, via le service worker, au lieu d'interroger le serveur toutes les 30 secondes.
+- **Surveillance** : le worker partagé surveille aussi les quotas Neon (trafic sortant, calcul, stockage) et prévient par email quand une sauvegarde de base échoue.
+
+### Coulisses
+- Les types du SDK Anthropic sont pris sur sa surface publique et non plus sur un chemin interne : les agents générés ne cassent plus quand le paquet réorganise ses fichiers.
+
 ## v2.7.1 (1er août 2026)
 
 ### Corrections

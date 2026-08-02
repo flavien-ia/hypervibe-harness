@@ -10,12 +10,24 @@ self.addEventListener("push", (event) => {
   }
   const title = data.title ?? "__APP_NAME__";
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: data.body ?? "",
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      data: { url: data.url ?? "/" },
-    }),
+    Promise.all([
+      self.registration.showNotification(title, {
+        body: data.body ?? "",
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        data: { url: data.url ?? "/" },
+      }),
+      // Rediffuser le push aux onglets ouverts : si le centre de notifications
+      // (/add-notification-center) est installé, sa cloche écoute ce message et
+      // invalide son compteur → badge à jour en temps réel, sans polling
+      // agressif (qui garderait la base Neon éveillée, autosuspend 5 min).
+      // Sans cloche, ce postMessage est simplement ignoré.
+      self.clients
+        .matchAll({ type: "window", includeUncontrolled: true })
+        .then((clients) => {
+          for (const client of clients) client.postMessage({ type: "hv:new-notification" });
+        }),
+    ]),
   );
 });
 

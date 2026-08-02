@@ -410,7 +410,7 @@ From the JSON captured in Step 5, display exactly:
 >
 > - The agent's logs appear in the Render dashboard → "Logs"
 > - You receive an automatic email on error or when a cap is reached
-> - To trigger manually (without a custom dashboard): insert a row into the `agent_trigger_queue` table with your prompt → the agent reads it within 5 s
+> - To trigger manually (without a custom dashboard): insert a row into the `agent_trigger_queue` table with your prompt → the agent picks it up within 5 s when it has been active in the last 5 minutes, within 10 min otherwise (adaptive polling: a fixed 5 s loop would keep the Neon database awake 24/7 and burn ~186 of the 100 monthly free compute hours)
 >
 > When you have a larger project, tell me *"add my agent's dashboard"* (or run `/add-agent-dashboard`) and I'll scaffold the monitoring pages.
 

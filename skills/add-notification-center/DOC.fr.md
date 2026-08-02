@@ -27,7 +27,7 @@ Les deux se complètent et s'installent **dans n'importe quel ordre** : dès que
 
 5. **API** : lister les notifications, compter les non-lues, marquer comme lu (une ou toutes).
 
-6. **La cloche** : composant prêt à l'emploi, posé dans votre header. Pastille rouge avec le compteur, panneau déroulant, mise à jour instantanée à chaque action (et rafraîchissement du compteur en arrière-plan toutes les 30 secondes).
+6. **La cloche** : composant prêt à l'emploi, posé dans votre header. Pastille rouge avec le compteur, panneau déroulant, mise à jour instantanée à chaque action. Si les notifications push sont installées, la pastille se met aussi à jour **en temps réel** quand une notification arrive (le site n'a pas besoin d'interroger la base en boucle, ce qui préserve votre quota de base de données) ; sinon elle se rafraîchit au retour sur l'onglet et toutes les 5 minutes.
 
 7. **Vérification du code** : typage et lint avant de conclure.
 

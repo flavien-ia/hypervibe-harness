@@ -25,7 +25,8 @@
 //     --web-dir "apps/web" \
 //     --trigger "cron"      # cron | continuous | manual
 //     --memory "kv"          # none | kv (pgvector for v1.5)
-//     --model "claude-sonnet-4-6"
+//     --model "claude-sonnet-5"   # optional: omit to auto-pick the newest
+//                                 # claude-sonnet-* from GET /v1/models
 //
 // Output: live logs on stderr, final JSON object on stdout last line.
 //
@@ -67,7 +68,7 @@ const opts = {
   webDir: "apps/web",
   trigger: "cron",
   memory: "kv",
-  model: "claude-sonnet-4-6",
+  model: "", // empty = resolve from /v1/models (see resolveModel)
   systemPrompt: "",
 };
 for (let i = 0; i < args.length; i++) {
@@ -182,6 +183,50 @@ async function anthropicKey() {
   fail(`ANTHROPIC_API_KEY missing. The /add-agent SKILL must prompt the user to paste it (from https://console.anthropic.com/settings/keys), persist via _write-user-env.mjs, then re-run this script.`);
 }
 
+// ─── Step 2b - resolveModel (never hardcode a model generation) ──────
+// A model id baked into this script goes stale every time Anthropic ships a
+// generation, and scaffolds agents on a previous one without anyone noticing.
+// /v1/models is the authoritative list and the key we just validated reads it,
+// so we pick the newest model of the target family at scaffold time.
+// --model always wins; a network failure falls back to MODEL_FALLBACK.
+const MODEL_FAMILY = "claude-sonnet-";
+const MODEL_FALLBACK = "claude-sonnet-5";
+
+async function resolveModel() {
+  if (opts.model) {
+    ok(`model: ${opts.model} (forced via --model)`);
+    return;
+  }
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 10000);
+    let res;
+    try {
+      res = await fetch("https://api.anthropic.com/v1/models?limit=100", {
+        headers: {
+          "x-api-key": state.anthropicKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.json();
+    const newest = (body.data || [])
+      .filter((m) => typeof m.id === "string" && m.id.startsWith(MODEL_FAMILY))
+      // created_at is ISO 8601, so lexicographic order is chronological order.
+      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+    if (!newest) throw new Error(`no ${MODEL_FAMILY}* model in the response`);
+    opts.model = newest.id;
+    ok(`model: ${newest.id} (newest ${MODEL_FAMILY}* on /v1/models)`);
+  } catch (e) {
+    opts.model = MODEL_FALLBACK;
+    warn(`Could not read /v1/models (${e.message}) - falling back to ${MODEL_FALLBACK}.`);
+  }
+}
+
 // ─── Step 3 - ensureMonorepo ─────────────────────────────────────────
 async function ensureMonorepo() {
   // Detect: workspace defined in pnpm-workspace.yaml AND apps/web exists?
@@ -290,6 +335,28 @@ async function patchAgentName() {
     writeFileSync(p, content, "utf8");
   }
   ok(`Agent slug "${opts.name}" set in loop.ts and memory-kv.ts`);
+}
+
+// ─── Step 6b - patchModel ────────────────────────────────────────────
+// Without this the generated agent silently keeps the template's model while
+// the handoff JSON reports the resolved one.
+async function patchModel() {
+  const p = join(AGENT_DIR, "loop.ts");
+  if (!existsSync(p)) {
+    warn("loop.ts not found - model not patched");
+    return;
+  }
+  const before = readFileSync(p, "utf8");
+  const after = before.replace(
+    /const TEMPLATE_MODEL = "[^"]*";/,
+    `const TEMPLATE_MODEL = "${opts.model}";`,
+  );
+  if (after === before) {
+    warn(`Could not find TEMPLATE_MODEL in loop.ts - the agent may run on the template default instead of ${opts.model}`);
+    return;
+  }
+  writeFileSync(p, after, "utf8");
+  ok(`Model "${opts.model}" set in loop.ts`);
 }
 
 // ─── Step 7 - patchTools (no-op for v1: keep all 3 default tools) ────
@@ -468,10 +535,12 @@ async function handoff() {
 // ─── MAIN ─────────────────────────────────────────────────────────────
 await step("preflight", preflight);
 await step("anthropicKey", anthropicKey);
+await step("resolveModel", resolveModel);
 await step("ensureMonorepo", ensureMonorepo);
 await step("scaffoldAgent", scaffoldAgent);
 await step("patchSystemPrompt", patchSystemPrompt);
 await step("patchAgentName", patchAgentName);
+await step("patchModel", patchModel);
 await step("patchTools", patchTools);
 await step("patchMemory", patchMemory);
 await step("mergeSchema", mergeSchema);
