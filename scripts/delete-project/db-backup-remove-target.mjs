@@ -30,6 +30,8 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { wrangler } from "../shared-worker/_lib.mjs";
+import { readUserEnv } from "../_read-user-env.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -151,12 +153,12 @@ const newToml = original.replace(
 
 writeFileSync(tomlPath, newToml);
 
-// Redeploy the worker
-const r = spawnSync("wrangler", ["deploy"], {
-  cwd: workerDir,
-  shell: true,
-  encoding: "utf8",
-});
+// Redeploy the worker. The token MUST be injected into the child env: wrangler
+// reads CLOUDFLARE_API_TOKEN from the environment, and since the vault migration
+// it is no longer an env var (a bare `spawnSync("wrangler", …)` fails with
+// "In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN").
+// wrangler() from shared-worker/_lib.mjs does exactly that.
+const r = wrangler(workerDir, ["deploy"], { token: readUserEnv("CLOUDFLARE_API_TOKEN") });
 
 if (r.status !== 0) {
   // Rollback the toml

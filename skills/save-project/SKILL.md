@@ -62,7 +62,7 @@ Show a concise recap:
 
 ### 1d. R2 question
 
-If wrangler is installed AND there potentially exist buckets `<project>` or `<project>-eu` (do not check beforehand, the script detects it):
+If the project potentially has R2 storage (do not check beforehand, the script detects it):
 
 Use **AskUserQuestion**:
 
@@ -72,6 +72,8 @@ Use **AskUserQuestion**:
 > - Option 3: **Just the buckets, not the content** - equivalent to "no" right now (the script cannot dump only the metadata)
 
 If the answer is "Just the buckets, not the content", use `--skip-storage` like option 2 (and explain to the user that in this version, the skill cannot export the metadata without the content, so it amounts to the same thing).
+
+**Two download paths, both complete.** With `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` in the `.env`, the S3 API is used (`mode: "s3"`). Without them, the script falls back to the Cloudflare REST API with the account token from the vault (`mode: "rest-api"`), which lists and reads objects just as well - a project whose R2 keys were never put in the `.env` is still backed up in full. Only the wrangler CLI is unable to do this (it has `r2 object get/put/delete` but no `list`), which is why the old fallback silently produced empty snapshots.
 
 ### 1e. Output path question
 

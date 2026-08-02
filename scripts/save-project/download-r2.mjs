@@ -11,9 +11,15 @@
 //   so nothing has to be guessed. Objects are downloaded concurrently, which is
 //   dramatically faster than spawning one CLI process per object.
 //
-// FALLBACK MODE (wrangler CLI).
-//   Only when no R2 credentials are found in .env: tries the naming convention
-//   `<project>` and `<project>-eu`, in the default and EU jurisdictions.
+// FALLBACK MODE (Cloudflare REST API) - when .env holds no R2 credentials.
+//   The account API token (vault) is enough to LIST (`GET /r2/buckets/{b}/objects`,
+//   cursor-paginated) and READ (`GET .../objects/{key}`) every object, so a
+//   snapshot is still complete without the S3 key pair. Buckets are matched by
+//   name against the project, in both jurisdictions.
+//   The previous "wrangler fallback" called `wrangler r2 object list`, a
+//   subcommand that does NOT exist (the CLI has get/put/delete only): it parsed
+//   wrangler's help text, threw, and reported 0 object as a SUCCESS. That
+//   limitation is the CLI's, not the API's.
 //
 // Exits 0 on success, 1 on error. Final stdout line is a JSON status report.
 //
@@ -22,10 +28,11 @@
 // contains no files is worse than one that fails visibly.
 
 import { existsSync, mkdirSync, writeFileSync, statSync, readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
+import { readUserEnv } from "../_read-user-env.mjs";
+import { tokenMatches } from "../_match.mjs";
 
 const args = process.argv.slice(2);
 function arg(name) {
@@ -43,10 +50,6 @@ if (!PROJECT || !OUT) {
 }
 
 mkdirSync(OUT, { recursive: true });
-
-function run(cmd, argv, opts = {}) {
-  return spawnSync(cmd, argv, { encoding: "utf8", shell: true, ...opts });
-}
 
 function fail(reason, extra = {}) {
   console.log(JSON.stringify({ status: "error", reason, ...extra }));
@@ -163,52 +166,111 @@ async function downloadViaS3(env) {
   };
 }
 
-// ── Fallback mode: wrangler CLI + naming convention ────────────────────────
-function listBucket(bucketName, jurisdiction) {
-  const argv = ["r2", "object", "list", bucketName];
-  if (jurisdiction === "eu") argv.push("--jurisdiction", "eu");
-  argv.push("--json");
-  const r = run("wrangler", argv);
-  if (r.status !== 0) return null;
-  try {
-    const out = JSON.parse(r.stdout);
-    return Array.isArray(out) ? out : out.objects || [];
-  } catch {
-    return null;
+// ── Fallback mode: Cloudflare REST API (no S3 credentials needed) ──────────
+// The account API token lists AND reads objects through the v4 API. Only the
+// wrangler CLI is limited (get/put/delete, no `list`), which is what made the
+// previous fallback impossible. Bucket names are matched by convention since
+// the .env cannot tell us which bucket belongs to the project.
+const CF_TOKEN = readUserEnv("CLOUDFLARE_API_TOKEN") || readUserEnv("CF_API_TOKEN") || "";
+
+const encodeKey = (key) => key.split("/").map(encodeURIComponent).join("/");
+
+async function cfAccountId(headers) {
+  const res = await fetch("https://api.cloudflare.com/client/v4/accounts", { headers });
+  if (!res.ok) return null;
+  return (await res.json())?.result?.[0]?.id ?? null;
+}
+
+// Buckets of this project, both jurisdictions. { buckets: [...], error? }
+async function findProjectBuckets(accountId, auth) {
+  const found = [];
+  for (const jurisdiction of ["global", "eu"]) {
+    const headers = { ...auth };
+    if (jurisdiction === "eu") headers["cf-r2-jurisdiction"] = "eu";
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets?per_page=1000`,
+      { headers },
+    );
+    if (!res.ok) continue; // R2 not enabled, or no permission on this jurisdiction
+    const body = await res.json();
+    for (const b of body?.result?.buckets || []) {
+      if (tokenMatches(PROJECT.toLowerCase(), b.name)) found.push({ name: b.name, jurisdiction });
+    }
   }
+  return found;
 }
 
-function downloadObject(bucketName, key, destPath, jurisdiction) {
-  mkdirSync(dirname(destPath), { recursive: true });
-  const argv = ["r2", "object", "get", `${bucketName}/${key}`, "--file", destPath];
-  if (jurisdiction === "eu") argv.push("--jurisdiction", "eu");
-  return run("wrangler", argv).status === 0;
-}
+async function downloadViaRest() {
+  if (!CF_TOKEN) return null;
+  const auth = { Authorization: `Bearer ${CF_TOKEN}` };
+  const accountId = await cfAccountId(auth);
+  if (!accountId) return null;
 
-function downloadViaWrangler() {
-  if (run("wrangler", ["--version"]).status !== 0) return null;
-  const report = { mode: "wrangler", buckets: [], totalObjects: 0, totalBytes: 0, errors: [] };
-  for (const { name, jurisdiction } of [
-    { name: PROJECT, jurisdiction: "default" },
-    { name: `${PROJECT}-eu`, jurisdiction: "eu" },
-  ]) {
-    const objects = listBucket(name, jurisdiction);
-    if (objects === null) continue; // bucket absent or unreachable
-    const bucketDir = join(OUT, name);
+  let buckets;
+  try {
+    buckets = await findProjectBuckets(accountId, auth);
+  } catch (e) {
+    return { mode: "rest-api", buckets: [], totalObjects: 0, totalBytes: 0, errors: [{ error: String(e) }] };
+  }
+  if (buckets.length === 0) return { mode: "rest-api", buckets: [], totalObjects: 0, totalBytes: 0, errors: [] };
+
+  const report = { mode: "rest-api", buckets: [], totalObjects: 0, totalBytes: 0, errors: [] };
+  for (const { name, jurisdiction } of buckets) {
+    const headers = { ...auth };
+    if (jurisdiction === "eu") headers["cf-r2-jurisdiction"] = "eu";
+    const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets/${encodeURIComponent(name)}`;
+
+    // List every object. per_page defaults to 20 - ask for the max and follow
+    // the cursor while `is_truncated`.
+    const objects = [];
+    let cursor = null;
+    for (let page = 0; page < 500; page++) {
+      const res = await fetch(`${base}/objects?per_page=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, { headers });
+      if (!res.ok) {
+        report.errors.push({ bucket: name, error: `list: HTTP ${res.status}` });
+        break;
+      }
+      const body = await res.json();
+      for (const o of body?.result || []) objects.push({ key: o.key, size: Number(o.size ?? 0) });
+      if (!body?.result_info?.is_truncated) break;
+      cursor = body.result_info.cursor;
+      if (!cursor) break;
+    }
+
+    // Same name can exist in both jurisdictions: separate folders, or the
+    // second download would overwrite the first.
+    const bucketDir = join(OUT, jurisdiction === "eu" ? `${name}__eu` : name);
     mkdirSync(bucketDir, { recursive: true });
+
     let downloaded = 0;
     let failed = 0;
     let bytes = 0;
-    for (const o of objects) {
-      const dest = join(bucketDir, o.key);
-      if (downloadObject(name, o.key, dest, jurisdiction) && existsSync(dest)) {
-        downloaded++;
-        bytes += statSync(dest).size;
-      } else {
-        failed++;
-        report.errors.push({ bucket: name, key: o.key });
-      }
-    }
+    const CONCURRENCY = 8;
+    let idx = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, objects.length) }, async () => {
+        while (idx < objects.length) {
+          const o = objects[idx++];
+          const dest = join(bucketDir, o.key);
+          try {
+            mkdirSync(dirname(dest), { recursive: true });
+            if (!(existsSync(dest) && statSync(dest).size === o.size)) {
+              const res = await fetch(`${base}/objects/${encodeKey(o.key)}`, { headers });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+            }
+            // Read the counter AFTER the await (read-modify-write race).
+            const size = statSync(dest).size;
+            downloaded++;
+            bytes += size;
+          } catch (e) {
+            failed++;
+            if (report.errors.length < 50) report.errors.push({ bucket: name, key: o.key, error: e.message });
+          }
+        }
+      }),
+    );
+
     report.buckets.push({ name, jurisdiction, objectCount: objects.length, downloaded, failed, bytes });
     report.totalObjects += downloaded;
     report.totalBytes += bytes;
@@ -229,23 +291,39 @@ if (r2env.complete) {
     });
   }
 }
-if (!report) report = downloadViaWrangler();
+// No S3 credentials (or no SDK): fall back to the Cloudflare REST API, which
+// needs only the account token from the vault.
+if (!report) report = await downloadViaRest();
 
 if (!report) {
-  // Neither path was usable at all.
   if (r2env.complete) {
     fail(
-      `R2 is configured in .env (bucket "${r2env.R2_BUCKET_NAME}") but neither the S3 SDK nor wrangler was available to download it`,
+      `R2 is configured in .env (bucket "${r2env.R2_BUCKET_NAME}") but neither the S3 SDK nor the Cloudflare token was usable to download it`,
       { configured: true },
     );
   }
   console.log(
     JSON.stringify({
       status: "skipped",
-      reason: "no R2 credentials in .env and wrangler CLI unavailable",
+      reason: "no R2 credentials in .env and no usable Cloudflare token (vault locked?)",
       configured: false,
       totalObjects: 0,
       totalBytes: 0,
+    }),
+  );
+  process.exit(0);
+}
+
+// REST fallback that found no bucket at all: this project genuinely has no R2.
+if (!r2env.complete && report.buckets.length === 0) {
+  console.log(
+    JSON.stringify({
+      status: "skipped",
+      reason: "no R2 credentials in .env and no R2 bucket found for this project",
+      configured: false,
+      totalObjects: 0,
+      totalBytes: 0,
+      ...(report.errors.length ? { probeErrors: report.errors.slice(0, 3) } : {}),
     }),
   );
   process.exit(0);

@@ -138,17 +138,110 @@ async function deleteNeon() {
   return { status: anyFail ? "partial" : "deleted", results };
 }
 
+// REST API, not `wrangler r2 bucket delete`: wrangler reads its credentials from
+// the process ENV, and since the vault migration the token only lives in the
+// CLOUDFLARE_API_TOKEN constant above - every wrangler call failed with
+// "necessary to set a CLOUDFLARE_API_TOKEN…" (same root cause as the scanR2 bug).
+// The EU jurisdiction is selected by the `cf-r2-jurisdiction` header, the REST
+// equivalent of wrangler's `-J eu`.
+//
+// Cloudflare refuses to delete a bucket that still holds objects, so it is
+// emptied first. No S3 key pair is needed for that: the account API token can
+// list AND delete objects through the v4 API (`/objects`), something the
+// wrangler CLI cannot do - it has get/put/delete but no `list`.
+// Careful with this endpoint family: a failed object delete answers HTTP 200
+// with `success: false` in the body, so the HTTP status alone is not a verdict.
+function r2Headers(jurisdiction) {
+  const headers = { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` };
+  if (jurisdiction === "eu") headers["cf-r2-jurisdiction"] = "eu";
+  return headers;
+}
+
+function cfErrorMessage(body, fallback) {
+  try {
+    const msgs = (JSON.parse(body).errors || []).map((e) => e.message).filter(Boolean);
+    if (msgs.length) return msgs.join("; ");
+  } catch {}
+  return (body || "").slice(0, 300) || fallback;
+}
+
+// Encode each path segment but keep the "/" separators of the key.
+const encodeKey = (key) => key.split("/").map(encodeURIComponent).join("/");
+
+async function emptyR2Bucket(bucketName, jurisdiction) {
+  const headers = r2Headers(jurisdiction);
+  const base = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/${encodeURIComponent(bucketName)}`;
+  let deleted = 0;
+  const errors = [];
+  // Re-list from scratch after each batch: a cursor taken before the deletions
+  // would no longer be valid. Bounded to stay safe on a runaway bucket.
+  for (let round = 0; round < 200; round++) {
+    const res = await fetch(`${base}/objects?per_page=1000`, { headers }).catch((e) => ({ ok: false, statusText: String(e) }));
+    if (!res.ok) {
+      errors.push(`list: ${res.status ? `HTTP ${res.status}` : res.statusText}`);
+      break;
+    }
+    const body = await res.json().catch(() => null);
+    if (!body || body.success === false) {
+      errors.push(`list: ${cfErrorMessage(JSON.stringify(body || {}), "unreadable response")}`);
+      break;
+    }
+    const keys = (body.result || []).map((o) => o.key);
+    if (keys.length === 0) return { emptied: true, deleted, errors };
+
+    // Modest concurrency: fast enough on thousands of objects, gentle on the API.
+    const CONCURRENCY = 8;
+    let cursor = 0;
+    let deletedThisRound = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, keys.length) }, async () => {
+        while (cursor < keys.length) {
+          const key = keys[cursor++];
+          const d = await httpDelete(`${base}/objects/${encodeKey(key)}`, headers);
+          // HTTP 200 + success:false = the delete did NOT happen.
+          let ok = d.ok;
+          if (ok && d.body) {
+            try { ok = JSON.parse(d.body).success !== false; } catch {}
+          }
+          if (ok) {
+            deleted++;
+            deletedThisRound++;
+          } else if (errors.length < 10) {
+            errors.push(`${key}: ${cfErrorMessage(d.body, `HTTP ${d.status}`)}`);
+          }
+        }
+      }),
+    );
+    // A full round that removed nothing will never converge: stop there.
+    if (deletedThisRound === 0) {
+      errors.push(`${keys.length} object(s) left: none could be deleted`);
+      break;
+    }
+  }
+  return { emptied: errors.length === 0, deleted, errors };
+}
+
 async function deleteR2() {
   if (!inventory.r2?.found) return { status: "skipped", reason: "not found in inventory" };
+  if (!CLOUDFLARE_API_TOKEN) return { status: "failed", error: "CLOUDFLARE_API_TOKEN missing (vault locked?)" };
+  if (!CF_ACCOUNT_ID) return { status: "failed", error: "Cloudflare account id missing from the inventory" };
   const results = [];
   for (const bucket of inventory.r2.buckets) {
-    const cmdArgs = ["r2", "bucket", "delete", bucket.name];
-    if (bucket.jurisdiction === "eu") cmdArgs.push("-J", "eu");
-    const r = runCmdSync("wrangler", cmdArgs);
-    if (r.code === 0) {
-      results.push({ ...bucket, status: "deleted" });
+    const empty = await emptyR2Bucket(bucket.name, bucket.jurisdiction);
+    const r = await httpDelete(
+      `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/${encodeURIComponent(bucket.name)}`,
+      r2Headers(bucket.jurisdiction),
+    );
+    if (r.ok) {
+      results.push({ ...bucket, status: "deleted", objectsDeleted: empty.deleted });
     } else {
-      results.push({ ...bucket, status: "failed", error: r.stderr.slice(0, 300) });
+      results.push({
+        ...bucket,
+        status: "failed",
+        objectsDeleted: empty.deleted,
+        error: `HTTP ${r.status} - ${cfErrorMessage(r.body, "no detail")}` +
+          (empty.errors.length ? ` | emptying: ${empty.errors.slice(0, 3).join("; ")}` : ""),
+      });
     }
   }
   const anyFail = results.some((r) => r.status === "failed");

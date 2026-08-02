@@ -77,10 +77,26 @@ Wait for the answer.
 | 2 (key rotation) | Guide to the Cloudflare dashboard → R2 → Manage R2 API tokens → Revoke the old one + Create new token with the same permissions on the bucket. Push `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` via `_push-env-vars`. |
 | 3 (update public URL) | Ask for the new public URL (e.g. `https://assets.mydomain.com`). Push `R2_PUBLIC_URL=<url>` via `_push-env-vars`. Remind that on the Cloudflare side, a custom domain must have been connected to the bucket via the R2 dashboard. |
 | 4 (start over) | Abort: ask the user to manually clean up their R2 env vars, then re-run. |
-| 5 (migrate to EU) | Start the migration: create a temp EU bucket, copy the objects, delete the old bucket, recreate it in EU with the same name, copy back from temp, update `R2_ENDPOINT` (with `.eu.`) and `R2_PUBLIC_URL` (new hash), enable public access on the EU side. Details: see the pattern used in the hyperart migration of 2026-05-13 (Node script with `@aws-sdk/client-s3`, two S3 clients where the destination uses the `.eu.r2.cloudflarestorage.com` endpoint). The existing R2 token can be reused if its scope is updated on the new bucket via the dashboard. |
+| 5 (migrate to EU) | Start the migration - see **"Option 5 in detail"** just below. In short: create the EU twin **under the same name**, copy the objects ONCE, switch the env vars, then delete the old bucket. |
 | 6 (something else) | Ask for clarification. Do not run the full flow by default. |
 
 **At the end**, jump directly to the **final summary**.
+
+### Option 5 in detail - migrating a bucket to the EU jurisdiction
+
+The two jurisdictions are **separate namespaces**: the same bucket name can live in `global` AND in `eu` at the same time (verified on 2026-08-02 on an account holding `entremondes-assets` in both). So there is no temporary bucket and no double copy - create the EU twin directly under the **same name**:
+
+1. `wrangler r2 bucket create <bucket> -J eu` - the global bucket keeps serving traffic, untouched
+2. Copy the objects **once**, global → EU: Node script with `@aws-sdk/client-s3` and two S3 clients, source endpoint `https://<account-id>.r2.cloudflarestorage.com`, destination `https://<account-id>.eu.r2.cloudflarestorage.com` (pattern of the hyperart migration, 2026-05-13)
+3. If the bucket is public: `wrangler r2 bucket dev-url enable <bucket> -J eu` → note the new `pub-<hash>.r2.dev` URL
+4. Switch the app via `_push-env-vars`: `R2_ENDPOINT` (with the `.eu.`), `R2_PUBLIC_URL` (new hash), and the new S3 keys (see pitfall **(a)**)
+5. Check that the app reads AND writes correctly on the EU bucket, and only then empty + delete the old one (`wrangler r2 bucket delete <bucket>`, no `-J`; Cloudflare refuses to delete a bucket that still holds objects)
+
+**Two pitfalls, both verified on 2026-08-02:**
+
+**(a) An R2 S3 token is scoped to ONE bucket.** After the migration it answers `AccessDenied 403` on the EU bucket even though the name is identical: the scope targets the bucket id, not its name. A new "Object Read & Write" token must be created on the EU bucket (Step 8 procedure below) and pushed as `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`. This step cannot be automated: the Cloudflare API token from the vault does NOT carry the "API Tokens Write" permission required to mint an R2 token (Cloudflare answers `code 9109`), so the user creates it by hand in the dashboard.
+
+**(b) The public URL `pub-<hash>.r2.dev` CHANGES.** The hash derives from the bucket id, and the EU twin is a brand-new bucket. Every hard-coded occurrence of the old URL has to be rewritten: source code, **database rows storing absolute URLs**, exported or cached files. Grep the code AND the database for `pub-` before deleting the old bucket. Links inside already-sent emails cannot be fixed: either keep the old bucket alive for a while, or accept that those images break.
 
 ### If `storage_ok = false` (not configured yet)
 

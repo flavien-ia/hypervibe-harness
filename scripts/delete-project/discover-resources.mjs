@@ -23,6 +23,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSecret } from "../vault/vault.mjs";
+import { loadAuthToken, readLinkedProject } from "../_vercel-auth.mjs";
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -83,33 +84,119 @@ function runCmd(cmd, args = [], opts = {}) {
 }
 
 // ─── 1. Vercel ─────────────────────────────────────────────────────────────
-async function scanVercel() {
-  try {
-    const r = await runCmd("vercel", ["projects", "ls"]);
-    if (r.code !== 0) return { found: false, error: r.stderr.slice(0, 300) };
+// REST API first, CLI as a fallback. `vercel projects ls` returns only the
+// FIRST PAGE (20 projects) and never follows its own `--next` hint: any project
+// beyond the 20 most recent was reported as "not found" and left orphaned.
+// The REST path also gives exact project names instead of a parsed table.
+// A CLI login token is scoped to the user, and projects usually live under a
+// team, so every scope (personal + each team) is listed.
+async function fetchVercelProjectsRest() {
+  const token = loadAuthToken();
+  if (!token) return { ok: false, reason: "no Vercel token (run `vercel login`)" };
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const scopes = new Set([""]); // "" = personal scope (no teamId param)
+  const linked = readLinkedProject(PROJECT_DIR);
+  if (linked?.orgId) scopes.add(linked.orgId);
+  const teamsData = await httpJson("https://api.vercel.com/v2/teams?limit=100", { headers });
+  if (teamsData.__error) {
+    // 401/403 here means the stored token is dead: let the caller fall back.
+    if (/HTTP 40[13]/.test(teamsData.__error)) return { ok: false, reason: `token rejected (${teamsData.__error})` };
+  } else {
+    for (const t of teamsData.teams || []) if (t.id) scopes.add(t.id);
+  }
+
+  const names = [];
+  const errors = [];
+  for (const teamId of scopes) {
+    let until = null;
+    let pages = 0;
+    while (pages < 30) {
+      pages++;
+      const url =
+        `https://api.vercel.com/v9/projects?limit=100` +
+        (teamId ? `&teamId=${encodeURIComponent(teamId)}` : "") +
+        (until ? `&until=${encodeURIComponent(until)}` : "");
+      const data = await httpJson(url, { headers });
+      if (data.__error) {
+        if (/HTTP 40[13]/.test(data.__error) && !teamId) break; // personal scope may be forbidden, not an error
+        errors.push(`${teamId || "personal"}: ${data.__error}`);
+        break;
+      }
+      for (const p of data.projects || []) {
+        const n = normalizeName(p.name || "");
+        if (n && !names.includes(n)) names.push(n);
+      }
+      const next = data.pagination?.next;
+      if (!next || next === until) break;
+      until = next;
+    }
+  }
+  if (names.length === 0 && errors.length) return { ok: false, reason: errors.join(" | ") };
+  return { ok: true, names, source: "rest", ...(errors.length ? { warning: errors.join(" | ") } : {}) };
+}
+
+const CLI_NOISE = new Set(["vercel", "project", "projects", "name", "latest", "production", "preview", "https", "http", "error", "warn", "updated", "age", "url", "source", "node", "fetching", "retrieving", "deployments", "deployment", "found", "no"]);
+
+async function fetchVercelProjectsCli() {
+  const names = [];
+  const chunks = [];
+  let next = null;
+  for (let page = 0; page < 25; page++) {
+    const cmdArgs = ["projects", "ls"];
+    if (next) cmdArgs.push("--next", next);
+    const r = await runCmd("vercel", cmdArgs);
+    if (r.code !== 0) {
+      if (page === 0) return { ok: false, reason: (r.stderr || "").slice(0, 300) };
+      break; // keep what earlier pages gave us
+    }
     // The Vercel CLI prints the project table to STDERR (only structured data,
     // if any, lands on stdout). Matching stdout alone misses every project -
     // search both streams, else /delete-project silently skips the Vercel
     // project and leaves it orphaned.
     const haystack = `${r.stdout}\n${r.stderr}`;
+    chunks.push(haystack);
     // Parse the first column of the table as candidate project names: used
     // both for an exact `found` check and by the ownership post-pass to
     // attribute prefix-sharing resources to their real project.
-    const NOISE = new Set(["vercel", "project", "projects", "name", "latest", "production", "preview", "https", "http", "error", "warn", "updated", "age", "url", "source", "node", "fetching", "retrieving", "deployments", "deployment", "found", "no"]);
-    const names = [];
     for (const line of haystack.split("\n")) {
-      if (names.length >= 200) break;
+      if (names.length >= 500) break;
       const tok = normalizeName(line.trim().split(/\s+/)[0] || "");
       if (!tok || tok.length < 2) continue;
-      if (!/^[a-z0-9][a-z0-9-]*$/.test(tok) || /^[0-9]+$/.test(tok) || NOISE.has(tok)) continue;
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(tok) || /^[0-9]+$/.test(tok) || CLI_NOISE.has(tok)) continue;
       if (!names.includes(tok)) names.push(tok);
     }
-    // Exact name in the parsed table wins; fall back to a word-boundary match
-    // on the raw output only when the table yielded nothing parseable.
-    const found = names.includes(PROJECT_LOWER) || (names.length === 0 && tokenMatches(PROJECT_LOWER, haystack));
-    return { found, names, raw: found ? haystack.trim() : null };
+    // "To display the next page, run `vercel project ls --next 1783722597337`"
+    // The hint is absent on the last page, which ends the loop.
+    const m = haystack.match(/--next\s+(\d+)/);
+    if (!m || m[1] === next) break;
+    next = m[1];
+  }
+  return { ok: true, names, source: "cli", raw: chunks.join("\n") };
+}
+
+async function scanVercel() {
+  try {
+    let res = await fetchVercelProjectsRest();
+    let restReason = null;
+    if (!res.ok) {
+      restReason = res.reason;
+      res = await fetchVercelProjectsCli();
+      if (!res.ok) return { found: false, names: [], error: `REST: ${restReason} | CLI: ${res.reason}` };
+    }
+    const found = res.names.includes(PROJECT_LOWER) ||
+      // Only the CLI path can leave an unparseable table; never guess on REST.
+      (res.source === "cli" && res.names.length === 0 && tokenMatches(PROJECT_LOWER, res.raw || ""));
+    return {
+      found,
+      names: res.names,
+      source: res.source,
+      ...(restReason ? { restFallbackReason: restReason } : {}),
+      ...(res.warning ? { warning: res.warning } : {}),
+      raw: found && res.raw ? res.raw.trim() : null,
+    };
   } catch (e) {
-    return { found: false, error: String(e) };
+    return { found: false, names: [], error: String(e) };
   }
 }
 
@@ -153,26 +240,74 @@ async function scanWorkers() {
 }
 
 // ─── 4. Cloudflare R2 (global + EU) ────────────────────────────────────────
+// REST API, NOT `wrangler r2 bucket list`. Wrangler reads the token from the
+// process ENV, but since the vault migration the token only lives in the
+// CLOUDFLARE_API_TOKEN JS constant above - it was never passed to the spawn, so
+// every wrangler call failed with "In a non-interactive environment, it's
+// necessary to set a CLOUDFLARE_API_TOKEN…". The old `if (code !== 0) continue`
+// swallowed that failure and scanR2 reported "no bucket" for EVERY project,
+// leaving buckets orphaned (and billed) after /delete-project. Failures are now
+// reported in `error` so Phase 2 can show them instead of claiming an empty result.
+// The rest of the script already talks to the REST API directly; this aligns R2 with it.
 async function scanR2() {
+  if (!CLOUDFLARE_API_TOKEN) return { found: false, buckets: [], error: "CLOUDFLARE_API_TOKEN missing (vault locked?)" };
+  if (!CF_ACCOUNT_ID) return { found: false, buckets: [], error: "Cloudflare account id could not be resolved" };
   const buckets = [];
+  const errors = [];
+  // Both jurisdictions are separate namespaces: the SAME bucket name can exist
+  // in global AND in eu simultaneously, so each hit is tagged with its own.
   for (const jurisdiction of ["global", "eu"]) {
+    const headers = { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` };
+    if (jurisdiction === "eu") headers["cf-r2-jurisdiction"] = "eu";
+    let cursor = null;
+    let pages = 0;
     try {
-      const cmdArgs = ["r2", "bucket", "list"];
-      if (jurisdiction === "eu") cmdArgs.push("-J", "eu");
-      const r = await runCmd("wrangler", cmdArgs);
-      if (r.code !== 0) continue;
-      // wrangler r2 bucket list outputs lines with bucket names
-      const matches = r.stdout
-        .split("\n")
-        .map((l) => l.trim())
-        .filter((l) => tokenMatches(PROJECT_LOWER, l))
-        .map((l) => ({ name: l.split(/\s+/)[0], jurisdiction }));
-      buckets.push(...matches);
-    } catch {
-      // skip
+      do {
+        pages++;
+        // per_page defaults to 20 on this endpoint - always ask for the max.
+        const url =
+          `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets?per_page=1000` +
+          (cursor ? `&cursor=${encodeURIComponent(cursor)}` : "");
+        const data = await httpJson(url, { headers });
+        if (data.__error) {
+          errors.push(`${jurisdiction}: ${data.__error}${data.body ? ` - ${data.body.slice(0, 200)}` : ""}`);
+          break;
+        }
+        if (data.success === false) {
+          errors.push(`${jurisdiction}: ${(data.errors || []).map((e) => e.message).join("; ") || "API returned success:false"}`);
+          break;
+        }
+        for (const b of data?.result?.buckets || []) {
+          if (tokenMatches(PROJECT_LOWER, b.name)) {
+            buckets.push({ name: b.name, jurisdiction, createdAt: b.creation_date || null });
+          }
+        }
+        cursor = data?.result_info?.cursor || null;
+      } while (cursor && pages < 20);
+    } catch (e) {
+      errors.push(`${jurisdiction}: ${String(e)}`);
     }
   }
-  return { found: buckets.length > 0, buckets };
+  // How much is actually inside: Phase 2 must be able to say "543 files, 84 MB"
+  // before the user validates their destruction. One extra call per matched bucket.
+  await Promise.all(
+    buckets.map(async (b) => {
+      const headers = { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` };
+      if (b.jurisdiction === "eu") headers["cf-r2-jurisdiction"] = "eu";
+      const usage = await httpJson(
+        `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/${encodeURIComponent(b.name)}/usage`,
+        { headers },
+      );
+      if (usage.__error || usage.success === false) return;
+      b.objectCount = Number(usage?.result?.objectCount ?? 0);
+      b.sizeBytes = Number(usage?.result?.payloadSize ?? 0);
+    }),
+  );
+  return {
+    found: buckets.length > 0,
+    buckets,
+    ...(errors.length ? { error: errors.join(" | ") } : {}),
+  };
 }
 
 // ─── 5. Cloudflare DNS (all zones) ─────────────────────────────────────────

@@ -138,7 +138,7 @@ echo "INVENTORY_FILE=$INV"
 cat "$INV"
 ```
 
-The script scans the 17 surfaces in parallel: Vercel, Neon (REST API), Cloudflare Workers / R2 (global+EU) / DNS / Email Routing, db-backup worker (BACKUP_TARGETS), cron ping jobs of the shared `hypervibe-jobs` worker (matched by their `project` field in the registry), Render, Stripe (webhooks + products), Upstash, env vars (Vercel pull + diff whitelist) → detection of third-party services (Sentry, PostHog, Mapbox, OpenAI, etc.), local folder + package.json, Claude memory, GitHub repo, Google/GitHub OAuth via present vars.
+The script scans the 17 surfaces in parallel: Vercel (REST API, paginated over every scope, CLI fallback), Neon (REST API), Cloudflare Workers / R2 (REST API, global+EU) / DNS / Email Routing, db-backup worker (BACKUP_TARGETS), cron ping jobs of the shared `hypervibe-jobs` worker (matched by their `project` field in the registry), Render, Stripe (webhooks + products), Upstash, env vars (Vercel pull + diff whitelist) → detection of third-party services (Sentry, PostHog, Mapbox, OpenAI, etc.), local folder + package.json, Claude memory, GitHub repo, Google/GitHub OAuth via present vars.
 
 The resulting JSON has the form:
 
@@ -146,10 +146,10 @@ The resulting JSON has the form:
 {
   "project": "cool-trattoria",
   "scannedAt": "...",
-  "vercel":       { "found": true, "raw": "..." },
+  "vercel":       { "found": true, "names": [...], "source": "rest", "raw": "..." },
   "neon":         { "found": true, "projects": [{ "id": "...", "name": "..." }] },
   "workers":      { "found": true, "workers": [...] },
-  "r2":           { "found": true, "buckets": [{ "name": "...", "jurisdiction": "eu" }] },
+  "r2":           { "found": true, "buckets": [{ "name": "...", "jurisdiction": "eu", "createdAt": "...", "objectCount": 543, "sizeBytes": 84700646 }] },
   "dns":          { "found": true, "records": [...] },
   "dbBackup":     { "isTarget": true, "entry": {...} },
   "cronJobs":     { "found": true, "jobs": [{ "name": "cool-trattoria-rapport-hebdo", "cron": "0 8 * * 1", "url": "https://..." }], "secretName": "CRON_SECRET_COOL_TRATTORIA" },
@@ -186,6 +186,8 @@ Display a clear recap in 3 distinct sections, with a non-tech communication tone
 
 Markdown table listing each category where `found === true` (or `isTarget === true` for dbBackup, `webhooksFound === true` for stripe). For each row: resource (in plain language, e.g. "Vercel (the site's host)"), identifier, planned action.
 
+For R2, state the volume at stake using `objectCount` / `sizeBytes`: *"R2 (the file storage): bucket `x-assets`, **543 files, 84 MB** - emptied then deleted"*. A bucket line without a number reads as an empty shell, and the user validates the destruction of their uploads without realizing it.
+
 ### 2.2 Section "🟠 Third-party services detected (to delete by hand)"
 
 For each entry in `envVars.thirdPartyDetected`: name of the service with its label (plain language), how it was detected (env var), URL to open, short instructions. If the list is empty, say so clearly: *"No third-party service detected outside the Hypervibe stack."*
@@ -197,6 +199,10 @@ Include conditionally:
 - If `envVars.hasGitHubOAuth === true` → GitHub OAuth App action
 - Always: deletion of the GitHub repo if `github.exists`
 - Deletion of the local folder if `localDir.exists` (to be done via Windows Explorer)
+
+### 2.3b Section "🔴 Scans that could not run" (only if at least one `error`)
+
+Any section carrying an `error` field (typically `vercel.error` or `r2.error`: vault locked, expired token, R2 not enabled on the account) did **not** return "nothing found", it returned "unknown". List them plainly, e.g. *"I could not check the file storage (R2): <reason>. There may be a bucket left."* and offer to fix the cause then re-run Phase 1 before going further. Never let the user validate a scope built on a failed scan.
 
 ### 2.4 Section "⚪ Deliberately left untouched"
 
@@ -326,7 +332,20 @@ Ordered list with click-by-click instructions:
 `vercel project rm` has no `--yes` flag. The script uses `echo y | vercel project rm <name>`. If it fails, check that you are properly `vercel login`.
 
 ### R2 jurisdictions
-An EU bucket is not visible via `wrangler r2 bucket list` without `-J eu`. The script scans both automatically. Names can collide across jurisdictions - the script distinguishes them via `jurisdiction: "global"|"eu"`.
+The two jurisdictions are separate namespaces: the SAME bucket name can exist in `global` and in `eu` simultaneously. The script scans both (Cloudflare REST API, `cf-r2-jurisdiction: eu` header for the EU one) and tags each hit with `jurisdiction: "global"|"eu"`, which the deletion then replays.
+
+**Never go back to `wrangler r2 bucket list` here.** Wrangler only reads its credentials from the process ENV, but since the vault migration the token lives in the vault: a bare `spawn("wrangler", …)` fails with *"In a non-interactive environment, it's necessary to set a CLOUDFLARE_API_TOKEN"*. That failure used to be swallowed and `scanR2` reported "no bucket" for EVERY project, leaving buckets orphaned and billed (bug fixed 2026-08-02). If a wrangler call is ever unavoidable, the token MUST be injected into the child env (`{ env: { ...process.env, CLOUDFLARE_API_TOKEN } }`, or the `wrangler()` helper of `scripts/shared-worker/_lib.mjs`).
+
+### Deleting a bucket = emptying it first
+Cloudflare refuses to delete a bucket that still holds objects (HTTP 409, `code 10008`). The execution therefore lists and deletes every object before dropping the bucket. **No S3 key pair is required**: the account API token lists (`GET /r2/buckets/{b}/objects`, `per_page` defaults to 20, cursor-paginated) and deletes (`DELETE .../objects/{key}`) objects perfectly well - only the wrangler CLI cannot (no `list` subcommand). Watch out for one trap on this endpoint family: a failed object delete answers **HTTP 200 with `success: false`**, so the HTTP status alone is not a verdict. The report gives `objectsDeleted` per bucket; announce that number in Phase 4, it is irreversible data.
+
+The inventory carries `objectCount` and `sizeBytes` per bucket (from `/usage`): say it in Phase 2 ("543 files, 84 MB") before the user validates.
+
+### Vercel project listing
+`vercel projects ls` returns only its FIRST PAGE (20 projects) and its `--next` hint has to be followed by hand: any older project was declared "not found" and left orphaned (bug fixed 2026-08-02). The scan now calls the Vercel REST API (`/v9/projects`, paginated via `pagination.next`, across the personal scope AND every team), and only falls back to the CLI - following `--next` this time - when no valid token is available. The `vercel.source` field in the inventory says which path was used.
+
+### A scan that fails is not a scan that found nothing
+The `vercel` and `r2` sections carry an `error` field when the API call itself failed (vault locked, dead token, R2 not enabled). `found: false` **with** an `error` means "unknown", not "nothing to delete" - surface it in Phase 2 and offer to re-run rather than letting the user validate a truncated inventory.
 
 ### Sandbox `rm -rf` on C:\DEV\
 The Claude Code classifier often blocks `rm -rf` under `C:\DEV\` (deny rule), even with the user's explicit authorization. Trying via PowerShell or Node.js is also detected. **Do not try to work around it** - give the path to the user in the final report so they delete it via Windows Explorer.

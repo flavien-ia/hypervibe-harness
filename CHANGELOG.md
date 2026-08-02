@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.7.3 (2 août 2026)
+
+### Corrections
+- **Suppression de projet : les fichiers stockés étaient oubliés.** `/delete-project` annonçait "aucun espace de stockage" pour absolument tous les projets, à cause d'un accès Cloudflare qui échouait en silence. Les espaces de stockage survivaient donc à la suppression, et continuaient d'être facturés. Ils sont désormais retrouvés dans les deux juridictions (mondiale et européenne), avec leur contenu annoncé ("543 fichiers, 84 Mo") avant que vous validiez.
+- **Suppression de projet : sites Vercel introuvables.** Seuls les 20 projets les plus récents étaient examinés. Au-delà, votre site était déclaré inexistant et restait en ligne. Tous vos projets sont maintenant passés en revue.
+- **Un espace de stockage non vide peut enfin être supprimé** : son contenu est effacé automatiquement juste avant.
+- **Sauvegarde de projet : fichiers manquants.** `/save-project` produisait une archive sans aucun fichier uploadé lorsque les clés de stockage n'étaient pas dans le projet, sans jamais le signaler. Le contenu est maintenant récupéré dans tous les cas.
+
+### Améliorations
+- **Une vérification qui échoue ne se lit plus comme "rien à supprimer"** : coffre verrouillé, accès expiré, le problème est annoncé clairement avant que vous validiez la suppression.
+- **Migration vers le stockage européen simplifiée** (`/add-storage`) : procédure deux fois plus courte, sans copie aller-retour inutile. Deux pièges documentés au passage : la clé d'accès est à régénérer, et l'adresse publique des fichiers change.
+
 ## v2.7.2 (2 août 2026)
 
 ### Améliorations

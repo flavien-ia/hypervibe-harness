@@ -37,8 +37,8 @@ The user is not a green IT expert. Explain each concept on its first occurrence:
    ```bash
    KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get PAGESPEED api_key 2>/dev/null); echo "exit=$?"
    ```
-   - exit 2/3, warn the user then `launch.mjs unlock`, retry.
-   - exit 4, first use: follow **the "Create the PageSpeed Insights key" appendix in the SKILL.md of the `seo-perf` skill** (same key, hardcoded instructions there), store it via `launch.mjs add --name PAGESPEED --service PageSpeed --fields "api_key:secret"`, then document it via `remember-global-key.mjs` (cf. seo-perf Step 0b).
+   - exit 2/3, warn the user then `launch.mjs unlock --lang <LANG>`, retry.
+   - exit 4, first use: follow **the "Create the PageSpeed Insights key" appendix in the SKILL.md of the `seo-perf` skill** (same key, hardcoded instructions there), store it via `launch.mjs add --lang <LANG> --name PAGESPEED --service PageSpeed --fields "api_key:secret"`, then document it via `remember-global-key.mjs` (cf. seo-perf Step 0b).
    - **Never display the key value.**
 
 ---
