@@ -117,6 +117,10 @@ writeFileSync(
   `name = "${projectName}-cron-${taskName}"
 main = "index.ts"
 compatibility_date = "2024-01-01"
+# Cron-only worker: no HTTP route. Without this line wrangler assumes a
+# workers.dev route and refuses to deploy on an account that never registered
+# a workers.dev subdomain.
+workers_dev = false
 
 [triggers]
 crons = ["${cronExpr}"]

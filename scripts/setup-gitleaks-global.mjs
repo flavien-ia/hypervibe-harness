@@ -283,10 +283,16 @@ if [ -z "$GITLEAKS" ] || [ ! -x "$GITLEAKS" ]; then
   exit 0
 fi
 
-CONFIG_ARG=""
-[ -f "$HOME/.gitleaks.toml" ] && CONFIG_ARG="--config=$HOME/.gitleaks.toml"
-
-"$GITLEAKS" ${scanCmd} --redact --no-banner $CONFIG_ARG
+# The config flag is written inline, never through a variable: an unquoted
+# expansion splits on spaces, so a $HOME like /c/Users/First Last became two
+# arguments and gitleaks failed to load its config, blocking EVERY commit on
+# every repo. Quoting the variable is not enough either, since an empty one
+# would still be passed as an empty argument.
+if [ -f "$HOME/.gitleaks.toml" ]; then
+  "$GITLEAKS" ${scanCmd} --redact --no-banner --config="$HOME/.gitleaks.toml"
+else
+  "$GITLEAKS" ${scanCmd} --redact --no-banner
+fi
 RC=$?
 if [ $RC -ne 0 ]; then
   echo "" 1>&2

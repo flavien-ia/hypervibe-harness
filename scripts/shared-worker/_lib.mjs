@@ -213,17 +213,33 @@ export function putWranglerSecret(dir, token, name, value) {
 
 // ── Cloudflare account discovery ─────────────────────────────────────────
 
+/**
+ * The Cloudflare account id behind a token.
+ *
+ * Two sources, because /accounts needs the "User → Memberships → Read"
+ * permission that many scoped tokens lack. When it is missing the endpoint
+ * answers 200 with an empty list rather than an error, so the fallback reads
+ * the id off any zone the token can see.
+ */
 export async function getCfAccountId(token) {
-  try {
-    const res = await fetch("https://api.cloudflare.com/client/v4/accounts", {
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.result?.[0]?.id || null;
-  } catch {
-    return null;
-  }
+  const call = async (path) => {
+    try {
+      const res = await fetch(`https://api.cloudflare.com/client/v4/${path}`, {
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  };
+
+  const accounts = await call("accounts");
+  const fromAccounts = accounts?.result?.[0]?.id;
+  if (fromAccounts) return fromAccounts;
+
+  const zones = await call("zones");
+  return zones?.result?.[0]?.account?.id || null;
 }
 
 // ── misc ─────────────────────────────────────────────────────────────────

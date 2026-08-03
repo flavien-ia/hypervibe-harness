@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.7.4 (3 août 2026)
+
+### Correctifs
+- **Les commits ne sont plus bloqués quand votre nom d'utilisateur Windows contient une espace** : le contrôle anti-fuite de secrets installé par `/start` ne trouvait plus sa configuration, et refusait alors *tous* les commits, sur *tous* vos projets. Relancez `/start` pour réparer une machine déjà touchée.
+- **Les tâches planifiées se déploient sans compte public Cloudflare** : la mise en ligne échouait tant qu'on n'avait pas créé un sous-domaine public, alors que ces tâches ne répondent à aucune adresse web. Corrigé pour les tâches partagées comme pour celles propres à un projet.
+- **Identification du compte Cloudflare plus robuste** : quand la clé d'accès ne permet pas de lister les comptes, le plugin retrouve l'identifiant autrement. En cas d'échec, le message dit désormais quelle permission manque et où trouver l'identifiant à la main.
+
+### Coulisses
+- Merci à Manuel Ferreira pour deux rapports de bug précis, reproduits à l'identique.
+
 ## v2.7.3 (2 août 2026)
 
 ### Corrections

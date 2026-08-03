@@ -161,7 +161,11 @@ async function scaffold(token) {
   const accountId = flags["account-id"] || (await getCfAccountId(token));
   if (!accountId) {
     fail("Cannot determine the Cloudflare account id", {
-      howTo: "Pass --account-id <id> or check the Cloudflare token.",
+      howTo:
+        "The token most likely lacks the 'User → Memberships → Read' permission " +
+        "(the accounts endpoint then answers with an empty list) and sees no zone " +
+        "either. Add that permission to the token, or pass --account-id <id> " +
+        "(Cloudflare dashboard → any domain → Overview, bottom right).",
     });
   }
 
@@ -174,6 +178,10 @@ async function scaffold(token) {
 main = "worker.js"
 compatibility_date = "2024-12-01"
 account_id = "${accountId}"
+# This worker only answers to cron triggers, never to HTTP. Without this line
+# wrangler assumes a workers.dev route and refuses to deploy on an account
+# that never registered a workers.dev subdomain.
+workers_dev = false
 
 [triggers]
 crons = ["* * * * *"]
