@@ -75,6 +75,29 @@ Present the diagnosis clearly. Format:
 > - ⚠️ Stale in the registry: `<stale keys>` (to remove if truly no longer used)
 > - ✅ Everything is aligned (if missing.length === 0 && stale.length === 0)
 
+## Step 2 (bis) - Les sous-traitants que le code ne peut pas révéler
+
+Certains services ne laissent **aucune trace dans le dépôt** : ils se configurent
+sur le tableau de bord d'un fournisseur. L'audit ne peut pas les détecter, donc
+il faut poser la question. Une seule fois, et seulement si la clé n'est pas déjà
+au registre.
+
+| Ce qu'il faut demander | Clé à ajouter si la réponse est oui |
+|---|---|
+| Le domaine de ce projet reçoit-il des emails redirigés, une adresse du type contact@ ou support@ dont les messages arrivent dans une autre boîte ? | `cloudflare` |
+
+Formule-la en langage courant, jamais en jargon :
+
+> Est-ce que ce site a une adresse email à lui, du genre contact@ton-domaine,
+> dont les messages arrivent dans une autre boîte (Gmail, Outlook…) ? Si oui, les
+> messages passent par un intermédiaire, et ça doit figurer dans la politique.
+
+Si la réponse est oui, ajoute la clé au moment de la synchronisation (Step 4).
+
+Ces fiches portent `manuallyDeclared` : aux passages suivants, l'audit ne les
+proposera **jamais** à la suppression, alors même qu'il ne les détecte pas. La
+question ne se pose donc qu'une fois dans la vie du projet.
+
 ## Step 3 - Propose actions
 
 Ask the user which actions to run, as a menu:

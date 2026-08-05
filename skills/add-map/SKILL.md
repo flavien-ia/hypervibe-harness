@@ -393,15 +393,18 @@ The keys `map.listLabel`, `map.sidebarTitle`, `map.sidebarDescription` were merg
 
 ## Step 6 - Subprocessor + CLAUDE.md
 
-Invoke `_update-privacy-policy` to add OpenFreeMap to the registry:
+Declare OpenFreeMap in the project's registry. The tiles are fetched by the
+**visitor's own browser** from openfreemap.org, so a third party receives their
+IP address on every page carrying a map. That makes it a recipient, and it has
+to be named.
 
-- **name**: `OpenFreeMap`
-- **purpose**: `Affichage de cartes vectorielles (tiles)`
-- **dataShared**: `Adresse IP du visiteur au chargement des tiles (requis pour servir les tiles)`
-- **country**: `Hongrie` (dedicated Btrfs servers, EU)
-- **cookies**: `Non` (OpenFreeMap does not set a cookie)
-- **dpaUrl**: `https://openfreemap.org/` (no formal DPA - small OSS project)
-- **optionalUsage**: `false` (the map is rendered as soon as the page that contains it loads)
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add openfreemap
+```
+
+The catalog entry already carries the details: Hungarian servers (so no transfer
+outside the EU), no cookie, and no formal data processing agreement since it is a
+small open source project - stated plainly rather than glossed over.
 
 Invoke `_update-claude-md`:
 

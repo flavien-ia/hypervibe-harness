@@ -120,6 +120,8 @@ const sourcePatterns = HAS_SRC
       "@anthropic-ai/sdk",
       "GoogleAnalytics",
       "@vercel/analytics",
+      "maplibre-gl",
+      "web-push",
     ])
   : new Set();
 
@@ -242,6 +244,20 @@ if (hasDep("@anthropic-ai/sdk") || sourcePatterns.has("@anthropic-ai/sdk")) {
   evidence.anthropic = "@anthropic-ai/sdk referenced";
 }
 
+// openfreemap - the map component loads its tiles from openfreemap.org, so the
+// visitor's browser reaches a third party directly. MapLibre is the client, the
+// tile provider is the subprocessor.
+if (hasDep("maplibre-gl") || sourcePatterns.has("maplibre-gl")) {
+  detected.openfreemap = true;
+  evidence.openfreemap = "maplibre-gl referenced (tiles served by OpenFreeMap)";
+}
+
+// web-push - the payload travels through the browser vendor's push service
+if (hasDep("web-push") || sourcePatterns.has("web-push")) {
+  detected["web-push"] = true;
+  evidence["web-push"] = "web-push package installed";
+}
+
 // render - render.yaml at root means the project hosts something on Render. Do
 // not narrow this to "background worker": /add-automation now scaffolds a free
 // web service, /add-agent a paid worker, and both are the same subprocessor.
@@ -257,7 +273,15 @@ const registryKeys = new Set(registry.map((e) => e.key));
 const detectedKeys = new Set(Object.keys(detected));
 
 const missing = [...detectedKeys].filter((k) => !registryKeys.has(k));
-const stale = [...registryKeys].filter((k) => !detectedKeys.has(k));
+// Un sous-traitant sans trace dans le code (DNS, relais d'emails) est declare a
+// la main : l'audit ne peut pas le detecter, donc ne doit pas proposer de le
+// retirer. Sans ce filtre, chaque passage inviterait a supprimer une mention
+// exacte, et la page finirait par mentir a force d'etre "corrigee".
+const stale = [...registryKeys].filter(
+  (k) =>
+    !detectedKeys.has(k) &&
+    !registry.find((e) => e.key === k)?.manuallyDeclared,
+);
 
 // ─── Output ───────────────────────────────────────────────────────────────
 const result = {

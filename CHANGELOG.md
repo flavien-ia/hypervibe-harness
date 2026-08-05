@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.7.6 (5 août 2026)
+
+### Nouveautés
+- **Trois services de plus dans votre politique de confidentialité** : le fournisseur de cartes, le service qui achemine les notifications push, et la redirection d'emails d'un nom de domaine. Tous les trois voient passer des données de vos visiteurs et n'étaient jamais mentionnés.
+
+### Améliorations
+- **La carte se déclare enfin** : `/add-map` était censée inscrire son fournisseur de cartes dans votre politique, mais l'étape ne pouvait pas aboutir. Résultat, chaque site avec une carte omettait le service qui reçoit l'adresse IP de ses visiteurs à chaque page. C'est réparé.
+- **`/rgpd-audit` pose les questions que le code ne peut pas trancher** : certains services se configurent chez le fournisseur et ne laissent aucune trace dans votre projet, une adresse `contact@` redirigée par exemple. L'audit les demande maintenant, une seule fois.
+- **Il ne propose plus de supprimer une mention pourtant juste** : ces mêmes services, invisibles pour lui, ressortaient comme obsolètes à chaque passage. Une politique « corrigée » de cette façon finissait par mentir.
+- **`/add-push-notification` et `/new-email-address`** déclarent désormais le service qu'elles mettent en place.
+
+### Coulisses
+- Le registre des sous-traitants distingue ce qui se détecte automatiquement de ce qui se déclare à la main.
+
 ## v2.7.5 (5 août 2026)
 
 ### Améliorations

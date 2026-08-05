@@ -294,6 +294,101 @@ const CATALOG = {
       },
     },
   },
+  openfreemap: {
+    name: "OpenFreeMap",
+    address: "Projet open source, serveurs dédiés en Hongrie (UE)",
+    country: "HU",
+    purpose:
+      "Affichage des cartes : les tuiles vectorielles sont chargées directement par le navigateur du visiteur",
+    dataTypes: [
+      "Adresse IP du visiteur",
+      "Zone géographique consultée sur la carte",
+    ],
+    retention: "Aucune conservation annoncée au-delà des journaux techniques du serveur",
+    legalBasis: "Intérêt légitime (art. 6.1.f RGPD)",
+    isEUResident: true,
+    transferMechanism:
+      "Aucun transfert hors UE. Projet open source sans contrat de sous-traitance formel : aucune donnée ne lui est transmise volontairement, seule l'adresse IP du visiteur lui parvient, comme pour toute ressource chargée depuis un autre domaine",
+    privacyUrl: "https://openfreemap.org/",
+    i18n: {
+      en: {
+        purpose:
+          "Map rendering: vector tiles are loaded directly by the visitor's browser",
+        dataTypes: ["Visitor IP address", "Map area being viewed"],
+        retention: "No retention announced beyond the server's technical logs",
+        legalBasis: "Legitimate interest (Art. 6.1.f GDPR)",
+        transferMechanism:
+          "No transfer outside the EU. Open source project with no formal data processing agreement: no data is sent to it deliberately, only the visitor's IP reaches it, as with any resource loaded from another domain",
+      },
+    },
+  },
+  cloudflare: {
+    name: "Cloudflare, Inc.",
+    address: "101 Townsend Street, San Francisco, CA 94107, USA",
+    country: "US",
+    purpose:
+      "Gestion du nom de domaine (DNS) et acheminement des emails reçus sur ce domaine vers la boîte de destination (Email Routing)",
+    dataTypes: [
+      "Requêtes DNS",
+      "Adresses de l'expéditeur et du destinataire",
+      "Contenu des messages acheminés",
+    ],
+    retention: "Le temps de l'acheminement vers la boîte de destination",
+    legalBasis: "Exécution du contrat (art. 6.1.b RGPD)",
+    isEUResident: false,
+    transferMechanism: "Clauses contractuelles types (CCT)",
+    privacyUrl: "https://www.cloudflare.com/privacypolicy/",
+    dpaUrl: "https://www.cloudflare.com/cloudflare-customer-dpa/",
+    // Aucune trace dans le dépôt : le DNS et le relais d'emails se configurent
+    // sur le tableau de bord Cloudflare, pas dans le code. L'audit ne peut donc
+    // pas le détecter, et ne doit pas proposer de le retirer pour autant.
+    manuallyDeclared: true,
+    i18n: {
+      en: {
+        purpose:
+          "Domain name management (DNS) and forwarding of emails received on that domain to the destination mailbox (Email Routing)",
+        dataTypes: [
+          "DNS queries",
+          "Sender and recipient addresses",
+          "Content of forwarded messages",
+        ],
+        retention: "For the time it takes to forward the message to its destination",
+        legalBasis: "Contract performance (Art. 6.1.b GDPR)",
+        transferMechanism: "Standard Contractual Clauses (SCC)",
+      },
+    },
+  },
+  "web-push": {
+    name: "Services de notification des navigateurs (Apple, Google, Mozilla)",
+    address: "Selon le navigateur utilisé par la personne",
+    country: "Variable",
+    purpose: "Acheminement des notifications jusqu'à l'appareil de la personne",
+    dataTypes: [
+      "Identifiant d'abonnement de l'appareil",
+      "Contenu de la notification, chiffré",
+    ],
+    retention:
+      "Le temps de la remise, prolongé de quelques jours si l'appareil est hors ligne",
+    legalBasis:
+      "Consentement (art. 6.1.a RGPD) : l'autorisation est demandée par le navigateur, et se retire depuis ses réglages",
+    isEUResident: false,
+    transferMechanism:
+      "Le service qui achemine dépend du navigateur choisi par la personne, pas de l'éditeur du site. Le contenu est chiffré (protocole Web Push, clés VAPID) : seul l'appareil destinataire peut le lire",
+    privacyUrl: "https://www.w3.org/TR/push-api/#privacy-considerations",
+    requiresConsent: true,
+    i18n: {
+      en: {
+        purpose: "Delivering notifications to the person's device",
+        dataTypes: ["Device subscription identifier", "Encrypted notification payload"],
+        retention:
+          "For the time it takes to deliver, extended by a few days if the device is offline",
+        legalBasis:
+          "Consent (Art. 6.1.a GDPR): permission is requested by the browser and revoked from its settings",
+        transferMechanism:
+          "The delivering service depends on the browser the person uses, not on the site publisher. The payload is encrypted (Web Push protocol, VAPID keys): only the destination device can read it",
+      },
+    },
+  },
   render: {
     name: "Render Services, Inc.",
     address: "525 Brannan St #401, San Francisco, CA 94107, USA",
@@ -438,6 +533,9 @@ export type Subprocessor = {
   privacyUrl: string;
   dpaUrl?: string;
   requiresConsent?: boolean;
+  /** Sous-traitant sans trace dans le code (DNS, relais d'emails...) : declare
+   *  a la main, l'audit ne doit jamais proposer de le retirer. */
+  manuallyDeclared?: boolean;
   i18n?: Record<string, SubprocessorTranslation>;
 };
 

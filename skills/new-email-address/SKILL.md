@@ -183,6 +183,22 @@ Parse the response to confirm the record was created (`result.id` present).
 
 ---
 
+## Step 8 (bis) - Declare the email relay
+
+Every message sent to this address travels through Cloudflare before reaching the
+destination mailbox. Content, sender, recipient: that is a processing of personal
+data, and no other step declares it.
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add cloudflare
+```
+
+Run it from the project root when this address belongs to a project that has a
+privacy policy. If you are not in that project right now, do not go hunting for
+it: `/rgpd-audit` asks the question on its own and updates the page. The `cloudflare` entry is flagged `manuallyDeclared`: DNS and
+email routing leave no trace in the repository, so the RGPD audit cannot detect
+them and must never suggest removing the entry.
+
 ## Step 9 - Confirm + test
 
 > ✅ **Address created!** Emails sent to **`<prefix>@<domain>`** will be forwarded to **`<dest>`**.

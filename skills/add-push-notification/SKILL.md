@@ -137,6 +137,21 @@ To send a push from anywhere on the server side:
 
 ---
 
+## Step 8 (bis): Declare the delivery service
+
+The payload does not travel from your server to the device: it goes through the
+push service of **the browser the person uses** (Apple, Google, Mozilla). That
+service is a recipient, whatever the site publisher decides, so it belongs in the
+registry.
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add web-push
+```
+
+Worth saying to the user, because it is the reassuring half: the payload is
+encrypted with the VAPID keys generated at Step 3, so the service that carries it
+cannot read it. Only the destination device can.
+
 ## Step 8: CLAUDE.md + verification
 
 1. Invoke `_update-claude-md`:

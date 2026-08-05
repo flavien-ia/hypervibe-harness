@@ -52,8 +52,17 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add neon --
 | `cloudflare-r2` | `/add-storage` | |
 | `vercel-analytics` | `/add-analytics` (no-cookie variant) | |
 | `google-analytics` | `/add-analytics` (cookie variant) | Marks `requiresConsent: true` |
-| `anthropic` | `/add-agent` | |
-| `render` | `/add-automation` (Render variant) | Only when long-running workers handle user data |
+| `anthropic` | `/add-agent`, `/add-workflow` (intelligent steps) | |
+| `render` | `/add-automation` (Render variant), `/add-agent` | Free web service or paid worker, same legal entity either way |
+| `openfreemap` | `/add-map` | The visitor's own browser fetches the tiles, so a third party gets their IP on every page carrying a map |
+| `cloudflare` | `/new-email-address`, `/add-domain` | DNS and email relay. **Distinct from `cloudflare-r2`**: same company, different processing. Flagged `manuallyDeclared` |
+| `web-push` | `/add-push-notification` | The browser vendor's push service carries the payload. Encrypted (VAPID), so it cannot read it |
+
+### `manuallyDeclared` - the subprocessors the audit cannot see
+
+Most entries are detectable: a package in `package.json`, an env var, a pattern in the source. Some are not, because they live on a provider's dashboard and leave **nothing in the repository** - DNS, email routing. `/rgpd-audit` would then list them as `stale` and offer to delete them, and a policy "corrected" that way ends up lying.
+
+Entries carrying `manuallyDeclared: true` are therefore excluded from `stale`. Set the flag on a new entry only when it has no code footprint at all: an entry that *could* be detected but is not is a detection rule to write, not a flag to set.
 
 To list the full catalog with all the legal data:
 
