@@ -5,6 +5,8 @@
 //
 //   kind "ping"     - POST a project's /api/cron/<task> endpoint at its cron
 //                     time, authenticated with the project's bearer secret.
+//                     A ping that answers in error is mailed (throttled to the
+//                     first run of each 6-hour window, no storage involved).
 //                     (Replaces the old standalone "cron-dispatcher" worker.)
 //   kind "snapshot" - Neon database backup branches with rolling + aging
 //                     retention, plus a Brevo alert email when a target fails.
@@ -36,7 +38,9 @@
 //   ADMIN_TOKEN            - bearer for the manual /trigger and /status endpoints
 //   NEON_API_KEY           - for "snapshot" jobs
 //   CLOUDFLARE_API_TOKEN   - for "quota" jobs (Account Analytics: Read)
-//   BREVO_API_KEY          - for "quota" and "snapshot" jobs (alert email)
+//   BREVO_API_KEY          - alert email for "quota", "snapshot", and failed
+//                            "ping" jobs (which borrow the recipient/sender of
+//                            whichever job already declares one)
 //   CRON_SECRET_<PROJECT>  - one per project, for its "ping" jobs
 //
 // Failure isolation: every due job runs in its own promise with its own catch;
@@ -74,7 +78,9 @@ export default {
     console.log(`Tick ${when.toISOString()}: ${due.length} job(s) due: ${due.map((j) => j.name).join(", ")}`);
     for (const job of due) {
       ctx.waitUntil(
-        runJob(job, env).catch((err) =>
+        // `when` travels with the job: the failure alert throttles itself on the
+        // schedule, so it must reason about the minute the tick was meant for.
+        runJob(job, env, when).catch((err) =>
           console.error(`[${job.name}] FAILED: ${err?.message || err}`),
         ),
       );
@@ -147,10 +153,10 @@ function json(obj, status = 200) {
 
 // ── Job dispatch ─────────────────────────────────────────────────────────
 
-export async function runJob(job, env) {
+export async function runJob(job, env, when = new Date()) {
   switch (job.kind) {
     case "ping":
-      return runPingJob(job, env);
+      return runPingJob(job, env, when);
     case "snapshot":
       return runSnapshotJob(job, env);
     case "quota":
@@ -162,10 +168,11 @@ export async function runJob(job, env) {
 
 // ── kind: ping (ex cron-dispatcher) ──────────────────────────────────────
 
-export async function runPingJob(job, env) {
+export async function runPingJob(job, env, when = new Date()) {
   const secret = job.secretName ? env[job.secretName] : null;
   if (!secret) {
     console.error(`[${job.name}] missing secret "${job.secretName}" - skipping.`);
+    await reportPingFailure(job, env, when, "secret manquant", `Le secret "${job.secretName}" n'est pas configure sur le worker.`);
     return;
   }
 
@@ -183,13 +190,118 @@ export async function runPingJob(job, env) {
     if (!res.ok) {
       const body = await res.text();
       console.error(`[${job.name}] ${res.status} in ${ms}ms: ${body.slice(0, 200)}`);
+      await reportPingFailure(job, env, when, `HTTP ${res.status}`, body.slice(0, 300));
     } else {
       console.log(`[${job.name}] ping OK ${res.status} in ${ms}ms`);
     }
   } catch (err) {
     const ms = Date.now() - started;
     console.error(`[${job.name}] ping FAILED in ${ms}ms: ${err?.message || err}`);
+    await reportPingFailure(job, env, when, "injoignable", err?.message || String(err));
   }
+}
+
+// ── Ping failures: turning a log line nobody reads into an email ──────────
+//
+// A ping that comes back in error means the task simply never happened: wrong
+// secret, renamed route, application error. The worker used to log it and move
+// on, and those logs are only readable live - so the failure stayed invisible
+// until someone noticed the missing result. Same blind spot as a stopped clock,
+// different cause.
+//
+// Deliberately WITHOUT any storage. Remembering "already alerted" would mean a
+// KV namespace or a bucket, hence provisioning and token permissions on every
+// account that installs Hypervibe, for a few bytes of state. Instead the
+// throttle is derived from the job's own schedule: only the FIRST run of the
+// current 6-hour window may alert. A broken hourly job mails 4 times a day at
+// most (00:00, 06:00, 12:00, 18:00 UTC), a daily job once, and the rule is
+// deterministic - no state to lose, nothing to clean up.
+
+/** Window used to throttle repeated failure alerts, in hours. */
+const ALERT_WINDOW_HOURS = 6;
+
+/**
+ * Is `date` the first scheduled run of `cron` inside the current window?
+ * Walks the window minute by minute (360 cheap checks at most) and answers no
+ * as soon as an earlier run is found.
+ */
+export function isFirstRunOfWindow(cron, date, windowHours = ALERT_WINDOW_HOURS) {
+  const start = new Date(date);
+  start.setUTCMinutes(0, 0, 0);
+  start.setUTCHours(Math.floor(date.getUTCHours() / windowHours) * windowHours);
+  for (let t = start.getTime(); t < date.getTime(); t += 60_000) {
+    try {
+      if (cronMatches(cron, new Date(t))) return false;
+    } catch {
+      return true; // Unparseable cron: never swallow the alert.
+    }
+  }
+  return true;
+}
+
+/**
+ * Where to send an alert for this job.
+ *
+ * Ping jobs carry no mail config of their own (the registry only gives them a
+ * url and a secret). Rather than migrate every registry, we borrow the address
+ * already configured for the account's backup or quota job. No config anywhere
+ * means alerting is simply off, exactly as it already is for those jobs.
+ */
+export function resolveAlertConfig(job, jobs) {
+  const candidates = [job?.config, ...(jobs ?? listJobs()).map((j) => j?.config)];
+  for (const c of candidates) {
+    if (c?.recipient && c?.senderEmail) {
+      return { recipient: c.recipient, senderEmail: c.senderEmail, senderName: c.senderName };
+    }
+  }
+  return null;
+}
+
+async function reportPingFailure(job, env, when, cause, detail) {
+  const cfg = resolveAlertConfig(job);
+  if (!env.BREVO_API_KEY || !cfg) {
+    console.error(`[${job.name}] ping failed but no alert channel (BREVO_API_KEY secret + a job config with recipient/senderEmail).`);
+    return;
+  }
+  if (!isFirstRunOfWindow(job.cron, when)) {
+    console.log(`[${job.name}] ping failure not mailed: already the alert window's turn passed.`);
+    return;
+  }
+  try {
+    await sendPingFailureEmail(env, cfg, job, cause, detail);
+    console.log(`[${job.name}] failure email sent to ${cfg.recipient}.`);
+  } catch (e) {
+    console.error(`[${job.name}] failure email could not be sent: ${e.message}`);
+  }
+}
+
+async function sendPingFailureEmail(env, cfg, job, cause, detail) {
+  const quoi = job.project ? `${job.name} (${job.project})` : job.name;
+  const pistes = {
+    "secret manquant": "Le secret n'existe pas sur le worker : le reposer avec <code>npx wrangler secret put</code>.",
+    "HTTP 401": "Le secret du worker et celui de l'application ne correspondent plus. Comparer la variable d'environnement de l'app et le secret du worker.",
+    "HTTP 403": "L'application refuse l'appel : verifier la garde d'authentification de la route.",
+    "HTTP 404": "L'adresse appelee n'existe plus : la route a sans doute ete renommee ou supprimee.",
+    "HTTP 500": "L'application a plante en executant la tache : regarder ses journaux d'execution.",
+    injoignable: "L'application n'a pas repondu du tout : hors ligne, domaine expire, ou deploiement en echec.",
+  };
+  const piste = pistes[cause] ?? "Regarder les journaux de l'application pour cette adresse.";
+
+  const htmlContent = `
+    <div style="font-family:Helvetica,Arial,sans-serif;color:#1A1410;font-size:15px;line-height:1.6;">
+      <p><strong>La tache planifiee "${escapeHtml(quoi)}" ne s'execute plus.</strong></p>
+      <p>Le worker l'a bien declenchee a l'heure prevue, mais l'application a repondu en erreur. La tache n'a donc pas eu lieu, et ne se rattrapera pas toute seule.</p>
+      <table style="border-collapse:collapse;font-size:14px;margin:16px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#7A7168;">Adresse appelee</td><td><code>${escapeHtml(job.url || "")}</code></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#7A7168;">Horaire</td><td><code>${escapeHtml(job.cron || "")}</code> (UTC)</td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#7A7168;">Reponse</td><td><strong>${escapeHtml(cause)}</strong></td></tr>
+      </table>
+      ${detail ? `<p style="color:#7A7168;font-size:13px;">Detail renvoye : <code>${escapeHtml(String(detail))}</code></p>` : ""}
+      <p><strong>Piste la plus probable :</strong> ${piste}</p>
+      <p style="font-size:13px;color:#7A7168;">Ce message ne se repetera pas plus d'une fois par ${ALERT_WINDOW_HOURS} heures tant que la panne dure.</p>
+    </div>`;
+
+  await sendBrevoEmail(env, cfg, `[Hypervibe] Tache planifiee en echec : ${quoi}`, htmlContent);
 }
 
 // ── kind: snapshot (ex db-backup) ────────────────────────────────────────

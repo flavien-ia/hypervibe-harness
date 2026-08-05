@@ -35,7 +35,7 @@ Si votre besoin est une simple tâche périodique courte (< 60s, stateless), Hyp
   - **Tâche périodique simple pour l’app** → délègue à `/add-cron` (qui l’inscrit par défaut sur votre horloge partagée)
   - **Chaîne finie déclenchée par un événement, éventuellement intelligente** → délègue à `/add-workflow` (la chaîne tourne dans votre app, chaque exécution tracée étape par étape ; aucune infrastructure en plus)
   - **Worker léger / event-driven / précision sous la minute** → **Cloudflare Worker** (rapide à déployer, scale auto, gratuit jusqu’à 100k requêtes/jour)
-  - **Process lourd / continu 24h-7j / état persistant** → **Render Background Worker** (peut tourner indéfiniment, vraies ressources serveur, ~7$/mois sur le plan starter)
+  - **Traitement lourd, long, ou avec de l’état** → **Render**, sous deux formes selon la réponse à une seule question, « est-ce que ça peut dormir entre deux passages ? ». Si oui, c’est un service gratuit réveillé par votre horloge partagée. Si non (connexion permanente, file de messages qu’on ne peut pas rater), c’est un vrai processus d’arrière-plan, autour de 7 $/mois : Render ne propose pas ce type de service en gratuit, et Hypervibe vous le dit avant de le créer, jamais après.
   - **IA au service des utilisateurs de votre app** → passe la main à `/add-agent` (agent de production avec plafonds de budget et traçabilité complète)
 
 5. **Conversion en monorepo si nécessaire** (workers uniquement) : pour héberger le worker à côté de votre Next.js, Hypervibe convertit votre projet en Turborepo (idempotent, pas de risque si déjà monorepo). Votre code Next.js se retrouve dans `apps/web/`, le worker dans `apps/worker/`.

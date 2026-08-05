@@ -114,10 +114,21 @@ async function step(name, fn) {
 function log(msg) { process.stderr.write(`\n▸ ${msg}\n`); }
 function ok(msg) { process.stderr.write(`  ✅ ${msg}\n`); }
 function warn(msg) { process.stderr.write(`  ⚠️  ${msg}\n`); warnings.push(msg); }
+// Stop the process with an exact exit code, even right after a network call.
+// On Windows, process.exit() called within a few ms of the last HTTPS response crashes
+// Node (libuv assertion "UV_HANDLE_CLOSING") and the process reports 127 - the caller then
+// cannot tell 2 (partial, resume possible) from 1 (nothing done). Measured 2026-08-04:
+// systematic under 10 ms, never above 50 ms. The pause below is SYNCHRONOUS on purpose:
+// fail() must never return to its caller, so we cannot wait through the event loop.
+// It only ever runs on a failure path.
+function exitNow(code) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  process.exit(code);
+}
 function fail(msg) {
   process.stderr.write(`\n❌ ${msg}\n`);
   if (completed.length || current) dumpHandoff(false, msg);
-  process.exit(completed.length || current ? 2 : 1);
+  exitNow(completed.length || current ? 2 : 1);
 }
 function dumpHandoff(success, errMsg) {
   const remaining = STEPS.filter(s => !completed.includes(s) && s !== current);
@@ -137,7 +148,7 @@ process.on("uncaughtException", (e) => {
   process.stderr.write(`\n❌ Uncaught: ${e.message}\n`);
   if (e.stack) process.stderr.write(e.stack + "\n");
   dumpHandoff(false, e.message);
-  process.exit(2);
+  exitNow(2);
 });
 
 function run(cmd, cwd, capture = false) {

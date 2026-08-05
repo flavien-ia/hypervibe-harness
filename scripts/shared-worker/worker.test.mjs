@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { cronMatches, computeNextDue, runPingJob, runSnapshotJob, runQuotaJob } from "./worker.js";
+import { cronMatches, computeNextDue, runPingJob, runSnapshotJob, runQuotaJob, isFirstRunOfWindow, resolveAlertConfig } from "./worker.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -108,6 +108,64 @@ function jsonResponse(obj, status = 200) {
   mockFetch(() => new Response("ok", { status: 200 }));
   await runPingJob(job, {});
   check("ping: missing secret skips the call", calls.length === 0);
+  restoreFetch();
+}
+
+// ── 2.bis Ping failures: throttle + alert ────────────────────────────────
+
+{
+  // The throttle: only the first run of the current 6-hour window may alert.
+  const hourly = "0 * * * *";
+  check("throttle: hourly job alerts at 00:00", isFirstRunOfWindow(hourly, utc(2026, 8, 5, 0, 0)));
+  check("throttle: hourly job stays quiet at 01:00", !isFirstRunOfWindow(hourly, utc(2026, 8, 5, 1, 0)));
+  check("throttle: hourly job alerts again at 06:00", isFirstRunOfWindow(hourly, utc(2026, 8, 5, 6, 0)));
+  check("throttle: hourly job stays quiet at 11:00", !isFirstRunOfWindow(hourly, utc(2026, 8, 5, 11, 0)));
+  check("throttle: hourly job alerts at 18:00", isFirstRunOfWindow(hourly, utc(2026, 8, 5, 18, 0)));
+  // A daily job is alone in its window: it always alerts, whatever the hour.
+  check("throttle: daily 04:00 job always alerts", isFirstRunOfWindow("0 4 * * *", utc(2026, 8, 5, 4, 0)));
+  check("throttle: daily 13:00 job always alerts", isFirstRunOfWindow("0 13 * * *", utc(2026, 8, 5, 13, 0)));
+  // A twice-daily job inside the same window: second run stays quiet.
+  check("throttle: 07:00 of a 07:00+11:00 job alerts", isFirstRunOfWindow("0 7,11 * * *", utc(2026, 8, 5, 7, 0)));
+  check("throttle: 11:00 of a 07:00+11:00 job stays quiet", !isFirstRunOfWindow("0 7,11 * * *", utc(2026, 8, 5, 11, 0)));
+  // An unparseable cron must never swallow an alert.
+  check("throttle: bad cron alerts anyway", isFirstRunOfWindow("nope", utc(2026, 8, 5, 3, 0)));
+
+  // The address is borrowed from whichever job already declares one.
+  const registry = [
+    { kind: "ping", name: "p", cron: "0 * * * *" },
+    { kind: "snapshot", name: "b", config: { recipient: "moi@x.fr", senderEmail: "moi@x.fr", senderName: "Hypervibe" } },
+  ];
+  check("alert config: borrowed from the snapshot job", resolveAlertConfig(registry[0], registry)?.recipient === "moi@x.fr");
+  check("alert config: own config wins", resolveAlertConfig({ config: { recipient: "a@x.fr", senderEmail: "a@x.fr" } }, registry)?.recipient === "a@x.fr");
+  check("alert config: none anywhere -> null", resolveAlertConfig({}, [{ kind: "ping", name: "p" }]) === null);
+
+  // End to end: a 500 on the first run of the window sends one Brevo email.
+  const job = { kind: "ping", name: "t2", project: "monapp", cron: "0 * * * *", url: "https://app.test/api/cron/t2", secretName: "S", config: { recipient: "moi@x.fr", senderEmail: "moi@x.fr" } };
+  mockFetch((call) =>
+    call.url.includes("brevo") ? jsonResponse({ messageId: "1" }, 201) : new Response("boom", { status: 500 }),
+  );
+  await runPingJob(job, { S: "s3cret", BREVO_API_KEY: "k" }, utc(2026, 8, 5, 12, 0));
+  const mails = calls.filter((c) => c.url.includes("brevo"));
+  check("ping failure: one alert email sent", mails.length === 1);
+  check("ping failure: subject names the job", String(mails[0]?.body).includes("t2 (monapp)"));
+  check("ping failure: body carries the cause", String(mails[0]?.body).includes("HTTP 500"));
+
+  // Same failure one hour later: throttled, no second email.
+  mockFetch((call) =>
+    call.url.includes("brevo") ? jsonResponse({ messageId: "1" }, 201) : new Response("boom", { status: 500 }),
+  );
+  await runPingJob(job, { S: "s3cret", BREVO_API_KEY: "k" }, utc(2026, 8, 5, 13, 0));
+  check("ping failure: throttled one hour later", calls.filter((c) => c.url.includes("brevo")).length === 0);
+
+  // A healthy ping never mails.
+  mockFetch(() => new Response("ok", { status: 200 }));
+  await runPingJob(job, { S: "s3cret", BREVO_API_KEY: "k" }, utc(2026, 8, 5, 12, 0));
+  check("ping OK: no email", calls.filter((c) => c.url.includes("brevo")).length === 0);
+
+  // No Brevo key: the ping still runs, it just cannot alert.
+  mockFetch(() => new Response("boom", { status: 500 }));
+  await runPingJob(job, { S: "s3cret" }, utc(2026, 8, 5, 12, 0));
+  check("ping failure: no Brevo key -> no crash, no mail", calls.length === 1);
   restoreFetch();
 }
 

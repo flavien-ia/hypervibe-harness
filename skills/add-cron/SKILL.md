@@ -208,6 +208,8 @@ result=$(CRON_SECRET_VALUE="<CRON_SECRET>" node "${CLAUDE_SKILL_DIR}/../../scrip
 
 This single call: creates the protected Next.js route (if absent), registers the task in the versioned registry, commits the change, uploads the project's secret to the shared worker (first time only), and redeploys. Parse the JSON: `ok`, `action` (added/replaced), `job` (the name of the entry in the shared registry, normally `<PROJECT_NAME>-<TASK_NAME>` - store it as `JOB_NAME`, the management commands below use it), `routeCreated`, `missingSecrets` (should be empty; if not, follow its `nextSteps`).
 
+**If the task ever answers in error** (expired secret, renamed route, application crash), the shared worker emails the address already configured for the account's backup/quota alerts, at most once every 6 hours per task. Worth telling the user in plain words: a scheduled task that fails does not retry on its own, so the mail is what tells them the work did not happen. If no job in the registry carries an alert address yet, the failure is only written to the worker logs, which nobody reads - in that case suggest running `/add-backup-db` or `/quotas`, which set that address.
+
 ### If `CHOICE=cf-dedicated` → dedicated Cloudflare Worker
 
 Invoke `_setup-wrangler`. Then:

@@ -422,7 +422,7 @@ From the JSON captured in Step 5, display exactly:
 - **Render = manual for Blueprint creation**: no reliable API/CLI for it. The skill scaffolds the code and explains the 2 min of remaining clicks.
 - **Shared schema**: the `agent_*` tables live in the main Neon DB, not in a separate DB. The worker has its own copy of `schema.ts` that points to the same physical tables.
 - **No chatbot**: if the user describes a real-time UI thing ("a chatbot on my site that answers visitors"), explain that it's a distinct case requiring streaming + dedicated UI - not the scope of `/add-agent` v1, propose `/add-automation` or waiting for the future `/add-chatbot` skill.
-- **Zero cost by default while it's not running**: Render Background Worker is on the starter plan (~7 USD/month). If the user wants to test without paying Render, the agent can run locally with `pnpm dev` in `apps/<name>/` - but they'll need to keep their terminal open.
+- **The hosting bill starts the day the Blueprint is applied, not the day the agent first runs**: the Background Worker sits on the starter plan (~7 USD/month), and Render bills an always-on service whether or not it has anything to do. Only the Anthropic usage is proportional to actual runs. Say this before the user clicks Apply. If they want to try the agent without paying Render, it runs locally with `pnpm dev` in `apps/<name>/`, as long as they keep the terminal open. There is no free variant of this service type: Render's free instance type does not exist for background workers, and a free web service would sleep after 15 minutes, which defeats the purpose.
 
 ---
 

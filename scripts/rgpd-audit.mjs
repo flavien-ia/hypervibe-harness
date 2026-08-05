@@ -242,7 +242,9 @@ if (hasDep("@anthropic-ai/sdk") || sourcePatterns.has("@anthropic-ai/sdk")) {
   evidence.anthropic = "@anthropic-ai/sdk referenced";
 }
 
-// render - render.yaml at root indicates Render Background Workers
+// render - render.yaml at root means the project hosts something on Render. Do
+// not narrow this to "background worker": /add-automation now scaffolds a free
+// web service, /add-agent a paid worker, and both are the same subprocessor.
 if (HAS_RENDER_YAML) {
   detected.render = true;
   evidence.render = "render.yaml present at repo root";

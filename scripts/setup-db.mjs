@@ -147,17 +147,29 @@ function dumpHandoff(success) {
   console.log("────────────────────────────────────────────────────────");
 }
 
+// Stop the process with an exact exit code, even right after a network call.
+// On Windows, process.exit() called within a few ms of the last HTTPS response crashes
+// Node (libuv assertion "UV_HANDLE_CLOSING") and the process reports 127 - the caller then
+// cannot tell 2 (partial, resume possible) from 1 (nothing done). Measured 2026-08-04:
+// systematic under 10 ms, never above 50 ms. The pause below is SYNCHRONOUS on purpose:
+// fail() must never return to its caller, so we cannot wait through the event loop.
+// It only ever runs on a failure path.
+function exitNow(code) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+  process.exit(code);
+}
+
 function fail(msg) {
   console.error(`\n❌ ${msg}`);
   if (completed.length || current) dumpHandoff(false);
-  process.exit(completed.length || current ? 2 : 1);
+  exitNow(completed.length || current ? 2 : 1);
 }
 
 process.on("uncaughtException", (e) => {
   console.error(`\n❌ Unhandled exception: ${e.message}`);
   if (e.stack) console.error(e.stack);
   dumpHandoff(false);
-  process.exit(2);
+  exitNow(2);
 });
 
 function run(cmd, cwd, opts = {}) {

@@ -39,7 +39,7 @@ You will rarely write code yourself in this skill - you delegate to:
 - **`_setup-render`** - ensures the Render API key is in the vault (Render via REST API, no CLI)
 - **`_convert-to-turborepo`** - converts the project to a monorepo (idempotent)
 - **`_create-cloudflare-worker`** - scaffolds and deploys a Cloudflare Worker in `apps/worker/`
-- **`_create-render-worker`** - scaffolds a Render Background Worker in `apps/worker/`
+- **`_create-render-worker`** - scaffolds a Render background process in `apps/worker/` (free web service by default, paid background worker on request)
 
 ---
 
@@ -157,11 +157,11 @@ Based on what you've learned, choose ONE architecture using these heuristics:
 - **Examples**: sub-minute cron, very-high-volume public endpoint, edge function with geolocation
 - Only when `CF_OK=true`. For an ordinary webhook (Stripe, Telegram at normal volume), prefer `add-workflow`: the app can absorb it, one less deployment.
 
-### → Recommend **Render Background Worker** if:
-- Beneficiary = the app; Pattern = continuous (24/7 polling, queue consumer, persistent websocket)
+### → Recommend a **Render background process** if:
+- Beneficiary = the app; Pattern = heavy work the app should not run inline
 - Load = heavy (CPU/RAM intensive, exceeds Cloudflare Worker limits); Duration = long (minutes/hours); State = stateful
 - **Examples**: video transcoding, massive scraping, Redis queue processor, persistent Discord bot
-- ⚠️ Free tier sleeps after 15min of inactivity → not suited to a service that truly needs to be awake at all times
+- ⚠️ **Two plans, and the answer changes the shape of what gets scaffolded.** On the free plan it is a **web service** woken by the shared clock and asleep in between: right for heavy-but-triggered work, wrong for anything that must not miss an event. A process that genuinely has to stay awake (persistent websocket, queue consumer that cannot drop a message) needs a real background worker at ~7 USD/month, because Render's free instance type does not exist for that service type. Ask the user which of the two it is **before** scaffolding; `_create-render-worker` carries the detail.
 
 ### Present the recommendation
 
@@ -169,7 +169,7 @@ Tell the user, with explicit reasoning:
 
 > ## 📋 Recommendation: **<choice>**
 >
-> Given your need (<1-sentence summary>), I recommend **<a Claude routine | add-cron | an in-app workflow | Cloudflare Worker | Render Background Worker>** because:
+> Given your need (<1-sentence summary>), I recommend **<a Claude routine | add-cron | an in-app workflow | Cloudflare Worker | a Render background process>** because:
 >
 > - <reason 1>
 > - <reason 2>
@@ -250,13 +250,15 @@ Invoke the **`add-workflow`** skill with the discovery material (trigger, steps,
    - `CRON_EXPRESSION=<5-field cron>` if `NEEDS_CRON=yes`
 4. **No need to invoke `add-cron`** - Cloudflare handles CRON natively via `wrangler.toml` triggers, which `_create-cloudflare-worker` already configures.
 
-### Branch C - User accepted Render Background Worker
+### Branch C - User accepted a Render background process
 
 1. Invoke **`_setup-render`** (idempotent - ensures `RENDER.api_key` is in the vault)
 2. Invoke **`_convert-to-turborepo`** (idempotent)
-3. Invoke **`_create-render-worker`**
-4. **If the user needs scheduled execution** → invoke **`add-cron`** *after* the worker is up. Tell the user explicitly:
-   > The Render free tier does not support native CRON. For scheduled runs, I am going to use your shared clock (via `add-cron`) which will call an HTTP endpoint. This endpoint lives in your Next.js app (`apps/web/src/app/api/cron/route.ts`) - it is the one that then has to trigger work in the worker, either by publishing a message to a shared queue, or by directly calling an HTTP route of the worker if it exposes one.
+3. Invoke **`_create-render-worker`**. It scaffolds a **web service on the free plan** by default, exposing `POST /run`. If the discovery established that the process must never stop, say so when invoking it: it then switches to `type: worker` + `plan: starter` and drops the HTTP layer.
+4. **If the user needs scheduled execution** → invoke **`add-cron`** *after* the service is up. Tell the user explicitly:
+   > Render has no CRON of its own on the free plan, so the schedule comes from your shared clock (via `add-cron`). It calls the service's `POST /run` directly, with the token Render generated. That call is also what wakes the service up, which is exactly the point: it sleeps the rest of the time and costs nothing.
+
+   Pass the generated `RUN_TOKEN` to `add-cron` as the authentication header. Read it from the Render dashboard or the API, never print it in the conversation.
 
 ### Branch D - User accepted a Claude routine
 
@@ -270,7 +272,7 @@ Invoke **`_create-routine`** with the goal and cadence gathered during discovery
   - body:
     ```
     - **Rôle métier** : <résumé en 1-2 phrases de la description fournie en Step 1>
-    - **Type** : <add-cron | Cloudflare Worker | Render Background Worker>
+    - **Type** : <add-cron | Cloudflare Worker | Render web service (free) | Render background worker (paid)>
     - **Emplacement** : <`apps/web/src/app/api/cron/route.ts` | `apps/worker/`>
     - **Schedule** : <cron expression if applicable, sinon "event-driven" ou "continuous">
     - **Logique implantée** : <oui (implantée pendant /add-automation) | non (placeholder // TODO à compléter)>
@@ -317,7 +319,7 @@ The worker infrastructure is in place but the code only contains an empty `// TO
 
 ## RGPD - Privacy policy (only if Render route)
 
-If the branch chosen in Step 4 is **Render Background Worker**, add Render to the project's RGPD subprocessor registry:
+If the branch chosen in Step 4 is **a Render background process**, add Render to the project's RGPD subprocessor registry:
 
 ```bash
 node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add render

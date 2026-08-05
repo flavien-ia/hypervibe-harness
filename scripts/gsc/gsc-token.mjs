@@ -55,8 +55,12 @@ const res = await fetch(sa.token_uri, {
   }),
 });
 const data = await res.json();
+// No process.exit() here: on Windows, exiting within a few ms of the last HTTPS response
+// crashes Node (libuv assertion) and the process reports 127 instead of our code. Setting
+// exitCode and letting Node close its own handles keeps the code intact. Measured 2026-08-04.
 if (!data.access_token) {
   console.error("Token exchange failed:", JSON.stringify(data));
-  process.exit(1);
+  process.exitCode = 1;
+} else {
+  process.stdout.write(data.access_token);
 }
-process.stdout.write(data.access_token);

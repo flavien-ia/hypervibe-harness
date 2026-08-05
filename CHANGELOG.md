@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.7.5 (5 août 2026)
+
+### Améliorations
+
+- **Une tâche planifiée qui échoue vous prévient enfin.** Quand l'horloge partagée appelle votre site et reçoit une erreur (clé périmée, adresse renommée, application qui plante), la tâche n'a tout simplement pas lieu, et elle ne se rattrape pas toute seule. Jusqu'ici l'échec ne partait que dans des journaux que personne ne lit. Vous recevez maintenant un mail qui nomme la tâche, la cause, et la piste la plus probable, au maximum une fois toutes les 6 heures tant que la panne dure. Sur une installation existante, lancez `/quotas` une fois pour activer la surveillance.
+
+- **Render : le plan gratuit dit enfin la vérité.** Chez Render, le plan gratuit n'existe pas pour les processus permanents. `/add-automation` vous fait donc choisir en amont entre un service gratuit réveillé par l'horloge (endormi entre deux passages, parfait pour du travail lourd mais ponctuel) et un vrai processus permanent à environ 7 USD par mois, seul capable de ne rien manquer. Et `/add-agent` annonce désormais que la facture démarre le jour du déploiement, pas au premier travail de l'agent.
+
+- **Plus de faux échecs sous Windows.** `/add-db` et `/add-agent` pouvaient renvoyer un code d'erreur incohérent juste après un appel réseau, ce qui empêchait de reprendre l'installation là où elle s'était arrêtée. Corrigé.
+
+### Coulisses
+
+- L'audit RGPD reconnaît Render quel que soit le type de service hébergé : le sous-traitant est le même.
+
 ## v2.7.4 (3 août 2026)
 
 ### Correctifs
