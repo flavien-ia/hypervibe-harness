@@ -64,6 +64,7 @@ When you launch `/bootstrap`, you choose how to describe your app:
 | `/clean` | Find unused files, dead code, orphan env vars and DB tables - review + delete on a branch |
 | `/rotate-secret` | Rotate a secret (Stripe, Brevo, Google…) everywhere it lives - local + Vercel |
 | `/quotas` | Show your current usage against each service's free tier (Neon, Cloudflare, Brevo, Resend, Vercel) with verdicts per gauge |
+| `/update-hypervibe` | Update the plugin itself to the latest published version (checks how it was installed, keeps a backup) |
 
 ### Addon skills
 

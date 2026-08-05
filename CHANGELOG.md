@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.7.7 (5 août 2026)
+
+### Nouveautés
+- **`/update-hypervibe`** : met Hypervibe à jour sans quitter votre conversation. La commande commence par regarder comment vous avez installé le plugin. Si vous l'avez ajouté par une commande, Claude Code le tient déjà à jour tout seul : elle vous le dit et vous donne la commande native, plutôt que d'agir dans son dos. Si vous aviez téléversé le zip dans Claude Desktop, elle compare votre version à la dernière publiée, télécharge la nouvelle, vérifie qu'il s'agit bien d'un plugin complet avant de toucher à votre installation, puis la remplace en gardant l'ancienne en sauvegarde juste à côté.
+
+### Coulisses
+- Une mise à jour qui échoue ne vous laisse jamais sans plugin : la version précédente est remise en place d'elle-même, et la commande vous dit ce qui a échoué. L'archive téléchargée est aussi inspectée avant d'être déballée, pour qu'aucun fichier ne puisse s'écrire ailleurs que dans le dossier du plugin.
+
 ## v2.7.6 (5 août 2026)
 
 ### Nouveautés

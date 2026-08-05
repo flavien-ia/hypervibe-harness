@@ -64,6 +64,7 @@ Quand vous lancez `/bootstrap`, vous choisissez comment décrire votre app :
 | `/clean` | Trouve les fichiers inutilisés, le code mort, les env vars et tables DB orphelines - revue + suppression sur une branche |
 | `/rotate-secret` | Renouvelle une clé secrète (Stripe, Brevo, Google…) partout où elle vit - local + Vercel |
 | `/quotas` | Affiche votre consommation actuelle face aux plafonds gratuits de chaque service (Neon, Cloudflare, Brevo, Resend, Vercel) avec verdicts par jauge |
+| `/update-hypervibe` | Met le plugin lui-même à jour vers la dernière version publiée (regarde comment il a été installé, garde une sauvegarde) |
 
 ### Skills addon
 
