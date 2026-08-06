@@ -39,10 +39,30 @@ Probe what THIS session can create, in this order:
 2. **Local scheduled task** - available when the session has scheduled-task tools (Claude desktop app; tools like `create_scheduled_task` / `list_scheduled_tasks`). Runs on THIS computer while the Claude app is open (a missed run fires at next launch). Full access to local files, local scripts and the machine's tools.
 3. **Neither** - the session cannot create routines (e.g. an old CLI version). Fall back to guided creation: give the user their ready-to-paste mission prompt and point them to https://claude.ai/code/routines (bouton "New routine"), or suggest updating Claude Code.
 
-When BOTH are available, choose by the nature of the task and say why in one sentence:
-- Needs local files, local scripts, the machine's browser -> **local**
-- Pure cloud work (read repos, web, connectors, send a report) and should survive the computer being off -> **cloud**
-- User expressed a preference -> respect it.
+### When BOTH are available: ASK, and lean local
+
+Do not decide silently. The two options differ in a way only the user can arbitrate, and the difference is not obvious until it bites.
+
+**A local routine inherits everything that already works.** The vault, the project files, the CLIs, the accounts already signed in. Nothing to set up: whatever the user can do by hand in a session, the routine can do too.
+
+**A cloud routine starts from nothing.** It runs on Anthropic's servers, so it never sees this machine: no vault, no local files, no installed tools. Every access it needs has to be re-provisioned over there, which in practice means **placing secrets somewhere a remote runner can read them**. That is real work, and it leaves a second copy of credentials to keep in sync and to revoke.
+
+The default recommendation is therefore **local whenever the mission is feasible locally**, and the question to the user is short:
+
+> Deux façons de faire tourner ça.
+>
+> **Sur cet ordinateur** (recommandé) : la routine a accès à tout ce qui marche déjà chez toi, tes clés, tes fichiers, tes outils. Rien à reconfigurer. Elle tourne quand l'application Claude est ouverte ; si elle est fermée à l'heure dite, le passage se fait au lancement suivant.
+>
+> **Dans le cloud** : elle tourne même ordinateur éteint, mais elle ne voit rien de cette machine. Il faudra lui redonner séparément les accès dont elle a besoin, donc déposer des clés de son côté.
+>
+> Est-ce que ta mission a besoin de tourner ordinateur éteint ?
+
+Two shortcuts that avoid the question entirely:
+
+- The mission needs local files, local scripts or the machine's browser -> **local**, say why in one sentence, do not ask.
+- The user already expressed a preference -> respect it.
+
+Go cloud only when the user answers that it must run with the computer off, and then tell them plainly which accesses will have to be re-provisioned on that side before it can work.
 
 ## Step 2 - The two honest warnings (mandatory, in plain words)
 

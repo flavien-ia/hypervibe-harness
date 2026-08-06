@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.7.8 (6 août 2026)
+
+### Améliorations
+- **Création d'une routine** : quand la mission peut tourner aussi bien sur l'ordinateur que dans le cloud, le plugin ne tranche plus en silence. Il pose la question et recommande l'ordinateur par défaut : une routine locale hérite de tout ce qui marche déjà chez toi (coffre-fort de clés, fichiers du projet, outils installés, comptes connectés), alors qu'une routine cloud repart de zéro et oblige à redéposer des clés de son côté. Le cloud n'est proposé que pour le cas qui le justifie vraiment : une mission qui doit tourner ordinateur éteint.
+
 ## v2.7.7 (5 août 2026)
 
 ### Nouveautés
