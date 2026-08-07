@@ -1,7 +1,7 @@
 // agent/loop.ts - Generic Anthropic-powered agent loop.
 //
 // Drop-in pattern for an agent that:
-//   - Uses Anthropic Claude (Sonnet 4.6 by default) with prompt caching
+//   - Uses Anthropic Claude (Sonnet 5 by default) with prompt caching
 //   - Loops on tool use until end_turn or max_iterations
 //   - Tracks cost per turn (input + output + cache hits)
 //   - Persists every turn (decisions, tool calls, results) to Postgres
@@ -275,6 +275,7 @@ function extractText(response: Message): string {
 // runtime: an unknown model falls back to Sonnet-tier rates and is FLAGGED in
 // the cost breakdown rather than silently mispriced.
 const PRICING_PER_MTOK: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
+  "claude-fable-5": { input: 10, output: 50, cacheWrite: 12.50, cacheRead: 1.00 },
   "claude-opus-5": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
   "claude-sonnet-5": { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
   "claude-haiku-4-5": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.10 },

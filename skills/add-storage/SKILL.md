@@ -351,6 +351,29 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add cloudfl
 
 The helper is idempotent. If the `politique-de-confidentialite/page.tsx` page exists (created by `/bootstrap`), it updates automatically. Otherwise, only the registry is created - `/rgpd-audit` can generate the page later.
 
+## Step 9.bis - Verify the bucket really answers
+
+Do not claim the storage works without checking it. Run the bundled probe:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/r2-check.mjs" --project-dir "<PROJECT_DIR>"
+```
+
+It reads the `R2_*` vars from the project's `.env.local`/`.env`, lists a few objects, and
+signs a URL when the presigner is installed. Last stdout line is JSON; exit codes: `0` OK,
+`2` env vars missing, `3` `@aws-sdk/client-s3` not installed in the project, `4` bucket
+unreachable or credentials rejected. Each non-zero code prints a `hint` naming what to fix.
+
+If Step 8 was skipped (the user has not created the R2 keys yet), skip this step too and say
+so in the summary rather than running a check that cannot pass.
+
+**Never hand-write a throwaway check script for this.** A script placed outside the project
+(a temp folder, a scratchpad) cannot resolve `@aws-sdk/client-s3`: Node walks up from the
+script's own directory looking for `node_modules`, and the project's is nowhere on that path,
+so a bare `import` dies with `ERR_MODULE_NOT_FOUND` even though the package is correctly
+installed. `r2-check.mjs` resolves the SDK from the project's `package.json` precisely to
+avoid that trap.
+
 ## Step 10 - Summary
 
 Present to the user:

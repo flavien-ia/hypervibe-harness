@@ -445,7 +445,7 @@ function buildZip() {
   mkdirSync(OUT_DIR, { recursive: true });
   const zipPath = join(OUT_DIR, `${SNAP_NAME}.zip`);
 
-  // Use Python zipfile (consistent with export-plugin convention, cross-platform).
+  // Use Python zipfile (consistent with export-hypervibe convention, cross-platform).
   // We write the script to a temp file rather than pass it via `python -c` -
   // on Windows, multi-line scripts piped through `cmd.exe -c` get mangled
   // ("Argument expected for the -c option"). Calling python with a file path

@@ -1,6 +1,6 @@
 ---
 name: add-agent
-description: "Scaffold an autonomous AI agent into the user's project. The agent runs on Render Background Worker, uses Anthropic Claude (Sonnet 4.6 by default) with prompt caching, has tools (http-fetch, send-email, db-query by default; more added based on the agent's job), optional Postgres KV memory, a daily/monthly cost circuit breaker (default 5 USD/day, 50 USD/month - kills runs over budget and emails the admin), and persists every invocation + every loop turn to Postgres for full traceability. Use this when the user wants an LLM-driven process that is part of the PRODUCT (serves the app or its end users), decides actions, uses tools, and optionally has memory - distinct from /add-automation which handles non-AI background processing. When the mission is actually a personal recurring task for the OPERATOR (a brief, a watch, a weekly analysis for themselves) at a cadence of 1 hour or more, the discovery short-circuits to the much lighter _create-routine (a Claude routine on the user's own account, zero infrastructure). Discovery phase asks ~5 questions about the agent's job (goal, trigger, memory needs, model, budget) then runs setup-agent.mjs to scaffold and deploy. NOT for chatbots (real-time per-user UI agents) - those need a dedicated /add-chatbot skill (not yet built). Suitable for: continuous background agents (email surveillance, monitoring), cron-driven product agents, and on-demand agents (triggered manually from a dashboard)."
+description: "Scaffold an autonomous AI agent into the user's project. The agent runs on Render Background Worker, uses Anthropic Claude (Sonnet 5 by default) with prompt caching, has tools (http-fetch, send-email, db-query by default; more added based on the agent's job), optional Postgres KV memory, a daily/monthly cost circuit breaker (default 5 USD/day, 50 USD/month - kills runs over budget and emails the admin), and persists every invocation + every loop turn to Postgres for full traceability. Use this when the user wants an LLM-driven process that is part of the PRODUCT (serves the app or its end users), decides actions, uses tools, and optionally has memory - distinct from /add-automation which handles non-AI background processing. When the mission is actually a personal recurring task for the OPERATOR (a brief, a watch, a weekly analysis for themselves) at a cadence of 1 hour or more, the discovery short-circuits to the much lighter _create-routine (a Claude routine on the user's own account, zero infrastructure). Discovery phase asks ~5 questions about the agent's job (goal, trigger, memory needs, model, budget) then runs setup-agent.mjs to scaffold and deploy. NOT for chatbots (real-time per-user UI agents) - those need a dedicated /add-chatbot skill (not yet built). Suitable for: continuous background agents (email surveillance, monitoring), cron-driven product agents, and on-demand agents (triggered manually from a dashboard)."
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
@@ -172,18 +172,23 @@ No need to regenerate the entire token (so no re-paste to do). Cloudflare lets y
 
 ### Q4 - Claude model
 
-Sonnet 4.6 by default. Ask only if the user has a use case that justifies another:
+Sonnet 5 by default. Ask only if the user has a use case that justifies another:
 
-> I use Claude Sonnet 4.6 by default (optimal cost/quality balance). Do you want to switch to:
+> I use Claude Sonnet 5 by default (optimal cost/quality balance). Do you want to switch to:
 >
-> - **Opus 4.7** - max quality, 5x more expensive (justified for complex analysis tasks)
-> - **Haiku 4.5** - 3x faster and 3x cheaper (for simple agents that call few tools)
-> - **Keep Sonnet 4.6** *(default, recommended)*
+> - **Opus 5** - max quality, ~1.7x more expensive (justified for complex analysis tasks)
+> - **Haiku 4.5** - faster and 3x cheaper (for simple agents that call few tools)
+> - **Keep Sonnet 5** *(default, recommended)*
 
 → Capture `--model`. Map:
-- "Sonnet 4.6" → `claude-sonnet-4-6`
-- "Opus 4.7" → `claude-opus-4-7`
-- "Haiku 4.5" → `claude-haiku-4-5-20251001`
+- "Sonnet 5" → `claude-sonnet-5`
+- "Opus 5" → `claude-opus-5`
+- "Haiku 4.5" → `claude-haiku-4-5`
+
+The mapped value MUST be one of the keys of `PRICING_PER_MTOK` in `templates/agent/loop.ts`.
+A model id absent from that table (a dated variant such as `claude-haiku-4-5-20251001`, for
+instance) makes the generated cost-tracker fall back to Sonnet-tier rates and report wrong
+costs. Add the entry to the table first if a new model is offered here.
 
 ### Q5 - Budget cap
 
@@ -305,7 +310,7 @@ The script chains 12 sub-steps (preflight, anthropicKey, ensureMonorepo, scaffol
   "agentDir": "apps/<slug>",
   "trigger": "cron",
   "memory": "kv",
-  "model": "claude-sonnet-4-6",
+  "model": "claude-sonnet-5",
   "schemaPatched": true,
   "warnings": [],
   "nextSteps": { ... }

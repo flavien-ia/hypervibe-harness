@@ -30,6 +30,27 @@
 //
 // Output: live logs on stderr, final JSON object on stdout last line.
 //
+// ─── Version pins in templates/agent/package.json ─────────────────────
+// package.json cannot carry comments, so the reason for each deliberate pin
+// and the condition that lifts it are recorded here. A pin without a written
+// lifting condition is a bug; a pin that is commented and watched is a
+// decision. The hypervibe-watch skill re-checks these every week.
+//
+//   @anthropic-ai/sdk  >=0.115.0 <1  Floats across 0.x minors on purpose: the
+//                                    template only touches the public
+//                                    `Anthropic.*` namespace types and
+//                                    messages.create, which are stable across
+//                                    them. Pin harder only if a minor ever
+//                                    breaks that surface.
+//   node-cron          ^3.0.3        v4 changed the cron.schedule signature,
+//                                    which entry.ts calls directly. Lift once
+//                                    entry.ts is ported to the v4 signature.
+//   typescript         ^5.6.0        TS7 is the Go port. Migrating the whole
+//                                    T3 base is a separate project; lift when
+//                                    that lands, not agent-side alone.
+//   @types/node        ^24.0.0       Tracks the Node LTS the plugin targets.
+//                                    Lift when the supported LTS moves.
+//
 // Exit codes:
 //   0 - success
 //   1 - preflight failed

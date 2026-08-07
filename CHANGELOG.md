@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.7.9 (7 août 2026)
+
+### Nouveautés
+- **Vérification du stockage** : `/add-storage` teste maintenant votre bucket pour de vrai avant d'annoncer que le stockage fonctionne. Il liste quelques fichiers, signe une URL, et vous dit précisément quoi corriger si quelque chose cloche (clés refusées, bucket introuvable, mauvaise région).
+
+### Améliorations
+- **`/add-agent` propose les modèles actuels** : le choix se fait désormais entre Claude Sonnet 5, Opus 5 et Haiku 4.5. Jusqu'ici les agents étaient créés sur une génération précédente, sans que rien ne le signale.
+- **Coûts justes pour les agents Haiku** : le suivi de dépense d'un agent Haiku affichait un montant trois fois trop élevé.
+- **Écart de prix annoncé correctement** : passer un agent en Opus coûte environ 1,7 fois le prix de Sonnet, et non 5 fois comme l'indiquait le questionnaire.
+
+### Coulisses
+- Table de tarification complétée pour le modèle Claude Fable 5.
+- Les briques dont la version est volontairement figée (cartes, planificateur de tâches, TypeScript) portent maintenant dans le code la raison du gel et la condition pour le lever.
+
 ## v2.7.8 (6 août 2026)
 
 ### Améliorations
