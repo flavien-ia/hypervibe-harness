@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.8.1 (8 août 2026)
+
+### Améliorations
+- **Documentation de `/optimize`** : la nouvelle commande a désormais sa fiche complète sur le site, en français et en anglais, comme les autres. Elle explique ce que la commande cherche, ce que vous obtenez, et surtout le point le moins intuitif : ce n'est pas la taille de votre base de données qui coûte, c'est le nombre de fois qu'on la lit.
+
 ## v2.8.0 (8 août 2026)
 
 ### Nouveautés
