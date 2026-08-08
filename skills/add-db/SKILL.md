@@ -209,9 +209,29 @@ Invoke `_update-claude-md` with:
 - `env-vars`: `- \`DATABASE_URL\` - Neon PostgreSQL connection string`
 - `conventions`:
   - `- Data: Optimistic UI - the interface updates reactively right away, the database syncs in the background. Never block the UI waiting for the server response.`
+  - `- Queries: read only what the screen actually shows. Explicit columns (\`columns:\` in a \`findMany\`, an object in \`.select({...})\`), and a \`limit\` on every list. Never a bare \`.select()\` (that is \`SELECT *\`), never a \`findMany()\` without bounds. A wide column that is not displayed (long text, JSON, logs) must stay out of the query.`
+  - `- Polling: prefer an event or a refresh triggered by the user. If a screen must poll, it stops on its own when nothing is running (\`refetchInterval\` as a function returning \`false\`), and never drops below 30 s while idle.`
+  - `- Caching: a page or route that reads the database uses \`revalidate\` >= 600 and never \`force-dynamic\`. Immediate freshness comes from \`revalidatePath()\`/\`revalidateTag()\` in the mutation that publishes, not from a shorter interval.`
+  - `- Binaries (images, PDF, big JSON) never live in the database: they belong in object storage (\`/add-storage\`), whose outbound traffic is not metered the same way.`
   - If `IS_MONOREPO=yes`, also add: `- DB: import from \`@<PROJECT_NAME>/db\`, never a relative cross-app path.`
 
 The helper is idempotent - re-running `/add-db` won't duplicate existing lines.
+
+### Why these four query rules matter (do not water them down)
+
+On the Neon free plan, **egress is the quota that gives out first, and it is the only one pooled across the whole account** (storage and compute are per project). 5 GB/month for everything the databases send back, all projects combined.
+
+The trap: **egress does not depend on how big the database is, but on how often you read it multiplied by what each read returns.** A 40 MB database read 100 times sends 4 GB. So a tiny project can exhaust the account quota on its own, and the bill lands on every other project at the same time.
+
+Two real cases, on this very stack, in August 2026:
+- A dashboard left open on a second screen, polling every 10 s with unbounded queries: **1.5 GB in eight days**, and a database that never got to suspend (160 h awake out of 180).
+- An admin list doing `SELECT *` on 64 rows carrying their full markdown, refetched after every save and on every window focus: **325 kB per call, 1.8 GB over the same period**. The same query limited to the displayed columns weighs 14 kB, twenty-three times less.
+
+Neither was a heavy-traffic app. Both were one person working normally.
+
+There is also a compute side: the database suspends after 5 minutes without a query, so anything that queries more often keeps it awake around the clock and burns the 100 monthly compute hours. This is why `revalidate` never goes below 600 and why an idle poll never goes below 30 s.
+
+If the user asks for a snappier screen, the answer is an event (a webhook, a `revalidateTag` in the mutation, a push notification), never a shorter interval.
 
 ---
 

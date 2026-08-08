@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.8.0 (8 août 2026)
+
+### Nouveautés
+- **`/optimize`** : une nouvelle commande qui cherche ce qui coûte cher dans ton application, côté serveur. Elle croise ton code avec la consommation réelle de tes services, classe les causes par coût mesuré, et te propose les correctifs un par un, avec leur niveau de confiance et leur dangerosité. Rien n'est modifié sans ton accord.
+
+### Améliorations
+- **Bonnes pratiques de lecture en base, posées par `/start`** : elles rejoignent les règles de ta configuration globale, donc elles s'appliquent à tous tes projets. Le quota qui saute en premier sur les offres gratuites, c'est le volume de données que ta base renvoie, et il se mesure au nombre de lectures multiplié par ce que chacune rapporte, pas à la taille de la base. Une petite base lue souvent coûte plus cher qu'une grosse base lue rarement.
+- **`/add-db`** explique désormais comment écrire une requête qui ne coûte rien : ne demander que les colonnes réellement affichées, borner les listes, et éviter les rafraîchissements en boucle qui ne s'arrêtent jamais. Ces règles sont écrites dans la mémoire du projet, donc elles s'appliquent à chaque fois que tu y travailles.
+- **`/security`** rend son rapport plus concret, avec un exemple complet de ce à quoi ressemble une faille expliquée en français courant, conséquence et correctif compris.
+
 ## v2.7.9 (7 août 2026)
 
 ### Nouveautés

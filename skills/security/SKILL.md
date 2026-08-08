@@ -20,7 +20,7 @@ You audit the security of the project and propose concrete fixes. You explain ea
 
 ---
 
-## Teaching rule (important)
+## Educational rule (important)
 
 The report must be **readable by someone who is not a developer**. The user is often someone who has just put their app online and wants to understand what they are risking, not a security specialist.
 
@@ -176,6 +176,26 @@ Present the report:
 > **Score: X/Y**
 >
 > ⚠️ Reminder: this audit covers common flaws. For sensitive data or a critical project, consult a security professional.
+
+Example render (excerpt) for a non-technical user:
+
+```
+🔴 Critical (2 points) - fix immediately:
+
+- Your admin password is written in plain text in the code (meaning it is readable
+  with the naked eye by anyone who gets access to the project, including anyone you
+  hand the code to one day). Consequence: that person can log into your admin area
+  without needing to break anything.
+  Fix: I move it into the private settings file, which is never shared, and I replace
+  the password with a new one, since the old one must be considered known.
+
+⚠️ To improve (1 point):
+
+- A security instruction is missing at the door of your site: the one that tells the
+  browser "only run code that comes from me". Consequence: if someone manages to slip
+  a piece of code into one of your pages, the browser will run it without question.
+  Fix: I add that instruction to the site configuration. Nothing changes visually.
+```
 
 ---
 

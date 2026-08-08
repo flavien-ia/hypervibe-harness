@@ -84,6 +84,10 @@ const BASE_RULES = [
     id: "urls-slugs-kebab-case",
     text: "URLs/slugs (SEO) : toutes les routes en kebab-case ASCII (`/mon-article`, jamais `/monArticle` ni `/mon_article` ni `/MonArticle`). Courtes (3-5 mots max) et descriptives avec le mot-clé principal. Pas d'IDs numériques dans l'URL (`/blog/mon-titre` plutôt que `/blog/123`). Pour les routes dynamiques Next.js, préférer `[slug]` à `[id]`. Éviter les mots vides.",
   },
+  {
+    id: "db-egress-reads",
+    text: "Lectures en base : l'egress est le quota qui saute en premier sur le plan gratuit Neon, et le seul mutualisé sur TOUT le compte (5 Go/mois, tous projets confondus). Il ne dépend pas de la taille de la base mais du nombre de lectures multiplié par ce que chacune renvoie : une base de 40 Mo lue 100 fois envoie 4 Go, donc un projet minuscule peut crever le quota de tous les autres. Dans tout code qui lit en base : (1) ne sélectionner que les colonnes réellement affichées (jamais de `.select()` nu, jamais de `findMany()` sans `columns`) et toujours borner une liste par un `limit` - une colonne large non affichée (texte long, JSON, logs) reste hors de la requête ; (2) préférer un événement ou un rafraîchissement déclenché par l'utilisateur au polling, et si le polling est inévitable, l'arrêter dès qu'il n'y a plus rien en cours (`refetchInterval` en fonction qui renvoie `false`) et ne jamais descendre sous 30 s au repos ; (3) sur une page ou une route adossée à la base, `revalidate` >= 600 et jamais de `force-dynamic` - la base se suspend après 5 min sans requête, tout ce qui la sollicite plus souvent la garde éveillée 24/7 et brûle les 100 h de calcul mensuelles ; la fraîcheur immédiate se fait par `revalidatePath()`/`revalidateTag()` dans la mutation qui publie, pas en raccourcissant l'intervalle ; (4) ne jamais stocker ni servir de binaire (images, PDF, gros JSON) depuis la base, ça va sur le stockage objet. Avant de proposer une fonctionnalité temps réel (collaboration, live update, présence), le signaler explicitement avec un ordre de grandeur du volume sortant.",
+  },
 ];
 
 // Capability-conditioned rules - added only when /start (or another caller)
