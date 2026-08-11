@@ -114,7 +114,7 @@ Based on `waste` + `heaviest` + code inspection, propose patches sorted by KB sa
 ⚠️ The audit measures the site **online**: local fixes only appear after deployment.
 
 1. Fixes applied and validated.
-2. Propose the deployment (`/deploy`). **Never push without explicit agreement.**
+2. Propose to deploy, the way this project deploys (pushing the work to its repository). **Never push without explicit agreement.**
 3. Once live: re-run Step 2 on the same URLs.
 4. Show the before/after: *"Home: EcoIndex D (51) → B (74), 6.3 MB → 1.2 MB, ~2 g → ~1.5 g CO2e/visit."*
 

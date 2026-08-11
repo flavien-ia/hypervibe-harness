@@ -53,6 +53,10 @@ Finds what is expensive in your application, on the server side, and fixes it. Q
 This is the least intuitive point, and the one that catches everyone out. Your allowance does not count "how big is my database", it counts "how much did it send out". A tiny database read a thousand times a day costs far more than a big one read ten times. That is why a project with no traffic at all can eat the allowance of all your other projects.
 {{/callout}}
 
+{{callout:warning|A page you believe is cached may not be}}
+This is the most expensive case, and the sneakiest. A page can be configured to be recomputed only once an hour, and still be recomputed on every single visit, because of a technical detail that cancels the setting without warning. Nobody notices: the page works, it is just far more expensive. It matters most on pages pulled by machines continuously (RSS, podcast, sitemap), which are hit day and night. A real case measured on this stack: a podcast feed that believed it was cached consumed close to 200 MB a day on its own.
+{{/callout}}
+
 {{callout:warning|A tab forgotten on a second screen consumes all day}}
 A dashboard left open keeps querying your database even if nobody is looking at it: as far as the browser is concerned, a tab visible on a secondary screen is still visible. This is one of the most frequent causes of an unexpected bill, and one of the easiest to fix.
 {{/callout}}

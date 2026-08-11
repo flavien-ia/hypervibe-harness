@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.8.2 (12 août 2026)
+
+### Améliorations
+- **La chasse aux surcoûts sait maintenant interroger votre base directement.** Lire le code dit ce qui *peut* coûter cher, pas ce qui tourne vraiment. Quand ce que `/optimize` trouve dans le code n'explique pas ce que votre base consomme, il arrête de lire et lui demande combien de fois chaque requête a réellement été exécutée. Ce qu'il cherche est une cadence : une requête appelée des milliers de fois par heure alors que rien dans le code ne le demande. Deux réserves qu'il vous dira de lui-même, sans quoi le chiffre induit en erreur : le compteur ne couvre que la période depuis le dernier réveil de la base, et le haut du classement est occupé par l'entretien interne de la base, pas par votre application.
+- **L'audit écologique ne propose plus une commande qui n'existe pas.** À la fin, `/eco-audit` proposait de publier vos corrections avec une commande absente du plugin. Il propose désormais de publier comme votre projet publie réellement.
+
 ## v2.8.1 (8 août 2026)
 
 ### Améliorations

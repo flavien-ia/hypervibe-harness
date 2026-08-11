@@ -53,6 +53,10 @@ Trouve ce qui coûte cher dans votre application, côté serveur, et le corrige.
 C'est le point le moins intuitif, et celui qui piège tout le monde. Votre forfait ne compte pas « quelle taille fait ma base », il compte « combien elle a envoyé ». Une base minuscule lue mille fois par jour coûte beaucoup plus cher qu'une grosse base lue dix fois. C'est pour ça qu'un projet sans aucun trafic peut consommer le forfait de tous vos autres projets.
 {{/callout}}
 
+{{callout:warning|Une page que vous croyez en cache peut ne pas l'être}}
+C'est le cas le plus cher, et le plus sournois. Une page peut être configurée pour n'être recalculée qu'une fois par heure, et se retrouver quand même recalculée à chaque visite, à cause d'un détail technique qui annule le réglage sans prévenir. Personne ne s'en aperçoit : la page fonctionne, elle est juste beaucoup plus chère. C'est particulièrement grave sur les pages tirées par des machines en continu (flux RSS, podcast, sitemap), qui sont sollicitées jour et nuit. Un cas réel mesuré sur cette stack : un flux podcast qui se croyait en cache consommait à lui seul près de 200 Mo par jour.
+{{/callout}}
+
 {{callout:warning|Un onglet oublié sur un second écran consomme toute la journée}}
 Un tableau de bord laissé ouvert continue d'interroger votre base même si personne ne le regarde : pour le navigateur, un onglet visible sur un écran secondaire reste visible. C'est une des causes les plus fréquentes de facture inattendue, et une des plus faciles à corriger.
 {{/callout}}

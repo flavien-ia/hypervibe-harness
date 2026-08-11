@@ -85,6 +85,24 @@ Three readings to take, and to state in the report:
 
 If other services are configured, reuse `scripts/quotas-fetch.mjs` and `scripts/quotas-limits.json` rather than re-implementing the calls.
 
+### Instrument before searching, when the totals do not add up
+
+Reading the code tells you what *can* be expensive. It does not tell you what *is* running. When the account-level figures and what you find in the code disagree, stop reading and instrument, or you will spend hours fixing something real that happens not to be the emitter.
+
+Postgres records execution counts per query fingerprint. On Neon the extension is preloaded, so a single statement exposes it, and the counters are often **already populated** for the current compute session:
+
+```sql
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+SELECT calls, rows, query FROM pg_stat_statements ORDER BY calls DESC LIMIT 20;
+```
+
+Two things to know before reading the output, both of which will mislead you otherwise:
+
+- **The window is the compute session, not the month.** Check it with `SELECT now() - pg_postmaster_start_time()`. If the compute restarted twenty minutes ago you are looking at twenty minutes, and a per-day extrapolation from that is worthless. Say so rather than pretending.
+- **The top of the list is Neon's own agents, not the application.** `pg_stat_activity`, `pg_replication_slots`, `neon.neon_perf_counters`, `SELECT $1` and friends run several times a second, and they are local to the compute, so they cost no egress at all. Filter on your own tables, or on `query NOT ILIKE '%pg_%'`, before drawing any conclusion.
+
+What you are looking for is a **cadence**: an application query whose `calls` divided by the window gives one every few seconds or minutes, when nothing in the code declares such an interval. That gap between the declared interval and the observed cadence is the finding. It is what reveals both traps below, the route that believes it is cached and the client refetching on focus.
+
 ---
 
 ## Step 2 - Deterministic scan
@@ -118,11 +136,25 @@ To tell them apart: a `refetchInterval` given as a **function** that can return 
 
 Also worth knowing, and worth explaining to the user: a tab left open on a second screen still counts as visible, so it keeps polling all day even though nobody is looking at it.
 
+**Do not stop at `refetchInterval`, check the client defaults too.** React Query refetches every mounted query on window focus by default, so with a short `staleTime` every single alt-tab back to an open tab replays the whole screen's queries. In the statistics this shows up as a full cluster of queries replayed at irregular 2 to 5 minute intervals, with no interval declared anywhere in the code. Look at where the `QueryClient` is built (`staleTime`, `refetchOnWindowFocus`): the healthy shape on a database-backed admin is a `staleTime` of about a minute and `refetchOnWindowFocus: false`, freshness after an action coming from the mutation's own invalidations.
+
+⚠️ **An already-open tab runs the old bundle.** Deploying a polling fix changes nothing in a tab that has not been reloaded. Before concluding that a fix failed to move the numbers, make sure the tabs were reloaded, and tell the user to do it.
+
 ### 2c - Caching and rendering
 
 Look for `force-dynamic` or `revalidate` below 600 on a page or route that reads the database. The database suspends after 5 minutes without a query; anything more frequent keeps it awake around the clock and burns the monthly compute hours.
 
 Legitimate exceptions, not to be reported: cron and webhook routes (rare, authenticated), admin pages, and pages whose database reads sit behind a tagged `unstable_cache`.
+
+⚠️ **The trap that hides the worst offenders: a route that declares `revalidate` but is dynamic anyway.** In the App Router, a single `fetch(..., { cache: "no-store" })` anywhere in the handler **silently cancels `export const revalidate`** for the whole route. Nothing warns at build time, and the `// ISR 1 h` comment at the top of the file stays there, lying. Every incoming request then runs the handler, database reads included.
+
+So do not trust `export const revalidate` on its own. In every file that declares it, search for `no-store`, `cache: "no-store"`, `noStore()` and `headers()`/`cookies()` reads, all of which force dynamic rendering. A file that has both is a confirmed finding, not a suspicion.
+
+**This is where the most expensive findings hide**, because the routes concerned are usually **public and polled by machines around the clock**: RSS and podcast feeds (aggregators poll every few minutes, forever), sitemaps, OG image endpoints, webhooks-facing status pages. A screen that a human opens costs nothing next to a feed that fifty aggregators pull day and night.
+
+Measured on this very stack in August 2026: a podcast RSS feed believed to be on a one-hour ISR was in fact executing about 27 times an hour, each run re-reading every edition row in full, around 200 MB of egress a day. It was the single largest consumer of the whole account, and two days of fixes on dashboard polling had not moved the curve because the real emitter was this one.
+
+**The fix that actually holds is `unstable_cache`, not `revalidate`.** Wrap the data building (or better, the whole response body, returned as a string) in an `unstable_cache` with a TTL and a tag. Unlike `revalidate`, it is immune to internal fetches: the database is read once per TTL whatever the route's dynamism and whatever the incoming rate. Returning a finished string also avoids `Date` rehydration problems in the cached value.
 
 ### 2d - Binaries served from the database
 
@@ -222,8 +254,10 @@ If a category came back empty, say so. "I checked whether your app serves files 
 
 | Category | Typical confidence | Typical gain | Danger if fixed |
 |---|---|---|---|
+| Public route believed cached but dynamic (`no-store`) | 🟢 High (the cadence proves it) | 🔴 **Highest** | 🟢 Low (`unstable_cache` changes nothing visible) |
 | Unbounded query on a wide table | 🟢 High (measurable) | 🔴 High | 🟢 Low (typed, `tsc` catches a missing column) |
 | Polling with no stop condition | 🟢 High (readable in the code) | 🔴 High | 🟡 Medium (a screen may refresh less often) |
+| Refetch on window focus with a short staleTime | 🟢 High (visible in the stats) | 🔴 High | 🟡 Medium (a screen refreshes on action, not on focus) |
 | Binary served from the database | 🟢 High | 🔴 High | 🟡 Medium (touches a download path, keep a fallback) |
 | `force-dynamic` on a public page | 🟡 Medium (may be deliberate) | 🟡 Medium | 🟡 Medium (content becomes slightly less fresh) |
 | N+1 | 🟢 High | 🟡 Medium | 🟢 Low |
