@@ -112,7 +112,8 @@ List the projects via the **Neon REST API** (key `NEON.api_key` from the vault) 
 
 ```bash
 NTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON api_key)
-curl -s -H "Authorization: Bearer $NTOK" "https://console.neon.tech/api/v2/projects?limit=400"
+NORG=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON org_id 2>/dev/null)
+curl -s -H "Authorization: Bearer $NTOK" "https://console.neon.tech/api/v2/projects?limit=400${NORG:+&org_id=$NORG}"
 ```
 (`_get-secret` pattern for `NTOK`: RC 2/3 → unlock; RC 4 → add `NEON` to the vault.)
 

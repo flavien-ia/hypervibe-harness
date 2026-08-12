@@ -33,6 +33,12 @@ import { fileURLToPath } from "node:url";
 import { readUserEnv } from "./_read-user-env.mjs";
 import { writeUserEnv } from "./_write-user-env.mjs";
 import { getSecret } from "./vault/vault.mjs";
+import { resolveNeonOrg, withOrg } from "./neon-org.mjs";
+
+/** Optional vault field: absent is a normal answer here, never a reason to give up. */
+function vaultGetOptional(item, field) {
+  try { return getSecret(item, field) || ""; } catch { return ""; }
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -143,22 +149,36 @@ async function fetchNeon() {
   // seconds each) that blocks the event loop while this request is in flight.
   // With the default 10s budget the timer expires DURING those blocks and
   // aborts a request the API answered in <1s (seen 2026-08-02).
+  // Which organisation, though? This endpoint lists every organisation the key is a
+  // MEMBER of, other people's included, so reading [0] reported a stranger's plan
+  // whenever the account belonged to more than one. Resolve it properly, and only
+  // claim a plan when we know whose it is.
+  const org = await resolveNeonOrg(apiKey, vaultGetOptional);
   const orgs = await fetchJson("https://console.neon.tech/api/v2/users/me/organizations", {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
   }, 45000);
-  const plan = orgs.ok ? orgs.json.organizations?.[0]?.plan || "free" : "unknown";
+  const liste = orgs.ok ? orgs.json.organizations || [] : [];
 
   // 45s (not the 10s default): this endpoint enumerates EVERY project of the
   // account with its storage/compute counters, so it gets slower as the account
   // fills up. The free tier allows 100 projects; at that scale the listing
   // routinely takes >10s and the default budget would abort the whole Neon
   // block, reporting "indisponible" on a perfectly healthy account.
-  const r = await fetchJson("https://console.neon.tech/api/v2/projects?limit=400", {
+  const r = await fetchJson(withOrg("https://console.neon.tech/api/v2/projects?limit=400", org.orgId), {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
   }, 45000);
   if (!r.ok) return svc("neon", "Neon (Postgres)", false, [], `API Neon: HTTP ${r.status}`);
 
   const projects = r.json.projects || [];
+
+  // De quelle organisation ces projets viennent-ils ? Ils le disent eux-memes. C'est plus
+  // sur que de deviner : sans org_id resolu, Neon a repondu pour l'organisation par defaut
+  // du compte, et c'est SON plan qui s'applique aux chiffres ci-dessous. Annoncer
+  // "unknown" ferait conclure a tort qu'il n'y a pas de plafond.
+  const orgEffectif = org.orgId || projects[0]?.org_id || null;
+  const plan = orgEffectif
+    ? liste.find((o) => o.id === orgEffectif)?.plan || "free"
+    : liste.length === 1 ? liste[0].plan || "free" : "unknown";
 
   // ⚠️ The LIST endpoint does NOT carry the consumption counters
   // (compute_time_seconds / data_transfer_bytes are absent from its items;

@@ -134,11 +134,17 @@ The `setup-db.mjs` script does not yet handle the monorepo case (which requires 
 6. Provision the Neon project manually via the REST API (the Neon key comes from the vault):
    ```bash
    NEON_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON api_key)
+   NEON_ORG=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON org_id 2>/dev/null)
+   BODY='{"project":{"name":"<project-name>"}}'
+   [ -n "$NEON_ORG" ] && BODY="{\"project\":{\"name\":\"<project-name>\",\"org_id\":\"$NEON_ORG\"}}"
    curl -X POST "https://console.neon.tech/api/v2/projects" \
      -H "Authorization: Bearer $NEON_KEY" \
      -H "Content-Type: application/json" \
-     -d '{"project":{"name":"<project-name>"}}'
+     -d "$BODY"
    ```
+   Neon attaches a project to an organisation; without `org_id` it lands in the account's
+   **default** one. On an account that has none, `NEON_ORG` is empty and the request is
+   exactly the previous one.
    Get the pooled `connection_uri` from the response.
 
 7. Push `DATABASE_URL=<connection-uri>` to the monorepo root via `_push-env-vars`.

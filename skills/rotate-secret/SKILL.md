@@ -183,7 +183,8 @@ This is more complex: you need to renew the Postgres role password on the Neon s
 ```bash
 NTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON api_key)
 # 1. identify project_id + branch_id + role from the host of DATABASE_URL:
-curl -s -H "Authorization: Bearer $NTOK" "https://console.neon.tech/api/v2/projects?limit=400"
+NORG=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON org_id 2>/dev/null)
+curl -s -H "Authorization: Bearer $NTOK" "https://console.neon.tech/api/v2/projects?limit=400${NORG:+&org_id=$NORG}"
 # 2. reset the role password (returns the new connection_uri):
 curl -s -X POST -H "Authorization: Bearer $NTOK" \
   "https://console.neon.tech/api/v2/projects/{project_id}/branches/{branch_id}/roles/{role_name}/reset_password"

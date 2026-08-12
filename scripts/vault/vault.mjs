@@ -225,11 +225,21 @@ export function putItem(name, fields, { service, folder = "Global" } = {}) {
   const folderId = folderObj.id;
   const search = JSON.parse(runBw(["list", "items", "--search", name], token).stdout || "[]");
   const existing = search.find((i) => i.name === name && i.folderId === folderId);
+
+  // FUSION des champs, jamais remplacement. Un item du coffre peut porter des champs qu'on ne
+  // réécrit pas ici : posés par une autre skill, ou à la main. Remplacer le tableau `fields`
+  // ferait DISPARAÎTRE ces clés-là sans que personne ne le voie. Cas réel : un item portant
+  // une clé publique et une clé secrète, dont une skill ne réécrit qu'une seule, l'autre
+  // disparaissait sans un mot. Les champs fournis ici gagnent sur leurs homonymes.
+  const nouveaux = fields.map((f) => ({ name: f.name, value: f.value, type: f.type === "text" ? 0 : 1, linkedId: null }));
+  const parNom = new Map((Array.isArray(existing?.fields) ? existing.fields : []).map((f) => [f.name, f]));
+  for (const f of nouveaux) parNom.set(f.name, f);
+
   const payload = {
     organizationId: null, folderId, type: 2, name,
-    notes: service ? `Service: ${service}` : null,
+    notes: service ? `Service: ${service}` : (existing?.notes ?? null),
     favorite: false,
-    fields: fields.map((f) => ({ name: f.name, value: f.value, type: f.type === "text" ? 0 : 1, linkedId: null })),
+    fields: [...parNom.values()],
     secureNote: { type: 0 }, login: null, card: null, identity: null, reprompt: 0,
   };
   const enc = runBw(["encode"], token, JSON.stringify(payload)).stdout;

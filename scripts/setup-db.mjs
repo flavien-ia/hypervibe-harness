@@ -36,6 +36,7 @@ import { fileURLToPath } from "node:url";
 import { render } from "./_render.mjs";
 import { readUserEnv } from "./_read-user-env.mjs";
 import { getSecret } from "./vault/vault.mjs";
+import { resolveNeonOrg, withOrg, withOrgBody, orgHint } from "./neon-org.mjs";
 
 import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
 
@@ -194,16 +195,39 @@ function capture(cmd, cwd) {
   return run(cmd, cwd, { capture: true, allowFail: true });
 }
 
+// Which Neon organisation the projects belong to. Resolved once, on the first call.
+// Neon scopes /projects to ONE organisation and silently falls back to the account's
+// DEFAULT one when none is named, so without this the listing below can miss every
+// existing project and the creation can land somewhere the user never looks.
+let orgResolue = null;
+async function neonOrg() {
+  if (!orgResolue) {
+    orgResolue = await resolveNeonOrg(NEON_API_KEY, (item, field) => {
+      try { return getSecret(item, field) || ""; } catch { return ""; }
+    });
+  }
+  return orgResolue;
+}
+
 async function neonApi(method, path, body) {
   if (!NEON_API_KEY) fail("NEON_API_KEY not found (neither in process.env, nor in User scope) - see the Step 1 preflight error.");
-  const res = await fetch(`https://console.neon.tech/api/v2${path}`, {
+  const org = await neonOrg();
+  // Only the COLLECTION endpoint is organisation-scoped, and it takes the organisation
+  // in the query when reading, inside `project` when creating. /projects/<id>/... already
+  // addresses one project and must carry neither.
+  const collection = /^\/projects(\?|$)/.test(path);
+  const url = collection && method === "GET" ? withOrg(path, org.orgId) : path;
+  const corps = collection && method === "POST" && body?.project
+    ? { ...body, project: withOrgBody(body.project, org.orgId) }
+    : body;
+  const res = await fetch(`https://console.neon.tech/api/v2${url}`, {
     method,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${NEON_API_KEY}`,
       Accept: "application/json",
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: corps ? JSON.stringify(corps) : undefined,
   });
   const text = await res.text();
   let data = null;
@@ -270,7 +294,9 @@ async function listProjects() {
   log("Listing existing Neon projects");
   const data = await neonApi("GET", "/projects?limit=100");
   const count = (data?.projects || []).length;
-  ok(`${count} existing project(s) on the account`);
+  // Say WHERE that count comes from. "0 existing project(s)" on an account full of
+  // projects is the exact reading that used to send people looking in the wrong place.
+  ok(`${count} existing project(s) on the account. ${orgHint(await neonOrg())}`);
 
   if (count >= 95) {
     warn(

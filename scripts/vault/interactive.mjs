@@ -278,10 +278,23 @@ async function doAdd() {
     fields.push({ name: s.name, value: val, type: s.type === "secret" ? 1 : 0, linkedId: null });
   }
 
+  // FUSION des champs, jamais remplacement (même règle que `putItem` dans vault.mjs).
+  // `bw edit item` réécrit l'item entier : ajouter un seul champ à un élément existant,
+  // disons NEON.org_id à côté de sa clé d'API, faisait DISPARAÎTRE la clé sans un mot.
+  // Les champs saisis ici gagnent sur leurs homonymes, les autres sont préservés.
+  const parNom = new Map((Array.isArray(existing?.fields) ? existing.fields : []).map((f) => [f.name, f]));
+  for (const f of fields) parNom.set(f.name, f);
+
+  // Un item d'organisation reste dans son organisation et ses collections : écraser
+  // organizationId avec null le sortirait de la collection partagée. Un item personnel
+  // garde son dossier.
   const payload = {
-    organizationId: null, folderId, type: 2, name,
-    notes: service ? `Service: ${service}` : null,
-    favorite: false, fields, secureNote: { type: 0 },
+    organizationId: existing?.organizationId ?? null,
+    ...(existing?.organizationId && Array.isArray(existing?.collectionIds) ? { collectionIds: existing.collectionIds } : {}),
+    folderId: existing?.organizationId ? (existing?.folderId ?? null) : folderId,
+    type: 2, name,
+    notes: service ? `Service: ${service}` : (existing?.notes ?? null),
+    favorite: false, fields: [...parNom.values()], secureNote: { type: 0 },
     login: null, card: null, identity: null, reprompt: 0,
   };
   const enc = bw(["encode"], { input: JSON.stringify(payload) }).stdout;

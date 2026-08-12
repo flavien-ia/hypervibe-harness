@@ -71,7 +71,8 @@ If a Neon database is present, read the key from the vault (`_get-secret`, item 
 ```bash
 # List the projects, then read each one individually: the list endpoint does NOT
 # carry the consumption counters, only the per-project endpoint does.
-curl -s "https://console.neon.tech/api/v2/projects?limit=400" -H "Authorization: Bearer $KEY"
+NORG=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON org_id 2>/dev/null)
+curl -s "https://console.neon.tech/api/v2/projects?limit=400${NORG:+&org_id=$NORG}" -H "Authorization: Bearer $KEY"
 curl -s "https://console.neon.tech/api/v2/projects/<id>" -H "Authorization: Bearer $KEY"
 ```
 

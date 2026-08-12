@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.8.3 (12 août 2026)
+
+### Corrections
+
+- **Les bases de données savent enfin dans quelle organisation aller** : Neon range chaque base dans une organisation, et rien ne disait jamais laquelle. Sur un compte qui possède la sienne, la création d'une base pouvait échouer avec un message qui n'orientait vers rien, ou aller se ranger ailleurs que prévu. Le premier démarrage repère maintenant l'organisation et la retient une fois pour toutes ; il ne te fait choisir que si ton compte en compte plusieurs, et ne devine jamais à ta place.
+- **Le contrôle des noms de projet voit de nouveau tes bases** : par le même défaut, il annonçait « aucun conflit » sans avoir rien lu. Il cherchait en prime ta clé Neon dans un ancien emplacement, abandonné depuis le passage au coffre-fort, et se taisait donc sur une machine récente.
+- **Le coffre-fort ne perd plus rien** : ajouter une information à une clé déjà rangée remplaçait tout ce qu'elle contenait, et la clé disparaissait sans un mot. Ce qui est déjà là est désormais préservé.
+- **Suivi des quotas** : sur un compte membre de plusieurs organisations, la formule affichée pouvait être celle d'une autre que la tienne. Elle se déduit maintenant des projets réellement lus.
+- **Suppression de projet et sauvegardes automatiques** profitent de la même correction : elles regardaient au mauvais endroit, et pouvaient laisser des ressources derrière elles ou surveiller un compte vide.
+
 ## v2.8.2 (12 août 2026)
 
 ### Améliorations

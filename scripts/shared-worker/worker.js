@@ -29,7 +29,8 @@
 //   { "kind": "quota",    "name": "quota-monitor", "cron": "0 6 * * *",
 //     "config": { "cloudflareAccountId": "...", "recipient": "you@x.fr",
 //                 "senderEmail": "you@x.fr", "senderName": "Hypervibe",
-//                 "r2ThresholdGb": 9, "neonThresholdPct": 60 } }
+//                 "r2ThresholdGb": 9, "neonThresholdPct": 60,
+//                 "neonOrgId": "org-..." } }
 //     (R2 needs CLOUDFLARE_API_TOKEN + cloudflareAccountId + r2ThresholdGb;
 //      the Neon block runs as soon as NEON_API_KEY is present.)
 //   Any job may carry "enabled": false to pause it without deleting it.
@@ -594,7 +595,12 @@ async function checkNeonUsage(env, cfg) {
   const pct = parseFloat(cfg.neonThresholdPct ?? 60);
   if (!Number.isFinite(pct) || pct <= 0) return [];
 
-  const { projects } = await neon("GET", "/projects?limit=400", env.NEON_API_KEY);
+  // Neon scopes this listing to ONE organisation, and silently picks the account's
+  // default when none is named. A watch pointed at the wrong organisation reports
+  // nothing forever, which reads exactly like "everything is fine".
+  const orgId = cfg.neonOrgId || env.NEON_ORG_ID || "";
+  const scope = orgId ? `&org_id=${encodeURIComponent(orgId)}` : "";
+  const { projects } = await neon("GET", `/projects?limit=400${scope}`, env.NEON_API_KEY);
   if (!projects?.length) return [];
 
   // The list endpoint carries storage but NOT the consumption counters, so each

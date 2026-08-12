@@ -520,6 +520,33 @@ Store it in the vault:
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name NEON --service Neon --fields "api_key:secret"
 ```
 
+### Which Neon organisation holds the projects
+
+Neon attaches every project to an organisation, and a personal key that names none is
+answered for the account's **default** one. Left undecided, a database can be created
+somewhere else than expected and the name-collision guard sees no existing project, with
+nothing looking broken. Settle it once, right after the key:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/neon-org.mjs" detect
+```
+
+Read `source` in the JSON:
+- **`vault`** → already recorded. Tick, say nothing.
+- **`unique`** → only one organisation, no ambiguity. Record it without asking (an
+  organisation id is not a secret, so no window opens):
+  ```bash
+  node "${CLAUDE_SKILL_DIR}/../../scripts/neon-org.mjs" set <the-id-detect-returned>
+  ```
+- **`ambigu`** → the account belongs to **several** organisations, possibly other people's.
+  Never choose for them: show the names returned and ask which one holds their projects,
+  then run the `set` above with that id.
+- **`aucune`** → personal account, nothing to record. Move on without a word.
+- **`cle-org` / `injoignable` / `cle_absente`** → nothing to settle (an organisation key
+  scopes itself) or Neon did not answer. One line, then move on.
+
+`set` **merges**: it adds `org_id` next to the API key already stored, it does not replace it.
+
 Confirm:
 
 > ✅ Your Neon key is in your vault. You will never have to retype it. The automatic backups will activate on their own at each `/add-db`.

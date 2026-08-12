@@ -52,6 +52,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readUserEnv } from "./_read-user-env.mjs";
 import { tokenMatches, normalizeName } from "./_match.mjs";
+import { getSecret } from "./vault/vault.mjs";
+import { resolveNeonOrg, withOrg } from "./neon-org.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -108,16 +110,30 @@ function fromSiblings() {
   }
 }
 
+// Neon scopes /projects to ONE organisation. Reading it without saying which does not
+// fail, it answers for the account's DEFAULT organisation - so an account whose projects
+// live in an organisation it created got an empty list here, and this guard then
+// announced "no collision" with full confidence. A guard that cannot see is worse than
+// no guard, hence the note when the organisation cannot be decided.
 async function fromNeon() {
-  const key = readUserEnv("NEON_API_KEY") || "";
+  // The vault is the source of truth since the key migration; the legacy env var stays
+  // as a fallback. Reading only the env var made this source silently unavailable on
+  // any machine set up after that migration.
+  const lireCoffre = (item, field) => {
+    try { return getSecret(item, field) || ""; } catch { return ""; }
+  };
+  const key = lireCoffre("NEON", "api_key") || readUserEnv("NEON_API_KEY") || "";
   if (!key) return { names: [], ok: false };
   try {
-    const res = await fetch("https://console.neon.tech/api/v2/projects?limit=400", {
-      headers: { Authorization: `Bearer ${key}` },
-    });
+    const org = await resolveNeonOrg(key, lireCoffre);
+    const url = withOrg("https://console.neon.tech/api/v2/projects?limit=400", org.orgId);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
     if (!res.ok) return { names: [], ok: false };
     const data = await res.json();
-    return { names: (data.projects || []).map((p) => p.name).filter(Boolean), ok: true };
+    const note = org.source === "ambigu"
+      ? `This Neon account belongs to several organisations (${org.orgs.map((o) => o.name).join(", ")}): only the default one was read, so a clash in another cannot be seen. Store the right organisation id in the vault (item NEON, field org_id) or re-run /start.`
+      : null;
+    return { names: (data.projects || []).map((p) => p.name).filter(Boolean), ok: true, note };
   } catch {
     return { names: [], ok: false };
   }
@@ -193,6 +209,7 @@ const neon = await fromNeon();
 const sources = { registry: registry.ok, siblings: siblings.ok, neon: neon.ok, vercel: vercel.ok };
 const notes = [];
 if (!neon.ok) notes.push("Neon project list unavailable (key locked/absent): a Neon-only name clash cannot be seen.");
+if (neon.note) notes.push(neon.note);
 if (!vercel.ok) notes.push("Vercel project list unavailable (CLI not logged in?): a Vercel-only name clash cannot be seen.");
 
 // Dedup the existing names (normalized).

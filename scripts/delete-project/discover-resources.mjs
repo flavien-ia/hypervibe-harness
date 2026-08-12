@@ -23,6 +23,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSecret } from "../vault/vault.mjs";
+import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
 import { loadAuthToken, readLinkedProject } from "../_vercel-auth.mjs";
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
 
@@ -204,9 +205,17 @@ async function scanVercel() {
 async function scanNeon() {
   if (!NEON_API_KEY) return { found: false, error: "NEON_API_KEY missing" };
   try {
-    const data = await httpJson(`https://console.neon.tech/api/v2/projects?search=${encodeURIComponent(PROJECT)}`, {
-      headers: { Authorization: `Bearer ${NEON_API_KEY}` },
+    // Neon scopes this search to ONE organisation and silently falls back to the
+    // account's default. Searching the wrong one answers "nothing to delete", which
+    // here means resources are left behind believing they were never there.
+    const org = await resolveNeonOrg(NEON_API_KEY, (item, field) => {
+      try { return getSecret(item, field) || ""; } catch { return ""; }
     });
+    const url = withOrg(
+      `https://console.neon.tech/api/v2/projects?search=${encodeURIComponent(PROJECT)}`,
+      org.orgId,
+    );
+    const data = await httpJson(url, { headers: { Authorization: `Bearer ${NEON_API_KEY}` } });
     if (data.__error) return { found: false, error: data.__error };
     // allNames feeds the ownership post-pass: the ?search= response also
     // returns sibling projects (searching "street" returns "street-cool").
