@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { cronMatches, computeNextDue, runPingJob, runSnapshotJob, runQuotaJob, isFirstRunOfWindow, resolveAlertConfig } from "./worker.js";
+import { cronMatches, computeNextDue, runPingJob, runSnapshotJob, runQuotaJob, isFirstRunOfWindow, resolveAlertConfig, resolveEmailProvider } from "./worker.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -162,11 +162,32 @@ function jsonResponse(obj, status = 200) {
   await runPingJob(job, { S: "s3cret", BREVO_API_KEY: "k" }, utc(2026, 8, 5, 12, 0));
   check("ping OK: no email", calls.filter((c) => c.url.includes("brevo")).length === 0);
 
-  // No Brevo key: the ping still runs, it just cannot alert.
+  // No email key at all: the ping still runs, it just cannot alert.
   mockFetch(() => new Response("boom", { status: 500 }));
   await runPingJob(job, { S: "s3cret" }, utc(2026, 8, 5, 12, 0));
-  check("ping failure: no Brevo key -> no crash, no mail", calls.length === 1);
+  check("ping failure: no email key -> no crash, no mail", calls.length === 1);
+
+  // Resend key instead of Brevo: the same failure alerts through Resend.
+  mockFetch((call) =>
+    call.url.includes("api.resend.com") ? jsonResponse({ id: "1" }, 200) : new Response("boom", { status: 500 }),
+  );
+  await runPingJob(job, { S: "s3cret", RESEND_API_KEY: "re-key" }, utc(2026, 8, 5, 12, 0));
+  const resendMails = calls.filter((c) => c.url.includes("api.resend.com"));
+  check("ping failure: alert sent via Resend when only that key exists", resendMails.length === 1);
+  check("ping failure via Resend: bearer key used", resendMails[0]?.headers?.Authorization === "Bearer re-key");
   restoreFetch();
+}
+
+// ── 2.ter Alert channel resolution (Brevo or Resend) ─────────────────────
+
+{
+  check("provider: brevo key alone -> brevo", resolveEmailProvider({ BREVO_API_KEY: "b" }, {}) === "brevo");
+  check("provider: resend key alone -> resend", resolveEmailProvider({ RESEND_API_KEY: "r" }, {}) === "resend");
+  check("provider: both keys, no pin -> brevo (continuity)", resolveEmailProvider({ BREVO_API_KEY: "b", RESEND_API_KEY: "r" }, {}) === "brevo");
+  check("provider: resend pin wins over both keys", resolveEmailProvider({ BREVO_API_KEY: "b", RESEND_API_KEY: "r" }, { emailProvider: "resend" }) === "resend");
+  check("provider: pin without its key falls back to the other", resolveEmailProvider({ BREVO_API_KEY: "b" }, { emailProvider: "resend" }) === "brevo");
+  check("provider: no key -> null", resolveEmailProvider({}, {}) === null);
+  check("provider: no key even pinned -> null", resolveEmailProvider({}, { emailProvider: "brevo" }) === null);
 }
 
 // ── 3. runSnapshotJob ────────────────────────────────────────────────────
@@ -281,6 +302,24 @@ function jsonResponse(obj, status = 200) {
     { CLOUDFLARE_API_TOKEN: "cf-tok", BREVO_API_KEY: "brevo-key" },
   );
   check("quota under: no Brevo call", !calls.some((c) => c.url.includes("brevo")));
+
+  // Same overage on a Resend-only machine (config pinned by register.mjs):
+  // the alert goes out through Resend.
+  mockFetch((call) => {
+    if (call.url.includes("graphql")) {
+      return jsonResponse({ data: { viewer: { accounts: [{ r2StorageAdaptiveGroups: [{ max: { payloadSize: 9.5 * gb, metadataSize: 0, objectCount: 42 } }] }] } } });
+    }
+    return jsonResponse({ id: "x" }, 200);
+  });
+  await runQuotaJob(
+    { kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: { ...cfg, emailProvider: "resend" } },
+    { CLOUDFLARE_API_TOKEN: "cf-tok", RESEND_API_KEY: "re-key" },
+  );
+  const resend = calls.find((c) => c.url.includes("api.resend.com"));
+  check("quota over via Resend: email sent", !!resend);
+  check("quota over via Resend: bearer key used", resend?.headers?.Authorization === "Bearer re-key");
+  check("quota over via Resend: recipient in body", resend?.body?.includes("user@test.fr"));
+  check("quota over via Resend: sender wrapped as Name <email>", resend?.body?.includes("Test <sender@test.fr>"));
 
   // Missing token -> no checks at all.
   mockFetch(() => jsonResponse({}));

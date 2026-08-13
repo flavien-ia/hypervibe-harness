@@ -31,7 +31,7 @@ This is the **very first command** to run right after installing the plugin. It 
 None. This is where it all begins.
 
 {{callout:info|Why all these tools}}
-To build complete apps, Hypervibe orchestrates several services: GitHub stores the code, Vercel puts the app online, Neon hosts the database, Resend sends the emails, Cloudflare handles DNS and files. The `/start` command installs and connects all of this **just once**: after that you never think about it again.
+To build complete apps, Hypervibe orchestrates several services: GitHub stores the code, Vercel puts the app online, Neon hosts the database, Resend or Brevo sends the emails, Cloudflare handles DNS and files. The `/start` command installs and connects all of this **just once**: after that you never think about it again.
 {{/callout}}
 
 {{callout:tip|If something goes wrong}}

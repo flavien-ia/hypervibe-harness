@@ -32,10 +32,13 @@
 //
 //   --kind quota --recipient <email> --sender-email <email>
 //          [--sender-name <name>] [--r2-threshold-gb <N>] [--cron "<expr>"]
+//          [--email-provider brevo|resend]
 //       Configure the quota watch job (singleton "quota-monitor", default
-//       cadence: daily at 06:00 UTC).
-//       Required secrets: CLOUDFLARE_API_TOKEN, BREVO_API_KEY (auto-uploaded
-//       with --put-secrets).
+//       cadence: daily at 06:00 UTC). Alerts go out through the given email
+//       provider; without the flag, whichever key the vault holds decides
+//       (Brevo first, the historical default).
+//       Required secrets: CLOUDFLARE_API_TOKEN, plus BREVO_API_KEY or
+//       RESEND_API_KEY per the provider (auto-uploaded with --put-secrets).
 //
 // Common flags: --dir <path> (default ~/.hypervibe-jobs), --no-deploy,
 //               --no-commit, --put-secrets
@@ -247,6 +250,18 @@ async function doQuota() {
     });
   }
 
+  // Which provider carries the alert emails? The explicit flag wins (the
+  // skills pass the provider chosen during /start); otherwise whichever key
+  // the vault holds decides, Brevo first (the historical default).
+  const explicitProvider = flags["email-provider"];
+  if (explicitProvider && explicitProvider !== "brevo" && explicitProvider !== "resend") {
+    fail(`--email-provider must be "brevo" or "resend". Got: ${explicitProvider}`);
+  }
+  const emailProvider =
+    explicitProvider ||
+    (readUserEnv("BREVO_API_KEY") ? "brevo" : readUserEnv("RESEND_API_KEY") ? "resend" : "brevo");
+  const emailSecretName = emailProvider === "brevo" ? "BREVO_API_KEY" : "RESEND_API_KEY";
+
   const job = {
     kind: "quota",
     name: QUOTA_JOB_NAME,
@@ -256,6 +271,7 @@ async function doQuota() {
       recipient: flags.recipient,
       senderEmail: flags["sender-email"],
       senderName: flags["sender-name"] || "Hypervibe",
+      emailProvider,
       r2ThresholdGb: Number(flags["r2-threshold-gb"] || 9),
     },
   };
@@ -268,11 +284,12 @@ async function doQuota() {
     {
       action,
       job: QUOTA_JOB_NAME,
+      emailProvider,
       commitMsg: `jobs: ${action === "added" ? "configure" : "update"} quota monitor`,
     },
     [
       { name: "CLOUDFLARE_API_TOKEN", value: flags["put-secrets"] ? token : null },
-      { name: "BREVO_API_KEY", value: flags["put-secrets"] ? readUserEnv("BREVO_API_KEY") : null },
+      { name: emailSecretName, value: flags["put-secrets"] ? readUserEnv(emailSecretName) : null },
     ],
   );
 }

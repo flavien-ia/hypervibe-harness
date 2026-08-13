@@ -9,10 +9,10 @@
 //                     first run of each 6-hour window, no storage involved).
 //                     (Replaces the old standalone "cron-dispatcher" worker.)
 //   kind "snapshot" - Neon database backup branches with rolling + aging
-//                     retention, plus a Brevo alert email when a target fails.
+//                     retention, plus an alert email when a target fails.
 //                     (Replaces the old "db-backup" worker.)
 //   kind "quota"    - free-tier quota watch (Cloudflare R2 storage, plus Neon
-//                     egress / compute / storage) with a Brevo alert email.
+//                     egress / compute / storage) with an alert email.
 //                     (Replaces "quota-monitor".)
 //
 // Registry: ./jobs.js (versioned in the same git repo, managed by the
@@ -29,6 +29,7 @@
 //   { "kind": "quota",    "name": "quota-monitor", "cron": "0 6 * * *",
 //     "config": { "cloudflareAccountId": "...", "recipient": "you@x.fr",
 //                 "senderEmail": "you@x.fr", "senderName": "Hypervibe",
+//                 "emailProvider": "brevo",   // or "resend"; optional
 //                 "r2ThresholdGb": 9, "neonThresholdPct": 60,
 //                 "neonOrgId": "org-..." } }
 //     (R2 needs CLOUDFLARE_API_TOKEN + cloudflareAccountId + r2ThresholdGb;
@@ -39,9 +40,11 @@
 //   ADMIN_TOKEN            - bearer for the manual /trigger and /status endpoints
 //   NEON_API_KEY           - for "snapshot" jobs
 //   CLOUDFLARE_API_TOKEN   - for "quota" jobs (Account Analytics: Read)
-//   BREVO_API_KEY          - alert email for "quota", "snapshot", and failed
-//                            "ping" jobs (which borrow the recipient/sender of
-//                            whichever job already declares one)
+//   BREVO_API_KEY or       - alert email channel for "quota", "snapshot", and
+//   RESEND_API_KEY           failed "ping" jobs (one of the two, matching the
+//                            email provider chosen during /start; ping jobs
+//                            borrow the recipient/sender of whichever job
+//                            already declares one)
 //   CRON_SECRET_<PROJECT>  - one per project, for its "ping" jobs
 //
 // Failure isolation: every due job runs in its own promise with its own catch;
@@ -252,7 +255,7 @@ export function resolveAlertConfig(job, jobs) {
   const candidates = [job?.config, ...(jobs ?? listJobs()).map((j) => j?.config)];
   for (const c of candidates) {
     if (c?.recipient && c?.senderEmail) {
-      return { recipient: c.recipient, senderEmail: c.senderEmail, senderName: c.senderName };
+      return { recipient: c.recipient, senderEmail: c.senderEmail, senderName: c.senderName, emailProvider: c.emailProvider };
     }
   }
   return null;
@@ -260,8 +263,8 @@ export function resolveAlertConfig(job, jobs) {
 
 async function reportPingFailure(job, env, when, cause, detail) {
   const cfg = resolveAlertConfig(job);
-  if (!env.BREVO_API_KEY || !cfg) {
-    console.error(`[${job.name}] ping failed but no alert channel (BREVO_API_KEY secret + a job config with recipient/senderEmail).`);
+  if (!cfg || !resolveEmailProvider(env, cfg)) {
+    console.error(`[${job.name}] ping failed but no alert channel (a BREVO_API_KEY or RESEND_API_KEY secret + a job config with recipient/senderEmail).`);
     return;
   }
   if (!isFirstRunOfWindow(job.cron, when)) {
@@ -302,7 +305,7 @@ async function sendPingFailureEmail(env, cfg, job, cause, detail) {
       <p style="font-size:13px;color:#7A7168;">Ce message ne se repetera pas plus d'une fois par ${ALERT_WINDOW_HOURS} heures tant que la panne dure.</p>
     </div>`;
 
-  await sendBrevoEmail(env, cfg, `[Hypervibe] Tache planifiee en echec : ${quoi}`, htmlContent);
+  await sendAlertEmail(env, cfg, `[Hypervibe] Tache planifiee en echec : ${quoi}`, htmlContent);
 }
 
 // ── kind: snapshot (ex db-backup) ────────────────────────────────────────
@@ -343,8 +346,8 @@ export async function runSnapshotJob(job, env) {
   // pruning the old ones, so a project stuck at the plan's branch cap loses its
   // backups AND its rotation, silently. Always try to surface it by email.
   const cfg = job.config || {};
-  if (!env.BREVO_API_KEY || !cfg.senderEmail || !cfg.recipient) {
-    console.error(`[${job.name}] ${failures.length} snapshot failure(s) but Brevo not configured (BREVO_API_KEY secret + senderEmail + recipient in the job config) - cannot send alert.`);
+  if (!resolveEmailProvider(env, cfg) || !cfg.senderEmail || !cfg.recipient) {
+    console.error(`[${job.name}] ${failures.length} snapshot failure(s) but no alert channel (a BREVO_API_KEY or RESEND_API_KEY secret + senderEmail + recipient in the job config) - cannot send alert.`);
     return;
   }
 
@@ -511,8 +514,8 @@ export async function runQuotaJob(job, env) {
     return;
   }
 
-  if (!env.BREVO_API_KEY || !cfg.senderEmail || !cfg.recipient) {
-    console.error(`[${job.name}] alert pending but Brevo not fully configured (BREVO_API_KEY secret + senderEmail + recipient) - cannot send.`);
+  if (!resolveEmailProvider(env, cfg) || !cfg.senderEmail || !cfg.recipient) {
+    console.error(`[${job.name}] alert pending but the alert email is not fully configured (a BREVO_API_KEY or RESEND_API_KEY secret + senderEmail + recipient) - cannot send.`);
     return;
   }
 
@@ -728,7 +731,7 @@ async function sendQuotaEmail(env, cfg, alerts) {
     </div>
   `;
 
-  await sendBrevoEmail(env, cfg, subject, htmlContent);
+  await sendAlertEmail(env, cfg, subject, htmlContent);
 }
 
 async function sendSnapshotFailureEmail(env, cfg, failures) {
@@ -772,7 +775,7 @@ async function sendSnapshotFailureEmail(env, cfg, failures) {
     </div>
   `;
 
-  await sendBrevoEmail(env, cfg, subject, htmlContent);
+  await sendAlertEmail(env, cfg, subject, htmlContent);
 }
 
 function escapeHtml(s) {
@@ -782,29 +785,72 @@ function escapeHtml(s) {
     .replace(/>/g, "&gt;");
 }
 
-async function sendBrevoEmail(env, cfg, subject, htmlContent) {
-  const body = {
-    sender: {
-      email: cfg.senderEmail,
-      name: cfg.senderName || "Hypervibe",
-    },
-    to: [{ email: cfg.recipient }],
-    subject,
-    htmlContent,
-  };
+// ── Alert email channel (Brevo or Resend) ────────────────────────────────
+//
+// The machine that registered the job holds ONE email key in its vault
+// (Resend or Brevo, chosen during /start), and the matching secret lives on
+// the worker. The job config may pin the provider (config.emailProvider,
+// written by register.mjs); otherwise whichever secret is present decides,
+// Brevo first for continuity with deployments made before the pin existed.
+// A pin whose key is absent falls back to the other key rather than dropping
+// the alert: sending from the wrong provider beats not sending at all.
 
-  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+export function resolveEmailProvider(env, cfg) {
+  const pinned = cfg?.emailProvider;
+  if (pinned === "resend" && env.RESEND_API_KEY) return "resend";
+  if (pinned === "brevo" && env.BREVO_API_KEY) return "brevo";
+  if (env.BREVO_API_KEY) return "brevo";
+  if (env.RESEND_API_KEY) return "resend";
+  return null;
+}
+
+async function sendAlertEmail(env, cfg, subject, htmlContent) {
+  const provider = resolveEmailProvider(env, cfg);
+  if (!provider) {
+    throw new Error("no email key configured (BREVO_API_KEY or RESEND_API_KEY secret)");
+  }
+
+  if (provider === "brevo") {
+    const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": env.BREVO_API_KEY,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        sender: {
+          email: cfg.senderEmail,
+          name: cfg.senderName || "Hypervibe",
+        },
+        to: [{ email: cfg.recipient }],
+        subject,
+        htmlContent,
+      }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Brevo HTTP ${res.status}: ${text.slice(0, 200)}`);
+    }
+    return;
+  }
+
+  const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      "api-key": env.BREVO_API_KEY,
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
       "Content-Type": "application/json",
-      Accept: "application/json",
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify({
+      from: `${cfg.senderName || "Hypervibe"} <${cfg.senderEmail}>`,
+      to: [cfg.recipient],
+      subject,
+      html: htmlContent,
+    }),
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Brevo HTTP ${res.status}: ${text.slice(0, 200)}`);
+    throw new Error(`Resend HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
 }
 

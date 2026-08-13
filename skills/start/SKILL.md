@@ -53,7 +53,7 @@ Each entry has a `status`: `ready` (installed + connected), `logged-out` (instal
 login missing), `missing` (not installed), `timeout` (no answer in time - treat it as
 **not** verified, never as ready).
 
-> **Note**: no more Resend CLI or MCP connector (Hostinger, GSC, Neon) to audit. These services now go through their REST API with a key stored in the **vault** (Bitwarden). The vault is set up in Step 3, and the cross-cutting keys (Cloudflare, Neon, email) are collected in Steps 4 and 7.
+> **Note**: no more email CLI or MCP connector (Hostinger, GSC, Neon) to audit. These services now go through their REST API with a key stored in the **vault** (Bitwarden). The vault is set up in Step 3, and the cross-cutting keys (Cloudflare, Neon, email - Resend or Brevo) are collected in Steps 4, 7 and 7bis.
 
 ### Cloudflare token (stored in the vault)
 
@@ -240,7 +240,7 @@ Present a clear report:
 > ❌ Vercel CLI - not installed
 > ❌ Wrangler CLI - not installed
 > 🔒 Vault - ready / to configure
-> 🔑 Cloudflare / Neon / Resend (vault keys), to collect (Steps 4, 7, and 7bis)
+> 🔑 Cloudflare / Neon / Email - Resend or Brevo (vault keys), to collect (Steps 4, 7, and 7bis)
 
 ### Cloudflare token (to do BEFORE the CLIs script)
 
@@ -303,7 +303,7 @@ If the displayed email does not match the account on which the token was created
 
 #### Shared clock + R2 email alert (auto, at the end of /start)
 
-Once **all the other dependencies are configured** (Wrangler authenticated, Brevo configured with at least one verified sender), provision the **unified shared worker `hypervibe-jobs`**: ONE Cloudflare Worker for all the account-wide scheduled jobs (cron pings, database backups, quota alerts), consuming a single Cloudflare cron slot, with a git-versioned registry in `~/.hypervibe-jobs/`:
+Once **all the other dependencies are configured** (Wrangler authenticated, the email key collected in Step 7bis), provision the **unified shared worker `hypervibe-jobs`**: ONE Cloudflare Worker for all the account-wide scheduled jobs (cron pings, database backups, quota alerts), consuming a single Cloudflare cron slot, with a git-versioned registry in `~/.hypervibe-jobs/`:
 
 ```bash
 PLUGIN_DIR="$HOME/.claude/plugins/marketplaces/local-desktop-app-uploads/hypervibe"
@@ -325,20 +325,23 @@ If there is at least one `LEGACY:` line, tell the user in plain words that you n
 
 If there is no `LEGACY:` line, say nothing and continue. This is the case for every fresh install, so the check is invisible to new users.
 
-Then register the **quota watch job** (daily check via the CF GraphQL API, email via Brevo on overage; initially Cloudflare R2 storage, threshold 9 GB out of the 10 GB free tier, configurable via `--r2-threshold-gb`):
+Then register the **quota watch job** (daily check via the CF GraphQL API, alert email via the provider chosen in Step 7bis on overage; initially Cloudflare R2 storage, threshold 9 GB out of the 10 GB free tier, configurable via `--r2-threshold-gb`):
 
 1. `node "$PLUGIN_DIR/scripts/shared-worker/register.mjs" --list` → if the `jobs` array already contains a job named `quota-monitor`, skip (silent).
-2. Otherwise discover the recipient and the sender:
+2. Otherwise discover the recipient, the provider and the sender:
    - **Recipient** = the Cloudflare account email: `curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user` → take `result.email` (CFTOK read from the vault as above).
-   - **Sender** = the first verified Brevo sender: `BREVO_API_KEY=$(node "$PLUGIN_DIR/scripts/vault/vault.mjs" get BREVO api_key); curl -s https://api.brevo.com/v3/senders -H "api-key: $BREVO_API_KEY"` → take the first entry with `"active": true`. If there is none → ask the user to verify a sender on https://app.brevo.com/senders. Do not block if the user declines, just continue (the job can be registered later via `/quotas`).
-3. Register (also uploads the CLOUDFLARE_API_TOKEN + BREVO_API_KEY secrets, read from the vault): `node "$PLUGIN_DIR/scripts/shared-worker/register.mjs" --kind quota --recipient <email> --sender-email <sender> --put-secrets`
+   - **Provider** = the email key present in the vault (`RESEND` or `BREVO` - the one collected in Step 7bis; both present → Brevo).
+   - **Sender**, per provider:
+     - **Brevo** → the first verified sender: `BREVO_API_KEY=$(node "$PLUGIN_DIR/scripts/vault/vault.mjs" get BREVO api_key); curl -s https://api.brevo.com/v3/senders -H "api-key: $BREVO_API_KEY"` → take the first entry with `"active": true`. If there is none → ask the user to verify a sender on https://app.brevo.com/senders (their own address, one confirmation click). Do not block if the user declines, just continue (the job can be registered later via `/quotas`).
+     - **Resend** → the first verified domain: `RESEND_API_KEY=$(node "$PLUGIN_DIR/scripts/vault/vault.mjs" get RESEND api_key); curl -s https://api.resend.com/domains -H "Authorization: Bearer $RESEND_API_KEY"` → take the first entry with `"status": "verified"` and use `alerts@<that-domain>` as the sender. If there is none → tell the user the alert emails will activate by themselves once a domain is verified on Resend (`/add-domain` sets one up, or https://resend.com/domains), and continue without registering (the `/quotas` safety net registers the job later). **Never fall back to `onboarding@resend.dev`**: that test sender only delivers to the Resend account owner's own address, so the alert would be lost silently whenever the recipient differs.
+3. Register (also uploads the CLOUDFLARE_API_TOKEN + email key secrets, read from the vault): `node "$PLUGIN_DIR/scripts/shared-worker/register.mjs" --kind quota --recipient <email> --sender-email <sender> --email-provider <brevo|resend> --put-secrets`
 
 **Why a custom job rather than Cloudflare's native "Billing Alerts"**: Cloudflare's Billing Alerts are reserved for Pro+ plans, and the CF API is under-documented for free accounts (the first version used `billing_usage_alert` but it triggered false alerts because of an ambiguous threshold format). The shared worker does exactly what we want, on a single Cloudflare cron slot for the whole account.
 
 What to say in the onboarding summary:
 - Worker `created` (and/or quota job just registered) → mention once: *"Your shared clock is in place: one mechanism for all your projects' scheduled tasks, database backups and quota alerts. It will email you if you approach the 10 GB of the R2 free tier."*
 - `already_present` and quota job already registered → say nothing (silent).
-- Missing verified sender → covered in point 2 above.
+- Missing verified sender (Brevo) or verified domain (Resend) → covered in point 2 above.
 - Any other error → report it briefly, it is not critical.
 
 ### Missing CLIs
@@ -356,7 +359,7 @@ If some CLIs (GitHub, Vercel, Wrangler) are missing or not connected, propose:
 
 ⚠️ **Wait absolutely for the user's confirmation before continuing.**
 
-Only list the CLIs that are actually missing or not connected. (No more Resend CLI: email goes through the Resend API with the vault key, collected in Step 7bis.)
+Only list the CLIs that are actually missing or not connected. (No email CLI: email goes through the provider's REST API - Resend or Brevo - with the vault key, collected in Step 7bis.)
 
 ### Everything is already installed and connected
 
@@ -419,7 +422,7 @@ Cloudflare curl is capped with `--max-time` for the same reason.
 
 For **Neon**: no more MCP detection. Verify that the key is in the vault: `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON api_key >/dev/null 2>&1 && echo neon-ok || echo neon-missing` (collected in Step 7 if missing).
 
-For **Resend**: `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RESEND api_key >/dev/null 2>&1 && echo resend-ok || echo resend-missing` (collected in Step 7bis if missing).
+For **Email (Resend or Brevo)**: `{ node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RESEND api_key >/dev/null 2>&1 || node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get BREVO api_key >/dev/null 2>&1; } && echo email-ok || echo email-missing` (collected in Step 7bis if missing).
 
 For the **vault**: `vault.mjs status` must say `unlocked`. If `locked`/`expired` → unlock (`launch.mjs unlock`).
 
@@ -449,7 +452,7 @@ Display an exhaustive report based **strictly** on what was detected:
 > ✅ Wrangler CLI + Cloudflare token (vault): ready
 > ✅ Vault: operational (unlocked)
 > 🔑 Neon: key in the vault
-> 🔑 Resend: key in the vault
+> 🔑 Email (Resend or Brevo): key in the vault
 
 **"Vault" line, to display based on the real detected state** (same ✅/⚠️/❌ logic as the CLIs, based on `vault.mjs status`):
 - ✅ **operational (unlocked)**: `vault.mjs status` = `unlocked`.
@@ -460,7 +463,7 @@ The unlocked vault (✅) is a **blocking prerequisite** (see Strict branching be
 
 ### Strict branching
 
-- **If AND ONLY IF the 6 essentials (Node, pnpm, Git, GitHub CLI connected, Vercel connected, Wrangler+Cloudflare token) are ✅** AND the vault is unlocked → move on to step 8. Note the state of Neon and Resend without blocking.
+- **If AND ONLY IF the 6 essentials (Node, pnpm, Git, GitHub CLI connected, Vercel connected, Wrangler+Cloudflare token) are ✅** AND the vault is unlocked → move on to step 8. Note the state of Neon and the email key without blocking.
 - **Otherwise (even a single missing or not-connected tool)** → stay here, **NEVER say "everything is installed and connected"**, **NEVER move on to step 8**.
 
 ### Case: interrupted script or partial installation
@@ -553,19 +556,32 @@ Confirm:
 
 ---
 
-## Step 7bis: Resend (email) key in the vault
+## Step 7bis: Email key (Resend or Brevo) in the vault
 
-The Resend API key is used for sending emails (`/add-email`, contact page, notifications). We store it in the vault (item `RESEND`, field `api_key`), once per machine.
+An email API key is used for sending emails from the apps (`/add-email`, contact page, notifications) AND for the alert emails of the shared clock (quota overage, failed backup, failed scheduled task). Hypervibe supports **two providers, Resend and Brevo**: the user picks ONE, and its key is stored in the vault (item `RESEND` or `BREVO`, field `api_key`), once per machine.
 
-### Check whether the key is already in the vault
+### Check whether a key is already in the vault
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RESEND api_key >/dev/null 2>&1 && echo "have-key" || echo "missing-key"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RESEND api_key >/dev/null 2>&1 && echo "have-resend" || echo "no-resend"
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get BREVO api_key >/dev/null 2>&1 && echo "have-brevo" || echo "no-brevo"
 ```
 
-If `have-key` → display *"✅ Your Resend key is already in your vault"* and move on to Step 8.
+- **At least one key present** → display *"✅ Your email key (Resend/Brevo) is already in your vault"* and move on to Step 8. Do NOT ask the provider question: the key present IS the choice. (Both present → mention that both are available and that the alert emails use Brevo.)
+- **No key** → ask the user to choose, then guide them through the chosen provider.
 
-If `missing-key` → open the page (best-effort) and guide:
+### Choosing the provider (only when no key exists)
+
+Ask ONE structured question via `AskUserQuestion` ("Which email service do you want to use?"), two options:
+
+- **Resend (Recommended)** - Modern, simple. Free: 3,000 emails/month (100/day). To send from your own address you will need a verified domain later (`/add-domain` handles it); until then, apps send from a test address.
+- **Brevo** - Free: 300 emails/day. No domain needed: you verify your sender address with a simple confirmation email, so it is the fastest way to activate the alert emails if you do not own a domain yet.
+
+Whichever is chosen, the other provider stays available later (`/add-email` supports both).
+
+### If the user chose Resend
+
+Open the page (best-effort) and guide:
 
 ```bash
 node "${CLAUDE_SKILL_DIR}/../../scripts/open-url.mjs" "https://resend.com/api-keys" 2>/dev/null
@@ -573,7 +589,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/open-url.mjs" "https://resend.com/api-ke
 
 > **In order to be able to send emails from your apps**, I need a Resend key (just once, I store it in your vault).
 >
-> 1. On the page that just opened, click **Create API Key**, name it `claude-code`, leave **Permission** on **Full access**.
+> 1. On the page that just opened (create a free account if needed), click **Create API Key**, name it `claude-code`, leave **Permission** on **Full access**.
 > 2. **Copy the key** (`re_...`, displayed only once).
 > 3. A window will open: paste it in (masked input, I never see it).
 
@@ -591,6 +607,35 @@ curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $RKEY" https://
 ```
 
 > ✅ Your Resend key is in your vault. `/add-email` will use it directly.
+
+### If the user chose Brevo
+
+Open the page (best-effort) and guide:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/open-url.mjs" "https://app.brevo.com/settings/keys/api" 2>/dev/null
+```
+
+> **In order to be able to send emails from your apps**, I need a Brevo key (just once, I store it in your vault).
+>
+> 1. On the page that just opened (create a free account if needed), click **Generate a new API key**, name it `claude-code`.
+> 2. **Copy the key** (`xkeysib-...`, displayed only once).
+> 3. A window will open: paste it in (masked input, I never see it).
+
+Store it in the vault:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --name BREVO --service Brevo --fields "api_key:secret"
+```
+
+Validate (read from the vault, never displayed):
+
+```bash
+BKEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get BREVO api_key)
+curl -s -o /dev/null -w "%{http_code}" -H "api-key: $BKEY" https://api.brevo.com/v3/account | grep -q 200 && echo "VALID" || echo "INVALID"
+```
+
+> ✅ Your Brevo key is in your vault. `/add-email` will use it directly. One last thing for the alert emails: verify your own address as a sender on https://app.brevo.com/senders (one confirmation click in your inbox) - I check it at the shared-clock step and it is not blocking.
 
 ---
 

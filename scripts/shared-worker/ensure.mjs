@@ -216,7 +216,7 @@ ONE worker, ONE cron slot, all the account-wide background jobs:
   remove entries through \`register.mjs\`; every change is committed and the
   worker is redeployed.
 - The worker ticks every minute (UTC) and runs whichever jobs are due.
-- Secrets (Neon key, Cloudflare token, Brevo key, per-project cron bearers)
+- Secrets (Neon key, Cloudflare token, email key - Brevo or Resend, per-project cron bearers)
   live in Cloudflare's secret store, never in this repo.
 
 ## Useful commands (from this folder)

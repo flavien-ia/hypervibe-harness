@@ -84,7 +84,7 @@ Otherwise (`false`), say nothing.
 
 ## Step 2 bis - Self-heal quota watch (silent)
 
-Before rendering the table, check that the **quota watch job** is registered in the unified shared worker **`hypervibe-jobs`** (ONE Cloudflare Worker for all the account-wide scheduled jobs: cron pings, database backups, quota alerts). The job runs daily and sends an email (via Brevo) if a quota crosses its threshold - currently R2 storage at 9 GB out of the 10 GB free tier. It is a safety net in case the user has not re-run `/start` since the version that sets up this job.
+Before rendering the table, check that the **quota watch job** is registered in the unified shared worker **`hypervibe-jobs`** (ONE Cloudflare Worker for all the account-wide scheduled jobs: cron pings, database backups, quota alerts). The job runs daily and sends an email (via the user's email provider, Resend or Brevo) if a quota crosses its threshold - currently R2 storage at 9 GB out of the 10 GB free tier. It is a safety net in case the user has not re-run `/start` since the version that sets up this job.
 
 ⚠️ **Why a custom job and not the native Cloudflare alert**: the previous version used `billing_usage_alert` from Cloudflare's Notifications API, but (1) this feature is officially reserved for Pro+ plans and (2) the format of the `limit` field is ambiguous on free accounts - the first version triggered a false instant alert. The custom job works around both problems cleanly.
 
@@ -113,15 +113,22 @@ If it does not, register it:
    curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user
    ```
    → take `result.email`.
-2. **Sender** = the first verified Brevo sender:
+2. **Provider and sender** - the provider is the email key present in the vault (`RESEND` or `BREVO`, the one chosen during `/start`; both present → Brevo; none → skip the registration and show the "no email key" message below):
+   - **Brevo** → the first verified sender:
+     ```bash
+     BREVO_API_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get BREVO api_key)
+     curl -s https://api.brevo.com/v3/senders -H "api-key: $BREVO_API_KEY"
+     ```
+     → take the first entry with `"active": true`. If there is none → skip the registration and show the "no verified sender" message below.
+   - **Resend** → the first verified domain:
+     ```bash
+     RESEND_API_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RESEND api_key)
+     curl -s https://api.resend.com/domains -H "Authorization: Bearer $RESEND_API_KEY"
+     ```
+     → take the first entry with `"status": "verified"` and use `alerts@<that-domain>` as the sender. If there is none → skip the registration and show the "no verified domain" message below. **Never fall back to `onboarding@resend.dev`**: it only delivers to the Resend account owner's own address, so the alert would be lost silently whenever the recipient differs.
+3. **Register** (also uploads the CLOUDFLARE_API_TOKEN + email key secrets, read from the vault):
    ```bash
-   BREVO_API_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get BREVO api_key)
-   curl -s https://api.brevo.com/v3/senders -H "api-key: $BREVO_API_KEY"
-   ```
-   → take the first entry with `"active": true`. If there is none → skip the registration and show the "no verified sender" message below.
-3. **Register** (also uploads the CLOUDFLARE_API_TOKEN + BREVO_API_KEY secrets, read from the vault):
-   ```bash
-   node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --kind quota --recipient <recipient> --sender-email <sender> --put-secrets
+   node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --kind quota --recipient <recipient> --sender-email <sender> --email-provider <brevo|resend> --put-secrets
    ```
    Default threshold: 9 GB out of the 10 GB R2 free tier (override with `--r2-threshold-gb <N>`).
 
@@ -129,9 +136,13 @@ If it does not, register it:
 
 - Job already registered → say nothing.
 - Job just registered (first time only) → mention discreetly **before the table**:
-  > 💡 *Note: I set up a daily quota watch in your shared clock - the single Cloudflare Worker that runs all your account-wide scheduled jobs (registry in `~/.hypervibe-jobs/jobs.js`, git-versioned). It will email you via Brevo if you approach the 10 GB of the R2 free tier. Want a different threshold or recipient? Just ask - I re-register the job with the new values.*
-- No verified Brevo sender → show **after the table** (right after the summary):
+  > 💡 *Note: I set up a daily quota watch in your shared clock - the single Cloudflare Worker that runs all your account-wide scheduled jobs (registry in `~/.hypervibe-jobs/jobs.js`, git-versioned). It will email you if you approach the 10 GB of the R2 free tier. Want a different threshold or recipient? Just ask - I re-register the job with the new values.*
+- No email key in the vault (neither `RESEND` nor `BREVO`) → show **after the table** (right after the summary):
+  > ⚠️ *To activate the quota alert, I need your email key (Resend or Brevo). Re-run `/start` (it collects it in Step 7bis), then re-run `/quotas`. Not blocking - your current storage is at X%.*
+- No verified Brevo sender (Brevo machine) → show **after the table** (right after the summary):
   > ⚠️ *To activate the quota alert, a verified Brevo sender is required. Verify one at https://app.brevo.com/senders (add your email, click the verification link you receive), then re-run `/quotas`. Not blocking - your current storage is at X%.*
+- No verified Resend domain (Resend machine) → show **after the table** (right after the summary):
+  > ⚠️ *To activate the quota alert, Resend needs a verified domain to send from. `/add-domain` sets one up (or verify one at https://resend.com/domains), then re-run `/quotas`. Not blocking - your current storage is at X%.*
 - Provisioning or registration returned `ok: false` → show after the table, short, without blocking:
   > ⚠️ *The quota watch could not be set up: `<error>`. Re-run `/start` if needed.*
 

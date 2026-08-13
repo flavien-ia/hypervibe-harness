@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.8.4 (13 août 2026)
+
+### Améliorations
+- **Choix du service d'email à l'installation** : `/start` vous demande maintenant lequel des deux services vous voulez utiliser, Resend ou Brevo, puis vous accompagne jusqu'au bout sur celui que vous avez choisi (création de la clé, rangement au coffre, vérification). Auparavant il n'installait que Resend.
+- **Les emails d'alerte partent par votre service** : la surveillance des quotas, l'échec d'une sauvegarde de base et l'échec d'une tâche planifiée vous préviennent désormais quel que soit le service configuré. Jusqu'ici ces alertes ne savaient passer que par Brevo : sur une machine équipée de Resend, elles ne pouvaient pas être mises en place, et les pannes restaient invisibles.
+- **`/quotas` suit la même règle** : quand il installe la surveillance quotidienne pour vous, il utilise le service que vous avez déjà, et vous dit précisément ce qui manque le cas échéant (adresse d'expéditeur à confirmer chez Brevo, domaine à vérifier chez Resend).
+
+### Coulisses
+- Le canal d'alerte de l'horloge partagée accepte les deux services et retient celui de votre installation. Les installations existantes gardent exactement leur comportement.
+
 ## v2.8.3 (12 août 2026)
 
 ### Corrections

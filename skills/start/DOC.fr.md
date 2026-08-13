@@ -31,7 +31,7 @@ C'est la **toute première commande** à lancer juste après avoir installé le 
 Aucun. C'est par là que tout commence.
 
 {{callout:info|Pourquoi tous ces outils}}
-Pour créer des apps complètes, Hypervibe orchestre plusieurs services : GitHub stocke le code, Vercel met l'app en ligne, Neon héberge la base de données, Resend envoie les emails, Cloudflare gère le DNS et les fichiers. La commande `/start` installe et connecte tout ça **une seule fois** : ensuite vous n'y pensez plus.
+Pour créer des apps complètes, Hypervibe orchestre plusieurs services : GitHub stocke le code, Vercel met l'app en ligne, Neon héberge la base de données, Resend ou Brevo envoie les emails, Cloudflare gère le DNS et les fichiers. La commande `/start` installe et connecte tout ça **une seule fois** : ensuite vous n'y pensez plus.
 {{/callout}}
 
 {{callout:tip|Si quelque chose se passe mal}}
