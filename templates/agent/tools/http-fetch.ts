@@ -12,7 +12,10 @@
 //   - 1 MB response cap (agents shouldn't reason over 10 MB blobs anyway)
 //   - Returns body as text. JSON gets parsed in the agent's reasoning if needed.
 
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+// Types come from the package root namespace, never from the deep
+// "@anthropic-ai/sdk/resources/messages" subpath: that subpath is internal
+// layout that moves between 0.x minors, the namespace is the public surface.
+import type Anthropic from "@anthropic-ai/sdk";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
@@ -34,7 +37,7 @@ function isBlockedIp(ip: string): boolean {
   return false;
 }
 
-const definition: Tool = {
+const definition: Anthropic.Tool = {
   name: "http_fetch",
   description:
     "Fetch any HTTP(S) URL and return the response body as text. Use this to read RSS feeds, hit external REST APIs, or fetch web pages. Supports GET (default), POST, PUT, DELETE, PATCH. Times out after 30 seconds. Response capped at 1 MB.",

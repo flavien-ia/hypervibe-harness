@@ -12,10 +12,13 @@
 //
 // To wire up: replace the import below with your project's mail entry point.
 
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+// Types come from the package root namespace, never from the deep
+// "@anthropic-ai/sdk/resources/messages" subpath: that subpath is internal
+// layout that moves between 0.x minors, the namespace is the public surface.
+import type Anthropic from "@anthropic-ai/sdk";
 import { sendMail } from "../mail.js";
 
-const definition: Tool = {
+const definition: Anthropic.Tool = {
   name: "send_email",
   description:
     "Send an email to one or more recipients. Use this when the agent's job involves notifying someone - sending a daily digest, replying to an inquiry, alerting an admin. The FROM address is fixed to the project's configured sender (you can't impersonate). Plain-text body is wrapped in a minimal HTML template.",

@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.8.5 (14 août 2026)
+
+### Coulisses
+- **Modèle d'agent** : les trois outils livrés avec `/add-agent` (requête en base, appel HTTP, envoi d'email) déclaraient leur type en pointant vers un chemin interne du SDK Anthropic, un chemin que l'éditeur peut réorganiser d'une version à l'autre sans préavis. Ils utilisent désormais la surface publique du SDK, comme le faisait déjà la boucle principale de l'agent. Rien ne change à l'usage : les agents générés se comportent à l'identique, ils encaisseront simplement les prochaines mises à jour du SDK sans casser.
+
 ## v2.8.4 (13 août 2026)
 
 ### Améliorations

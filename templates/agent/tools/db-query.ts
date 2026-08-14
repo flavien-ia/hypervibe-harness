@@ -14,11 +14,14 @@
 // `mark_user_contacted` that takes a userId and updates a single row). Don't
 // loosen this tool to allow arbitrary writes - that's a foot-gun.
 
-import type { Tool } from "@anthropic-ai/sdk/resources/messages";
+// Types come from the package root namespace, never from the deep
+// "@anthropic-ai/sdk/resources/messages" subpath: that subpath is internal
+// layout that moves between 0.x minors, the namespace is the public surface.
+import type Anthropic from "@anthropic-ai/sdk";
 import { sql } from "drizzle-orm";
 import { db } from "../db.js";
 
-const definition: Tool = {
+const definition: Anthropic.Tool = {
   name: "db_query",
   description:
     "Run a READ-ONLY SQL query (SELECT only) against the project's Postgres database. Use for looking up users, fetching context, computing stats. Times out after 10 seconds. Returns at most 100 rows. To make changes to the database, ask for a more specific write tool - this one cannot insert, update, or delete.",
