@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.9.3 (21 août 2026)
+
+### Correctifs
+
+- **La page sécurité disait faux sur les installations.** Elle affirmait que rien n'était téléchargé et que le plugin se servait uniquement des outils déjà présents sur votre machine : c'est vrai du plugin, et faux de l'expérience. La commande de démarrage installe Node.js, Git et pnpm par le gestionnaire de paquets de votre système, un détecteur de fuites de secrets branché sur tous vos enregistrements de code, et l'outil du coffre-fort. Ceux-là sans rien vous demander, parce que rien ne marche sans. Les outils qui servent à mettre en ligne, eux, attendent votre accord. La page a donc une section entière qui liste tout cela, sépare les deux régimes, et nomme les deux réglages système modifiés au passage.
+- **Deux autres affirmations étaient trop larges.** « Il ne modifie pas vos réglages de sécurité » devient « aucun droit supplémentaire dans Claude Code », ce qui est le fait vérifiable. Et la mention selon laquelle chaque commande interne restreint sa liste d'outils a été retirée : une partie le fait, pas toutes.
+- **L'adresse pour signaler une faille** devient contact@hypervibe.fr, celle de l'entreprise, au lieu d'une adresse personnelle.
+
+### Coulisses
+
+- Les vérifications automatiques sont désormais lancées à chaque publication, et un seul échec arrête la mise en ligne. Six d'entre elles sont nouvelles et arriment la page sécurité au code : un téléchargement qui apparaîtrait ailleurs que dans les trois endroits documentés fera échouer la recette, et la formule fautive ne peut plus revenir sans qu'on s'en aperçoive.
+
 ## v2.9.2 (21 août 2026)
 
 ### Correctifs

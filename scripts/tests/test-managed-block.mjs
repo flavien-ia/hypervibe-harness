@@ -30,6 +30,14 @@ function check(name, ok, detail = "") {
 }
 
 const rule = (id) => CATALOG.find((r) => r.id === id);
+/** Le dernier texte livre AVANT le texte courant. Quand une regle n'a jamais
+ *  ete reformulee (le cas de la plupart des regles d'un harnais qui vient
+ *  d'adopter le moteur), c'est son texte courant : la recette doit alors
+ *  verifier qu'il est reconnu tel quel, pas planter sur un tableau absent. */
+const ancienTexte = (id) => {
+  const r = rule(id);
+  return r.previousTexts?.[0] ?? r.text;
+};
 const boxes = [];
 function box() {
   const d = mkdtempSync(join(tmpdir(), "hv-rules-"));
@@ -100,12 +108,18 @@ const read = (f) => readFileSync(f, "utf8");
 {
   const home = box();
   const r0 = rule("no-build-for-verify");
-  const ancien = r0.previousTexts[0];
+  const ancien = ancienTexte("no-build-for-verify");
   const file = writeGlobal(home, [["no-build-for-verify", ancien, false]]);
   const r = runGlobal(home);
   const after = read(file);
-  check("c. ancienne formulation -> mise a jour", r.updated.includes("no-build-for-verify"), `updated=${r.updated}`);
-  check("c. texte courant en place", after.includes(r0.text) && !after.includes(ancien));
+  if (ancien === r0.text) {
+    // Jamais reformulee dans ce harnais : le seul engagement verifiable est
+    // qu'elle soit reconnue et laissee telle quelle.
+    check("c. formulation courante -> reconnue, pas touchee", r.keptEdited.length === 0 && after.includes(r0.text));
+  } else {
+    check("c. ancienne formulation -> mise a jour", r.updated.includes("no-build-for-verify"), `updated=${r.updated}`);
+    check("c. texte courant en place", after.includes(r0.text) && !after.includes(ancien));
+  }
 }
 
 // ── d. A rule the user edited is theirs ──────────────────────────────
@@ -149,7 +163,7 @@ const read = (f) => readFileSync(f, "utf8");
 {
   const home = box();
   const retiree = rule("deps-audit-before-prod");
-  const file = writeGlobal(home, [["deps-audit-before-prod", retiree.previousTexts[0], false]]);
+  const file = writeGlobal(home, [["deps-audit-before-prod", ancienTexte("deps-audit-before-prod"), false]]);
   const r = runGlobal(home);
   check("e. regle retiree (ancien texte casse) -> supprimee", r.retired.includes("deps-audit-before-prod"), `retired=${r.retired}`);
   check("e. absente du fichier", !read(file).includes("deps-audit-before-prod"));
@@ -194,7 +208,7 @@ const read = (f) => readFileSync(f, "utf8");
 // ── i. Nothing outside the block moves, CRLF included ────────────────
 {
   const home = box();
-  const file = writeGlobal(home, [["no-build-for-verify", rule("no-build-for-verify").previousTexts[0], false]], { crlf: true });
+  const file = writeGlobal(home, [["no-build-for-verify", ancienTexte("no-build-for-verify"), false]], { crlf: true });
   const avant = readFileSync(file);
   const coupe = (buf) => {
     const s = buf.toString("utf8");

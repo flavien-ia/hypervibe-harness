@@ -73,6 +73,55 @@ check(
   ).length === 0,
 );
 
+// ── « What /start installs » ─────────────────────────────────────────
+// Le plugin n'installe rien tout seul, mais /start installe beaucoup : Node,
+// Git, pnpm, gitleaks, le CLI du coffre, et il touche au PATH et au git global.
+// La tentation est d'ecrire « aucune dependance » et de s'arreter la : c'est
+// vrai du plugin et faux de l'experience. Une page de securite qui laisse
+// croire ca vaut moins que pas de page du tout, parce qu'on a agi dessus. Ces
+// controles lient la section a la realite du code.
+{
+  // Les scripts qui vont chercher un binaire sur le reseau. La liste est
+  // nommement connue : un quatrieme apparait, la page doit etre relue avant que
+  // la recette repasse au vert.
+  const CONNUS = [
+    "scripts/setup-gitleaks-global.mjs", // gitleaks, depuis ses releases GitHub
+    "scripts/vault/install-bw.mjs", // CLI Bitwarden, depuis vault.bitwarden.com
+    "scripts/update/update-hypervibe.mjs", // le plugin lui-meme, verifie par empreinte
+  ];
+  const telechargeurs = tous
+    .filter((p) => {
+      const rel = relative(ROOT, p).replace(/\\/g, "/");
+      if (!/\.(mjs|sh|ps1)$/.test(rel)) return false;
+      if (rel.startsWith("scripts/tests/") || rel.startsWith("templates/")) return false;
+      const s = readFileSync(p, "utf8");
+      return /https:\/\/[^\s"'`]*(releases|\/download|install\.sh|\.msixbundle)/.test(s);
+    })
+    .map((p) => relative(ROOT, p).replace(/\\/g, "/"));
+  const inattendus = telechargeurs.filter((p) => !CONNUS.includes(p));
+  check(
+    "aucun telechargement de binaire hors des scripts que la page documente",
+    inattendus.length === 0,
+    inattendus.join(", "),
+  );
+
+  const section = /##\s+What `\/start` installs\n([\s\S]*?)(?=\n## )/.exec(securite)?.[1] ?? "";
+  check("SECURITY.md dit ce que /start installe", section.length > 400);
+  for (const attendu of ["gitleaks", "Bitwarden", "Node.js", "PATH", "core.hooksPath"]) {
+    check(`cette section nomme ${attendu}`, section.includes(attendu), `${section.length} car.`);
+  }
+  check(
+    "la section distingue ce qui s'installe sans demander de ce qui attend un accord",
+    /without asking/.test(section) && /after you agree/.test(section),
+  );
+  // La formule exacte qui etait fausse : le plugin ne se sert PAS seulement
+  // d'outils deja presents, il les installe.
+  check(
+    "la page ne pretend plus se servir uniquement d'outils deja presents",
+    !/CLIs you already have/.test(securite),
+  );
+}
+
 // ── « Each skill declares the tools it may use » ─────────────────────
 {
   const skills = readdirSync(join(ROOT, "skills")).filter((d) =>
@@ -218,10 +267,13 @@ check(
     "AGENT_FETCH_WRITE_HOSTS",
     "Fail-open",
     "SHA-256",
-    "allowed-tools",
     "settings.json",
     "context7",
   ];
+  // `allowed-tools` a ete retire de la page : 33 des 40 skills internes le
+  // declarent, et 6 des 44 publiques. La phrase se lisait comme une regle
+  // generale, elle n'en etait pas une. Le controle qui tient, lui, reste :
+  // le plugin n'ecrit jamais dans settings.json.
   const absents = attendus.filter((m) => !securite.includes(m));
   check(
     "SECURITY.md mentionne toujours les mecanismes verifies ici",

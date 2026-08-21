@@ -16,17 +16,46 @@ what you installed is what was published.
   JavaScript or a template. The publishing pipeline round-trips each file
   through UTF-8 and **refuses the release** if any file is binary, rather than
   shipping something nobody can read.
-- **No `package.json`, so no dependencies and no install script.** Nothing is
-  fetched or executed when you install the plugin. The scripts use the Node
-  standard library and the CLIs you already have (git, pnpm, vercel, wrangler).
+- **No `package.json`, so no dependencies and no install script.** Adding the
+  plugin puts text files on disk and nothing else: nothing is fetched, nothing
+  runs, no `postinstall` fires. The scripts use the Node standard library and
+  command-line tools that live outside the plugin. Putting those tools on the
+  machine is a separate and visible step, described in the next section.
 - **The plugin never grants itself permissions.** It writes nothing to your
-  `settings.json`, and skills run with the tools your session already allows.
-  Every shell command they run still goes through the guardrail below.
-  Internal helpers additionally narrow their own tool list (`allowed-tools`
-  in the front matter).
+  `settings.json`, so it cannot widen what the assistant is allowed to do:
+  skills run with the tools your session already allows, and every shell
+  command they run still goes through the guardrail below.
 - **One MCP server, [context7](https://context7.com), over HTTP.** It serves
   library documentation. Nothing is installed locally to reach it, and its
   answers are treated like any other external content (see below).
+
+## What `/start` installs
+
+The plugin installs nothing on its own. Its first command, `/start`, does: it
+prepares the machine so that everything else works. That is where Hypervibe
+touches your system the most, so here is the whole list.
+
+Installed **without asking**, because nothing works without them:
+
+- **Node.js, Git and pnpm**, through your system package manager (winget on
+  Windows, Homebrew on macOS, itself installed from its official script if
+  missing). On Windows, winget is downloaded from the `microsoft/winget-cli`
+  releases when absent.
+- **gitleaks** (about 10 MB, from the project's GitHub releases), plus a global
+  git hook and a `~/.gitleaks.toml`. It scans every commit, in every repository
+  on the machine, and blocks one that carries a secret.
+- **The Bitwarden CLI**, from `vault.bitwarden.com`, for the key vault.
+
+Those change two system settings: your user `PATH`, so the tools are findable
+(never through `setx PATH`, which corrupts it), and `git config --global
+core.hooksPath`, to wire the secret scan.
+
+Installed **only after you agree**: the GitHub, Vercel and Cloudflare CLIs.
+`/start` shows the list and waits for an answer. Later, if you connect a
+Cloudflare account, it also provisions one shared scheduled worker on it.
+
+None of this is hidden: every command runs in front of you in the chat, and you
+can stop at any point.
 
 ## Guardrails
 
@@ -78,8 +107,8 @@ The allowlists come first and the framing second, on purpose: framing
 Global keys live in a Bitwarden vault, and are typed into an OS window that the
 assistant never sees. They are never printed in the chat, never committed, never
 written to a file. Project secrets stay in the project's `.env` and in Vercel.
-A global git hook (gitleaks, offered at `/start`) blocks any commit containing a
-detected secret.
+A global git hook (gitleaks, installed by `/start`) blocks any commit containing
+a detected secret.
 
 ## Verifying what you installed
 
@@ -96,6 +125,6 @@ under Apache 2.0.
 
 ## Reporting a vulnerability
 
-Write to **flavien@chervet.fr** rather than opening a public issue. Include what
+Write to **contact@hypervibe.fr** rather than opening a public issue. Include what
 you did, what happened, and the version (`.claude-plugin/plugin.json`). You will
 get an answer.
