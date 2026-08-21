@@ -201,6 +201,14 @@ check(
     "la mise a jour refuse d'installer si l'empreinte ne correspond pas",
     /sha256-mismatch/.test(up) && /api\/plugin\/current/.test(up),
   );
+  // Le manifeste est mis en cache : juste apres une publication il peut encore
+  // annoncer la version precedente, dont l'empreinte differe legitimement de
+  // l'archive fraichement telechargee. Sans cette garde, la verification
+  // refusait une mise a jour valide (constate a la publication de la 2.9.0).
+  check(
+    "elle ne compare que si le manifeste decrit la version telechargee",
+    /j\.version === version/.test(up),
+  );
 }
 
 // ── La page dit ce qu'elle promet (garde contre une page videe) ──────

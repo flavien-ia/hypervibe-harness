@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.1 (21 août 2026)
+
+### Correctifs
+
+- **La vérification du téléchargement ne bloque plus une mise à jour légitime.** Introduite en 2.9.0, elle comparait l'archive reçue à l'empreinte annoncée par le site. Or cette annonce est mise en cache dix minutes : juste après une nouvelle version, elle décrivait encore la précédente, et la mise à jour concluait à tort que le fichier était altéré. Elle ne compare désormais que lorsque le site parle bien de la version qui vient d'être téléchargée, et le site rafraîchit son annonce dès la publication. Refuser une mise à jour valide était la pire des deux erreurs.
+
 ## v2.9.0 (21 août 2026)
 
 ### Nouveautés

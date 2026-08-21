@@ -252,12 +252,25 @@ async function cmdDownload() {
   //
   // Une version publiee avant ce mecanisme n'a pas d'empreinte : on installe
   // alors sans verifier, plutot que de bloquer une mise a jour legitime.
+  //
+  // La comparaison n'a de sens que si le manifeste decrit LA MEME version que
+  // l'archive recue. Sinon (cache pas encore rafraichi, ou release survenue
+  // entre les deux appels), les deux empreintes different legitimement : on
+  // installe sans verifier plutot que de refuser a tort. Refuser une mise a
+  // jour valide est la pire des deux erreurs.
   let attendue = null;
   try {
     const r = await fetch(MANIFESTE_COURANT, { headers: { "User-Agent": "hypervibe-update" } });
     if (r.ok) {
       const j = await r.json();
-      if (j && typeof j.sha256 === "string" && j.sha256.length === 64) attendue = j.sha256;
+      if (
+        j &&
+        j.version === version &&
+        typeof j.sha256 === "string" &&
+        j.sha256.length === 64
+      ) {
+        attendue = j.sha256;
+      }
     }
   } catch {
     // Manifeste injoignable : on continue sans verifier (le telechargement,
