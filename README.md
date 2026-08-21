@@ -159,7 +159,7 @@ Three things worth knowing:
 
 - **Fail-open.** The hook runs before every Bash call; if it ever fails, it lets the command through and says so on stderr. It is a seatbelt, not an airlock.
 - **The hook only sees the command line.** What a script does internally escapes it, so `run-sql.mjs` and `execute-deletions.mjs` carry their own checks. Those also protect hosts without hooks, Codex included.
-- **Automations that legitimately push** may prefix their command with `HYPERVIBE_GUARD_ALLOW_PUSH=1`.
+- **Automations that legitimately push** may prefix their command with `HYPERVIBE_GUARD_ALLOW_PUSH=1`. An operation that legitimately restructures the whole tree (a monorepo conversion) may prefix its sweeping stage with `HYPERVIBE_GUARD_ALLOW_SWEEP=1`, after a `git status` proved nothing foreign is pending. Both prefixes are visible in the command, which is the point: the exception is stated, never silent.
 
 Hooks load when Claude Code starts: after installing or updating the plugin, restart it.
 

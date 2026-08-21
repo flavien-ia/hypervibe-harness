@@ -633,7 +633,10 @@ process.stdout.write(JSON.stringify({
   schemaPatched: state.schemaPatched,
   warnings,
   nextSteps: {
-    commit: `git add . && git commit -m "feat(agent): scaffold ${opts.name} agent"`,
+    // By name: the Bash guardrail refuses a sweeping `git add .`. The root
+    // files vary (lockfile, workspace, package.json): the skill reads
+    // `git status --short` and completes the list.
+    commit: `git add apps/${opts.name} <modified root files from git status> && git commit -m "feat(agent): scaffold ${opts.name} agent"`,
     push: "git push",
     renderSetup: [
       "Go to https://dashboard.render.com/blueprints",

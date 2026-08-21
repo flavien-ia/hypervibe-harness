@@ -85,6 +85,22 @@ function quotedPayloads(segment) {
   return out;
 }
 
+/** `git -C <dir> add -A` is still `git add -A`. Git accepts global options
+ *  before the subcommand (-C <dir>, -c key=val, --git-dir=..., --no-pager):
+ *  strip them so the subcommand sits right after `git`, whatever precedes it.
+ *  Without this, `git -C "$DIR" push` slipped past every pattern: found on the
+ *  plugin's own release skill, which pushes exactly that way. */
+function normaliseGit(seg) {
+  const m = /^git\s+/.exec(seg);
+  if (!m) return seg;
+  let rest = seg.slice(m[0].length);
+  const option =
+    /^(?:-C\s+(?:"[^"]*"|'[^']*'|\S+)|-c\s+(?:"[^"]*"|'[^']*'|\S+)|--(?:git-dir|work-tree|namespace|exec-path)=\S+|--no-pager|--no-replace-objects|--literal-pathspecs|--bare)\s+/;
+  let o;
+  while ((o = option.exec(rest)) !== null) rest = rest.slice(o[0].length);
+  return `git ${rest}`;
+}
+
 const DENY = "deny";
 const ASK = "ask";
 
@@ -104,18 +120,23 @@ export function decide(command) {
 
   for (const raw of segments(command)) {
     const { env, rest } = withoutEnv(raw);
-    const seg = rest;
+    const seg = normaliseGit(rest);
 
     // 1. Sweeping stage. No legitimate use in a repository where another
     //    session may be working, and the alternative is one word longer.
+    //    One documented exception: an operation that restructures the whole
+    //    tree (monorepo conversion) after a `git status` proved nothing
+    //    foreign is pending. The prefix makes that intent explicit and
+    //    visible in the command itself.
     if (
       /^git\s+add\s+(-A\b|--all\b|-u\b|\.(\s|$))/.test(seg) ||
       /^git\s+add\s+[^|&]*\s(-A|--all|-u)(\s|$)/.test(seg) ||
       /^git\s+commit\s+(-[a-zA-Z]*a[a-zA-Z]*)(\s|$)/.test(seg)
     ) {
+      if (env.get("HYPERVIBE_GUARD_ALLOW_SWEEP") === "1") continue;
       keep(
         DENY,
-        "Sweeping stage refused: on 2026-08-17 it swept another session's uncommitted work into a commit. Stage nominatively instead: `git add <file> [<file>...]`, then `git commit -m ...`. Check `git status --short` first if you are unsure what is pending.",
+        "Sweeping stage refused: on 2026-08-17 it swept another session's uncommitted work into a commit. Stage nominatively instead: `git add <file> [<file>...]`, then `git commit -m ...`. Check `git status --short` first if you are unsure what is pending. An operation that legitimately restructures the whole tree may prefix the command with HYPERVIBE_GUARD_ALLOW_SWEEP=1, after checking nothing foreign is pending.",
       );
       continue;
     }

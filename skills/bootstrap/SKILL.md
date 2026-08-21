@@ -608,9 +608,9 @@ The infrastructure and the addons are in place. Now we build the real applicatio
 
 ### For both cases:
 
-- **After each major section**, commit the progress:
+- **After each major section**, commit the progress. Stage the files you just created or changed **by name** (the guardrail refuses `git add .`, and you know exactly which files this section touched):
   ```bash
-  git add .
+  git add <files of this section>
   git commit -m "feat: implement [section name]"
   ```
 - **Do NOT push to Vercel after each section.** Wait until the full implementation is complete (Step 8 will handle the final push).
@@ -756,9 +756,10 @@ Only mention the audit to the user if a production vulnerability was found AND c
 ### 8b - Commit, push, and **final deployment verification**
 
 ```bash
-git add .
+git status --short          # list what this build produced
+git add <every file listed>  # by name: the guardrail refuses `git add .`
 git commit -m "feat: build application + legal pages"
-git push
+git push                     # the guardrail asks the user to confirm: expected, a push publishes
 ```
 
 The GitHub-to-Vercel auto-deploy was already verified at Step 2 (or repaired at Step 3). The push triggers a Vercel build - now you must **wait for the build to finish and verify that it succeeded**, otherwise a silent crash (TS error, prerender error, missing env var, etc.) slips under the radar and the user discovers the broken site in prod.
@@ -811,7 +812,7 @@ Decide based on `RESULT=`:
      Then use `vercel inspect --logs <target_url>` to read the full build logs (or `curl` the `LOG_URL` directly).
   2. Identify the exact error (TS error, prerender error on a client page, missing env var, etc.).
   3. Fix the cause in the code (for example: wrap `useSearchParams` in a `<Suspense>`, fix a type, add a missing env var via `_push-env-vars`).
-  4. `git add . && git commit -m "fix: <description>" && git push`
+  4. `git add <the files you fixed> && git commit -m "fix: <description>" && git push` (stage by name; the push asks the user to confirm, which is expected)
   5. **Re-run the verification block above** on the new SHA. Loop until `SUCCESS` (max 3 iterations - beyond that ask the user how to proceed).
 - **`NO_DEPLOY_REGISTERED`** → the GitHub-to-Vercel integration is not responding. Mention in Part 2 that the user must go to https://vercel.com/integrations/github to reactivate it, and do a manual `vercel --prod` for this project as a fallback.
 - **`TIMEOUT`** → the build exceeded 6 min. Probably a heavy project. Ask the user to verify manually on the Vercel dashboard and tell you if it is ok.

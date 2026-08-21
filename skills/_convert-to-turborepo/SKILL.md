@@ -224,8 +224,11 @@ If it errors:
 
 ## Step 11 - Commit
 
+This conversion moves the whole tree: staging file by file would be absurd here, so it is the one documented case where a sweeping stage is legitimate. **First** make sure nothing foreign is pending, **then** stage everything with the explicit prefix that the guardrail recognises (it refuses a bare `git add .`):
+
 ```bash
-git add .
+git status --short   # must show ONLY files this conversion moved or created; stop and ask if anything else is pending
+HYPERVIBE_GUARD_ALLOW_SWEEP=1 git add -A
 git commit -m "refactor: convert to Turborepo monorepo"
 ```
 

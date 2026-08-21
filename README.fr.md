@@ -159,7 +159,7 @@ Trois choses à savoir :
 
 - **Fail-open.** Le hook s'exécute avant chaque commande ; s'il échoue, il laisse passer et le dit sur stderr. C'est une ceinture, pas un sas.
 - **Le hook ne voit que la ligne de commande.** Ce qu'un script fait à l'intérieur lui échappe : `run-sql.mjs` et `execute-deletions.mjs` portent donc leur propre garde, qui protège aussi les hôtes sans hooks, Codex compris.
-- **Une automatisation qui pousse légitimement** peut préfixer sa commande par `HYPERVIBE_GUARD_ALLOW_PUSH=1`.
+- **Une automatisation qui pousse légitimement** peut préfixer sa commande par `HYPERVIBE_GUARD_ALLOW_PUSH=1`. Une opération qui restructure légitimement tout l'arbre (conversion en monorepo) peut préfixer son indexation globale par `HYPERVIBE_GUARD_ALLOW_SWEEP=1`, après qu'un `git status` a montré qu'aucun travail étranger n'est en attente. Les deux préfixes sont visibles dans la commande, et c'est le but : l'exception est dite, jamais silencieuse.
 
 Les hooks se chargent au démarrage de Claude Code : après une installation ou une mise à jour du plugin, le relancer.
 

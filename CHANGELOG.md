@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.2 (21 août 2026)
+
+### Correctifs
+
+- **Le garde-fou ne refuse plus les instructions du plugin lui-même.** Six commandes (dont `/bootstrap`, trois fois) prescrivaient encore `git add .`, que le garde-fou livré en 2.9.0 refuse : Claude se faisait bloquer par sa propre consigne en plein flux. Elles indexent désormais les fichiers par leur nom. La conversion en monorepo, qui déplace tout l'arbre, est le seul cas où le balayage est légitime : elle le dit explicitement par un préfixe, après avoir vérifié qu'aucun travail étranger n'est en attente.
+- **`git -C <dossier>` ne contourne plus rien.** Les options globales de git décalaient la sous-commande et faisaient passer `git -C x add -A` ou `git -C x push` sous le radar. Elles sont neutralisées avant l'analyse.
+
 ## v2.9.1 (21 août 2026)
 
 ### Correctifs

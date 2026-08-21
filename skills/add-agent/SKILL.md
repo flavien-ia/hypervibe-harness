@@ -411,10 +411,11 @@ From the JSON captured in Step 5, display exactly:
 >
 > ### To put it live
 >
-> 1. **Commit + push** what I just scaffolded:
+> 1. **Commit + push** what I just scaffolded (by name: the new `apps/<NAME>` folder plus the root files `git status --short` lists as modified, typically `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `package.json`):
 >    ```
->    git add . && git commit -m "feat(agent): scaffold <NAME> agent" && git push
+>    git add apps/<NAME> <modified root files> && git commit -m "feat(agent): scaffold <NAME> agent" && git push
 >    ```
+>    The push asks you to confirm: that is the guardrail doing its job.
 >
 > 2. **Create the Render service** *(manual action, ~2 min)*:
 >    - Go to **https://dashboard.render.com/blueprints**

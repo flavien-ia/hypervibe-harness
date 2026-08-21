@@ -649,9 +649,9 @@ If an auto-fix failed (STRIPE_FIX_FAIL) or if the user skipped a manual action, 
 
 If files were modified (replacement of vercel.app URLs, CLAUDE.md update, etc.):
 
-1. Commit the changes:
+1. Commit the changes, staging by name the files this step modified (the guardrail refuses a sweeping `git add -A`; `git status --short` lists them):
    ```bash
-   git add -A && git commit -m "fix(seo): replace vercel.app URLs with custom domain <domain>"
+   git add <modified files, e.g. src/app/layout.tsx CLAUDE.md> && git commit -m "fix(seo): replace vercel.app URLs with custom domain <domain>"
    ```
 2. Push to trigger the deployment:
    ```bash
