@@ -27,6 +27,10 @@ import path from "node:path";
 const MANIFESTE_PUBLIC =
   "https://raw.githubusercontent.com/flavien-ia/hypervibe-harness/main/.claude-plugin/marketplace.json";
 const TELECHARGEMENT = "https://hypervibe.fr/api/plugin/download-public";
+// Ce que le site annonce de la version courante : sa version et l'empreinte
+// de l'archive servie. Sert a verifier le telechargement avant de remplacer
+// une installation qui marche.
+const MANIFESTE_COURANT = "https://hypervibe.fr/api/plugin/current";
 const DOSSIER_TRAVAIL = path.join(homedir(), ".hypervibe", "updates");
 
 const args = process.argv.slice(2);
@@ -233,6 +237,47 @@ async function cmdDownload() {
   }
   const version = JSON.parse(manifeste.contenu.toString("utf8")).version;
 
+  const empreinte = createHash("sha256").update(buf).digest("hex");
+
+  // Verification d'integrite. Le site publie l'empreinte de l'archive qu'il
+  // sert ; on refait le calcul sur ce qu'on a recu. Un ecart signifie que le
+  // telechargement n'est pas ce qui a ete publie (transfert corrompu, cache
+  // intermediaire, archive substituee) : on ne remplace pas une installation
+  // qui marche par un fichier dont on ne sait pas ce qu'il est.
+  //
+  // Portee exacte, pour ne pas se raconter d'histoires : la meme origine sert
+  // le fichier et son empreinte, donc ceci prouve l'integrite du transfert,
+  // pas l'authenticite si le site lui-meme est compromis. Le canal independant
+  // est la release GitHub, qui porte la meme empreinte.
+  //
+  // Une version publiee avant ce mecanisme n'a pas d'empreinte : on installe
+  // alors sans verifier, plutot que de bloquer une mise a jour legitime.
+  let attendue = null;
+  try {
+    const r = await fetch(MANIFESTE_COURANT, { headers: { "User-Agent": "hypervibe-update" } });
+    if (r.ok) {
+      const j = await r.json();
+      if (j && typeof j.sha256 === "string" && j.sha256.length === 64) attendue = j.sha256;
+    }
+  } catch {
+    // Manifeste injoignable : on continue sans verifier (le telechargement,
+    // lui, a reussi). Ne jamais faire dependre la mise a jour d'un second
+    // appel reseau facultatif.
+  }
+  if (attendue && attendue !== empreinte) {
+    return rendre(
+      {
+        ok: false,
+        reason: "sha256-mismatch",
+        expected: attendue,
+        got: empreinte,
+        message:
+          "L'archive telechargee ne correspond pas a l'empreinte publiee par le site. Rien n'a ete installe. Reessayer plus tard, et si l'ecart persiste, verifier l'empreinte sur la release GitHub avant d'installer quoi que ce soit.",
+      },
+      1,
+    );
+  }
+
   const fichier = path.join(DOSSIER_TRAVAIL, `hypervibe-${version}.zip`);
   writeFileSync(fichier, buf);
   rendre({
@@ -241,7 +286,8 @@ async function cmdDownload() {
     version,
     files: entrees.length,
     sizeBytes: buf.length,
-    sha256: createHash("sha256").update(buf).digest("hex"),
+    sha256: empreinte,
+    sha256Verified: attendue !== null,
   });
 }
 

@@ -1,0 +1,17 @@
+{
+  "description": "Hypervibe guardrails: an irreversible or outward-facing shell command is confirmed by the user, or refused with the correct alternative. Fail-open by design.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-bash.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

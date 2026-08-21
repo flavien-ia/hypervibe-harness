@@ -1,6 +1,12 @@
 // agent/tools/db-query.ts - Read-only SQL access to the project's Neon DB.
 //
 // Lets the agent run SELECT queries against the project's Postgres database.
+//
+// What comes out of here is private data. Nothing in this file can stop it from
+// leaving; what stops it is that the two ways out are fenced: send-email only
+// reaches AGENT_MAIL_ALLOWLIST, and http-fetch only writes to
+// AGENT_FETCH_WRITE_HOSTS. Keep both lists narrow, and never widen one to make
+// a fetched page happy.
 // Useful for: looking up users, fetching past invocation context, computing
 // stats, finding things to act on ("send a reminder to all users with X").
 //

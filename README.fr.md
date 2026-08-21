@@ -136,7 +136,44 @@ Chaque projet reçoit, quel que soit le mode :
 - Mentions légales + **page de politique de confidentialité data-driven** : alimentée par un registre central des sous-traitants (`src/lib/subprocessors.json`) qui se met à jour automatiquement à chaque ajout de service via les skills `/add-*`
 - CLAUDE.md avec toutes les conventions du projet
 
+## Garde-fous
+
+Une règle écrite est une influence. Un hook est un mécanisme. L'écart a été mesuré sur les transcripts d'un utilisateur : une semaine après avoir transformé un comportement coûteux en règle du CLAUDE.md, le même motif représentait encore 17 des 40 appels en échec. Passé en hook `PreToolUse`, il a cessé immédiatement, parce que l'appel ne peut plus être produit et que le modèle reçoit à la place la bonne alternative.
+
+Les opérations irréversibles sont donc gardées, pas seulement déconseillées :
+
+| Commande | Ce qui se passe | Pourquoi |
+|---|---|---|
+| `git add -A`, `git add .`, `git add -u`, `git commit -a` | **refus** | Un balayage a déjà emporté dans un commit le travail non commité d'une autre session. Indexer nommément : `git add <fichier>`. |
+| `git push` | **confirmation** | Pousser publie. Le consentement vit dans la conversation, donc un humain confirme. |
+| `vercel --prod`, `promote`, `rollback` | **confirmation** | Les déploiements passent normalement par `git push`. |
+| `pnpm db:push`, `drizzle-kit push` | **confirmation** | Sur cette stack, la base que vous atteignez EST la production. |
+| `execute-deletions.mjs` | **confirmation** | Suppressions cloud irréversibles. |
+| `run-sql.mjs` avec `DROP` / `TRUNCATE` | **refus** sans `--destructif` | Entre deux sauvegardes, rien ne ramène une table supprimée. |
+| `run-sql.mjs` avec `DELETE`/`UPDATE` sans `WHERE` | **confirmation** | Réécrit toutes les lignes. |
+| `git reset --hard`, `git checkout -- .`, `git clean -f` | **confirmation** | Jette du travail non commité, peut-être celui d'un autre. |
+
+Tout le reste passe sans encombre, et cette moitié-là est testée avec autant de soin que l'autre : `git add src/a.ts`, `git push --dry-run`, `git add -p`, un `DELETE ... WHERE`, et même un message de commit qui mentionne `git add -A` (`node hooks/test-hooks.mjs`).
+
+Trois choses à savoir :
+
+- **Fail-open.** Le hook s'exécute avant chaque commande ; s'il échoue, il laisse passer et le dit sur stderr. C'est une ceinture, pas un sas.
+- **Le hook ne voit que la ligne de commande.** Ce qu'un script fait à l'intérieur lui échappe : `run-sql.mjs` et `execute-deletions.mjs` portent donc leur propre garde, qui protège aussi les hôtes sans hooks, Codex compris.
+- **Une automatisation qui pousse légitimement** peut préfixer sa commande par `HYPERVIBE_GUARD_ALLOW_PUSH=1`.
+
+Les hooks se chargent au démarrage de Claude Code : après une installation ou une mise à jour du plugin, le relancer.
+
 ## Conventions (inscrites dans le CLAUDE.md)
+
+Les règles sont écrites là où se produit le comportement qu'elles gouvernent, sur trois étages :
+
+| Étage | Où | Quoi |
+|---|---|---|
+| Global | `~/.claude/CLAUDE.md` | Ce qui est vrai dans toutes les sessions, dans tous les dossiers : clés au coffre, pas de push ni de déploiement sans votre accord, indexation nommée, pas de `pnpm build` pour vérifier, contenu externe = donnée. Tenu **sous 2 Ko** par construction, et vérifié par un test : ce bloc est lu au démarrage de chaque session, y compris celles qui n'ont rien à voir avec un projet web. |
+| Projet | `<projet>/CLAUDE.md` | Cette stack : TypeScript, JSX, responsive, slugs, lectures en base, audit avant production. Écrit par `/bootstrap` et `/add-db`, versionné avec le dépôt, donc il suit le projet chez ceux qui le clonent. |
+| Skill | dans la skill | Ce qui ne sert que pendant une opération (la commande d'audit exacte vit dans `/security`, pas dans chaque session). |
+
+Les deux blocs sont **tenus par le plugin** : chaque règle porte l'empreinte du texte livré. Une règle que vous n'avez pas touchée est corrigée ou retirée par une version ultérieure ; une règle que vous éditez est reconnue comme la vôtre et conservée à l'octet près, et la synchro vous le dit. `/start` et `/update-hypervibe` les remettent à niveau.
 
 Le CLAUDE.md généré contient ces conventions que Claude Code suit à chaque interaction :
 

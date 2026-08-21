@@ -86,6 +86,9 @@ import { homedir, platform } from "node:os";
 import { fileURLToPath } from "node:url";
 import { render } from "./_render.mjs";
 import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
+import { buildRuleSets } from "./rules/rules.mjs";
+import { PROJECT_BLOCK } from "./rules/blocks.mjs";
+import { syncManagedBlock } from "./rules/managed-block.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -912,12 +915,19 @@ function notFoundPage() {
 }
 
 // ─── Step 10: CLAUDE.md core ──────────────────────────────────────────
-// Writes the project's initial CLAUDE.md. Contains the unconditional T3-specific
-// conventions only - addons (add-db, add-email, ...) extend this file later via
-// _update-claude-md. Cross-project conventions (TypeScript no-any, responsive,
-// kebab-case URLs, etc.) live in the user's global ~/.claude/CLAUDE.md (managed
-// by /start), not here. The bootstrap SKILL also adds a "Cahier des charges"
-// line after the user-facing CDC step if a spec file was provided.
+// Writes the project's initial CLAUDE.md: the unconditional T3 conventions from
+// the template, then the managed block of Hypervibe project rules (TypeScript,
+// JSX, responsive, slugs, database reads, pre-production audit).
+//
+// Those rules used to sit in the user's global ~/.claude/CLAUDE.md, which is
+// read at the start of EVERY session in EVERY folder: a rule about Neon egress
+// was being loaded to write a slide deck. They belong here, next to the code
+// they govern, and they travel with the repository to whoever clones it. The
+// global block now holds only what is true everywhere.
+//
+// Addons (add-db, add-email, ...) keep extending this file through
+// _update-claude-md; their free-form lines live outside the managed block and
+// are never touched by it.
 function claudeMdCore() {
   log("Writing CLAUDE.md (project-level core)");
   // Template: templates/bootstrap/claude-md-core.md
@@ -929,7 +939,14 @@ function claudeMdCore() {
       DESCRIPTION: description,
     }),
   );
-  ok("CLAUDE.md core written");
+  // A T3 scaffold always ships Drizzle and is wired to Neon by /add-db, so the
+  // database rule applies from the start.
+  const rapport = syncManagedBlock({
+    file: join(PROJECT_DIR, "CLAUDE.md"),
+    ...PROJECT_BLOCK,
+    ...buildRuleSets("project", new Set(["--with-neon"])),
+  });
+  ok(`CLAUDE.md core written (+ ${rapport.added.length} project rules)`);
 }
 
 // ─── Step 10b: vercel.json (region pinning) ───────────────────────────

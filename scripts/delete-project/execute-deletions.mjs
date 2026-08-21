@@ -4,9 +4,17 @@
 //
 // Usage:
 //   node execute-deletions.mjs --inventory <path.json> --scope <json-array>
+//                              --confirm <project-name>
 //
 // Where:
 //   --inventory  : path to the JSON file produced by discover-resources.mjs
+//   --confirm    : the project name, typed again, and matched against the
+//                  inventory. Nothing here can be undone: the database, its
+//                  backups, the stored files and the DNS records all go at
+//                  once. Naming the target is the cheapest possible proof that
+//                  this run is the one the user asked for, and it is what
+//                  stops a stale command line from deleting the wrong project.
+//                  /delete-project passes it after its own double confirmation.
 //   --scope      : JSON array of categories to delete. Subset of:
 //                  ["vercel","neon","r2","workers","dns","db-backup",
 //                   "cron-jobs","render","stripe-webhooks","upstash",
@@ -51,8 +59,9 @@ function arg(name) {
 }
 const INVENTORY_PATH = arg("--inventory");
 const SCOPE_JSON = arg("--scope");
+const CONFIRM = arg("--confirm");
 if (!INVENTORY_PATH || !SCOPE_JSON) {
-  console.error("Usage: node execute-deletions.mjs --inventory <path.json> --scope <json-array>");
+  console.error("Usage: node execute-deletions.mjs --inventory <path.json> --scope <json-array> --confirm <project-name>");
   process.exit(1);
 }
 if (!existsSync(INVENTORY_PATH)) {
@@ -72,6 +81,15 @@ if (scope.length === 1 && scope[0] === "all") scope = ALL_CATEGORIES;
 const scopeSet = new Set(scope);
 
 const PROJECT = inventory.project;
+// The confirmation is checked against the inventory, once it is loaded and the
+// real target is known.
+if (!CONFIRM || CONFIRM.trim().toLowerCase() !== String(PROJECT).trim().toLowerCase()) {
+  console.error(
+    `Refuse : ces suppressions sont irreversibles et visent le projet "${PROJECT}".\n` +
+      "Relancer avec --confirm \"" + PROJECT + "\" pour confirmer la cible.",
+  );
+  process.exit(7);
+}
 const CF_ACCOUNT_ID = inventory.cloudflareAccountId;
 // Sibling project names computed at discovery time (disambiguation of shared
 // prefixes, e.g. "street" vs "street-cool").

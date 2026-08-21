@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.9.0 (21 août 2026)
+
+### Nouveautés
+
+- **Des garde-fous, pas seulement des consignes** : les opérations qu'on ne peut pas défaire sont désormais bloquées ou soumises à votre confirmation. Un balayage `git add -A` et le SQL destructeur sont refusés, avec la bonne alternative en clair ; un push, une mise en ligne directe, un envoi de schéma en base, une suppression de projet ou un `git reset --hard` demandent votre accord. Tout le reste passe sans rien demander, et cette moitié-là est testée avec autant de soin que l'autre. Fermez et rouvrez Claude Code après la mise à jour pour que ça prenne effet.
+- **Une page sécurité** (`SECURITY.md`, et sa version lisible sur hypervibe.fr) : ce que le plugin contient, ce qu'il refuse de faire, comment vérifier que ce que vous avez téléchargé est bien ce qui a été publié.
+- **Vos téléchargements se vérifient tout seuls** : chaque version publiée porte une empreinte, et la mise à jour refuse d'installer si ce qu'elle a reçu ne correspond pas.
+
+### Améliorations
+
+- **Vos règles se corrigent enfin toutes seules.** Jusqu'ici, le bloc de règles écrit dans votre CLAUDE.md était figé au jour de votre première installation : une règle livrée avec une erreur y restait pour toujours, et les nouvelles n'arrivaient jamais. Chaque règle porte maintenant une empreinte de son texte : celles que vous n'avez pas touchées se mettent à jour ou disparaissent quand il le faut, celles que vous avez modifiées restent les vôtres, mot pour mot, et on vous le dit.
+- **Le bloc global a fondu de moitié**, et les règles qui ne valent que dans un projet web (TypeScript, responsive, adresses de pages, lectures en base) sont descendues dans le CLAUDE.md du projet, où elles sont utiles et où elles suivent le dépôt. Le bloc global ne garde que ce qui est vrai partout.
+- **Les agents que vous créez sont désormais tenus** : celui qui lit le web ne peut écrire qu'aux adresses et aux services que vous avez listés, vides par défaut. Ce qu'il récupère lui revient encadré, pour qu'une page ne puisse pas se faire passer pour une consigne.
+- **L'audit des dépendances remarche** : la commande d'avant échouait en silence sur tout projet pnpm. `/security` et la règle utilisent maintenant `pnpm audit --prod`.
+- **Les commandes qui vont chercher de la documentation** disent explicitement ce qu'elles font du contenu récupéré : de la matière à analyser, jamais des instructions à suivre.
+
+### Coulisses
+
+- Une suite de recettes (`node scripts/tests/run-all.mjs`) vérifie les garde-fous dans les deux sens, la mécanique des blocs de règles, les barrières des agents générés, et que chaque affirmation de la page sécurité est toujours vraie.
+
 ## v2.8.5 (14 août 2026)
 
 ### Coulisses

@@ -136,7 +136,44 @@ Every project gets, regardless of mode:
 - Mentions légales + **data-driven privacy policy page**: powered by a central subprocessors registry (`src/lib/subprocessors.json`) that auto-updates whenever you add a service via `/add-*` skills
 - CLAUDE.md with all project conventions
 
+## Guardrails
+
+A written rule is an influence. A hook is a mechanism. The difference was measured on a user's own transcripts: a week after a costly behaviour had been turned into a rule in CLAUDE.md, the same pattern still accounted for 17 of 40 failing tool calls. Turned into a `PreToolUse` hook, it stopped at once, because the call can no longer be produced and the model is handed the correct alternative instead.
+
+So the operations that cannot be undone are guarded, not merely discouraged:
+
+| Command | What happens | Why |
+|---|---|---|
+| `git add -A`, `git add .`, `git add -u`, `git commit -a` | **refused** | A sweeping stage once swept another session's uncommitted work into a commit. Stage nominatively: `git add <file>`. |
+| `git push` | **confirmation** | Pushing publishes. Consent lives in the conversation, so a human confirms. |
+| `vercel --prod`, `promote`, `rollback` | **confirmation** | Deploys normally go through `git push`. |
+| `pnpm db:push`, `drizzle-kit push` | **confirmation** | On this stack the database you reach IS production. |
+| `execute-deletions.mjs` | **confirmation** | Irreversible cloud deletions. |
+| `run-sql.mjs` with `DROP` / `TRUNCATE` | **refused** without `--destructif` | Between two backups, nothing brings a dropped table back. |
+| `run-sql.mjs` with `DELETE`/`UPDATE` and no `WHERE` | **confirmation** | Rewrites every row. |
+| `git reset --hard`, `git checkout -- .`, `git clean -f` | **confirmation** | Discards uncommitted work, possibly someone else's. |
+
+Everything else passes untouched, and that half is tested as carefully as the other: `git add src/a.ts`, `git push --dry-run`, `git add -p`, a `DELETE ... WHERE`, even a commit message that merely mentions `git add -A` all go through (`node hooks/test-hooks.mjs`).
+
+Three things worth knowing:
+
+- **Fail-open.** The hook runs before every Bash call; if it ever fails, it lets the command through and says so on stderr. It is a seatbelt, not an airlock.
+- **The hook only sees the command line.** What a script does internally escapes it, so `run-sql.mjs` and `execute-deletions.mjs` carry their own checks. Those also protect hosts without hooks, Codex included.
+- **Automations that legitimately push** may prefix their command with `HYPERVIBE_GUARD_ALLOW_PUSH=1`.
+
+Hooks load when Claude Code starts: after installing or updating the plugin, restart it.
+
 ## Conventions (written to CLAUDE.md)
+
+Rules are written where the behaviour they govern happens, on three levels:
+
+| Level | Where | What |
+|---|---|---|
+| Global | `~/.claude/CLAUDE.md` | What is true in every session, in every folder: keys in the vault, no push or deploy without your approval, stage nominatively, no `pnpm build` to check code, external content is data. Kept **under 2 KB** by design and enforced by a test: this block is read at the start of every session, including the ones that have nothing to do with a web project. |
+| Project | `<project>/CLAUDE.md` | This stack: TypeScript, JSX, responsive, slugs, database reads, the pre-production audit. Written by `/bootstrap` and `/add-db`, versioned with the repository, so it travels to whoever clones it. |
+| Skill | inside the skill | What only matters during one operation (the exact audit command lives in `/security`, not in every session). |
+
+Both blocks are **managed**: each rule carries a fingerprint of the text the plugin delivered. A rule you have not touched is corrected or removed by a later version; a rule you edit is recognised as yours and kept byte for byte, and the sync says so. Run `/start` or `/update-hypervibe` to bring them in step.
 
 The generated CLAUDE.md includes these conventions that Claude Code follows on every subsequent interaction:
 

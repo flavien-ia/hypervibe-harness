@@ -91,6 +91,12 @@ const opts = {
   memory: "kv",
   model: "", // empty = resolve from /v1/models (see resolveModel)
   systemPrompt: "",
+  // Who this agent may email, and which hosts it may write to. Empty means
+  // "nothing goes out", which is the right default: an agent that reads the
+  // open web, holds private data and can send anywhere is the exact shape an
+  // indirect prompt injection needs. See templates/agent/tools/send-email.ts.
+  mailAllowlist: "",
+  fetchWriteHosts: "",
 };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -103,6 +109,8 @@ for (let i = 0; i < args.length; i++) {
     case "--memory": opts.memory = next; i++; break;
     case "--model": opts.model = next; i++; break;
     case "--system-prompt": opts.systemPrompt = next; i++; break;
+    case "--mail-allowlist": opts.mailAllowlist = next; i++; break;
+    case "--fetch-write-hosts": opts.fetchWriteHosts = next; i++; break;
     default: fail(`Unknown arg: ${a}`);
   }
 }
@@ -391,13 +399,45 @@ async function patchModel() {
   ok(`Model "${opts.model}" set in loop.ts`);
 }
 
-// ─── Step 7 - patchTools (no-op for v1: keep all 3 default tools) ────
+// ─── Step 7 - patchTools: keep the 3 default tools, and fence the two ─
+// that let data out.
+//
+// The agent gets http_fetch (reads untrusted content), db_query (holds private
+// data) and send_email (a way out). Those three together are what makes an
+// indirect prompt injection worth attempting: a poisoned page tells the agent
+// to mail the customer table somewhere. The system prompt asks it not to; these
+// two lists mean it cannot.
+//
+// Written into render.yaml so they are visible where the agent is operated,
+// and editable there without a redeploy of the scaffold.
 async function patchTools() {
-  // v1: the user gets http_fetch, send_email, db_query by default. The
-  // /add-agent SKILL flow will later inject extra tools (gmail, calendar)
-  // when the description warrants it - that's a Claude-driven post-process,
-  // not handled here.
-  ok("Default tools kept: http_fetch, send_email, db_query");
+  const p = join(AGENT_DIR, "render.yaml");
+  if (!existsSync(p)) {
+    warn("render.yaml not found - allowlists not written; set AGENT_MAIL_ALLOWLIST and AGENT_FETCH_WRITE_HOSTS in the Render dashboard");
+    return;
+  }
+  const before = readFileSync(p, "utf8");
+  const bloc = [
+    "      - key: AGENT_MAIL_ALLOWLIST",
+    `        value: ${JSON.stringify(opts.mailAllowlist)}`,
+    "      - key: AGENT_FETCH_WRITE_HOSTS",
+    `        value: ${JSON.stringify(opts.fetchWriteHosts)}`,
+  ].join("\n");
+  if (before.includes("AGENT_MAIL_ALLOWLIST")) {
+    ok("Allowlists already present in render.yaml");
+  } else {
+    const anchor = "    envVars:\n";
+    if (!before.includes(anchor)) {
+      warn("envVars block not found in render.yaml - set the two allowlists in the Render dashboard");
+      return;
+    }
+    writeFileSync(p, before.replace(anchor, anchor + bloc + "\n"), "utf8");
+  }
+  ok(
+    `Tools: http_fetch, send_email, db_query. Mail allowlist: ${
+      opts.mailAllowlist || "(empty: sends nothing until set)"
+    }. Write hosts: ${opts.fetchWriteHosts || "(empty: read-only)"}`,
+  );
 }
 
 // ─── Step 8 - patchMemory ────────────────────────────────────────────
@@ -605,6 +645,8 @@ process.stdout.write(JSON.stringify({
     ],
     envVarsToSet: [
       "ANTHROPIC_API_KEY (already known by /add-agent - will be passed automatically)",
+      `AGENT_MAIL_ALLOWLIST (who this agent may email: addresses or @domains, comma separated${opts.mailAllowlist ? `; set to ${opts.mailAllowlist}` : "; EMPTY, so it cannot send anything yet"})`,
+      `AGENT_FETCH_WRITE_HOSTS (hosts it may POST/PUT to${opts.fetchWriteHosts ? `; set to ${opts.fetchWriteHosts}` : "; empty, so it only reads"})`,
       "DATABASE_URL (from your web .env)",
       "BREVO_API_KEY + BREVO_SENDER_EMAIL + BREVO_SENDER_NAME (or RESEND_API_KEY)",
       "ADMIN_EMAIL (for agent error emails)",

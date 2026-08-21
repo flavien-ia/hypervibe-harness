@@ -106,25 +106,26 @@ Check in `next.config.js` or the middleware whether the following headers are co
 
 ### 1g - Dependencies
 
-Use `npm audit` with a temporary lockfile rather than `pnpm audit` (pnpm 10 always hits the old deprecated endpoint `/audits/quick` → HTTP 410):
+Audit with the package manager that owns the lockfile:
+
+- **pnpm project** (`pnpm-lock.yaml`, the default on this stack):
 
 ```bash
-HAD_LOCK=$([ -f package-lock.json ] && echo 1 || echo 0)
-npm install --package-lock-only --silent 2>&1 && npm audit --omit=dev --json 2>&1
-[ "$HAD_LOCK" = "0" ] && rm -f package-lock.json
+pnpm audit --prod --json 2>&1
 ```
 
-Three things this sequence gets right, keep them:
-- **`&&`**: if the lockfile cannot be generated (offline, private registry, peer-dep conflict), `npm audit` does not run on a stale or missing lockfile and pretend to be an audit.
-- **`HAD_LOCK` guard**: in a project that genuinely uses npm, `package-lock.json` already exists and is a real source file. Only the lockfile *we* created gets deleted.
-- **The cleanup line is separate** (not chained behind `&&`), so a failed audit still leaves no orphan `package-lock.json` behind in a pnpm repo.
+  Requires **pnpm 11+**: pnpm 10 and older call the retired registry endpoint `/-/npm/v1/security/audits/quick` and fail with HTTP 410. pnpm 11 rewired its client to the current `advisories/bulk` endpoint. If `pnpm --version` says 10 or older, upgrade pnpm first (`npm install -g pnpm`, same as the /bootstrap preflight); do not work around it.
+- **npm project** (a `package-lock.json` that is a real source file): `npm audit --omit=dev --json 2>&1` directly.
+
+**Never use the old detour** (`npm install --package-lock-only && npm audit` with a throwaway lockfile). It is dead: on a pnpm project with an installed `node_modules`, npm 11's arborist walks the pnpm symlink forest despite `--package-lock-only` and crashes with `Cannot read properties of null (reading 'matches')` before any audit runs (root cause isolated 2026-08-21: same package.json in a bare directory passes; the trigger is the pnpm-shaped `node_modules`). It also audited a hypothetical npm resolution instead of the tree the project actually ships.
 
 **Reading the result:**
-- `npm audit` **exits non-zero when it finds vulnerabilities**. That is a successful audit, not an error. Judge success on the output being JSON with a `metadata.vulnerabilities` object.
-- **If no valid JSON comes back, the audit failed.** Report it as an explicit line in the final report (`Dependencies: not audited - <reason>`) and move on. Do **not** improvise a fallback: the ad-hoc retries invented here have written to `/tmp`, which does not exist on Windows. If you really need a scratch file, use the session scratchpad directory, never `/tmp`.
+- The audit **exits non-zero when it finds vulnerabilities**. That is a successful audit, not an error. Judge success on the output being valid JSON with a `metadata.vulnerabilities` object.
+- `pnpm audit --json` returns the npm-audit **v1** shape: an `advisories` map (each entry carries `module_name`, `severity`, `vulnerable_versions`, `patched_versions`, `findings[].paths`) plus `metadata.vulnerabilities`. There is no `fixAvailable` field (that is npm's v2 shape).
+- **If no valid JSON comes back, the audit failed.** Report it as an explicit line in the final report (`Dependencies: not audited - <reason>`) and move on. Do **not** improvise a fallback: the ad-hoc retries invented here have written to `/tmp`, which does not exist on Windows. If you really need a scratch file, use the session scratchpad directory, never `/tmp`. One known transient signature, for the record: `ERR_PNPM_AUDIT_BAD_RESPONSE ... invalid JSON: Unexpected token ''` (July 2026: the registry briefly served gzip bodies without a `Content-Encoding` header on large responses, while small ones passed, which made it look project-specific). Registry-side and since fixed: if it recurs, report "not audited" and retry later rather than building a workaround.
 
-- Parse the returned JSON, flag the critical and high vulnerabilities in prod (devDeps already excluded by `--omit=dev`).
-- Propose `pnpm update <pkg>@<safe-version>` for each vulnerable package (read `fixAvailable.version` in the JSON output).
+- Parse the returned JSON, flag the critical and high vulnerabilities in prod (devDeps already excluded by `--prod`).
+- Propose `pnpm update <pkg>@<safe-version>` for each vulnerable package (derive the safe version from the advisory's `patched_versions` range).
 - **Next.js itself**: check the installed `next` version explicitly (it appears in the audit output like any package, but treat it as its own finding). Pay special attention to the middleware authorization bypass class of CVEs (e.g. CVE-2025-29927: a spoofed internal header let attackers skip middleware auth checks entirely). If `next` is affected by a critical advisory, upgrading it is a 🔴, not a ⚠️.
 
 ### 1h - Rate limiting and abuse protection
@@ -213,7 +214,7 @@ If yes, fix in this order of priority:
 5. **Missing security headers** → run `node "${CLAUDE_SKILL_DIR}/../../scripts/setup-security.mjs"` (idempotent: injects the headers into the EXISTING next.config without regenerating it - wrapped configs like next-intl and custom options survive - + console.log isDev guard + rate-limit.ts + rateLimitedProcedure if not already in place; also removes the deprecated X-XSS-Protection header if present). Two follow-ups after running it:
    - If the script reports a ⚠️ saying it could not inject (custom `headers()` already present, or config object not found), apply the `securityHeaders` block manually in `next.config` by merging it with what exists.
    - The script writes the `rateLimitedProcedure` error message in English: if the project's audience is not English-speaking, translate that message in `src/server/api/trpc.ts` into the site's language.
-6. **Vulnerable dependencies** → parse the JSON output of `npm audit --omit=dev` (generated in 1g) to identify the affected packages, then `pnpm update <pkg>@<safe-version>` for each. `pnpm audit --fix` also depends on the old deprecated endpoint, do not rely on it.
+6. **Vulnerable dependencies** → parse the JSON output of the audit run in 1g (`pnpm audit --prod --json`, or `npm audit --omit=dev --json` on an npm project) to identify the affected packages, then `pnpm update <pkg>@<safe-version>` for each. Do not rely on `pnpm audit --fix`: it does not update anything, it writes blanket `overrides` into package.json, which pins transitive versions indefinitely and hides the problem instead of fixing it.
 7. **Remaining problems** identified in the audit.
 
 **After the fixes, before reporting**: run `pnpm tsc --noEmit && pnpm lint` and fix any error they raise. Never leave the project in a state that does not compile or lint (never use `pnpm build` for this check).

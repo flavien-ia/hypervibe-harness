@@ -18,6 +18,12 @@ You add or update entries in the project `CLAUDE.md` file idempotently. You work
 
 ---
 
+## What this helper does NOT own
+
+The project CLAUDE.md also contains a **managed block** between `<!-- hypervibe:project-rules -->` and `<!-- /hypervibe:project-rules -->`, written by `scripts/rules/update-project-claude-md.mjs`. That block belongs to the plugin: it is rewritten on every sync, and its rules carry a fingerprint so an untouched one can be corrected later.
+
+Never write inside it. The lines this helper adds live **outside** the block, and are never touched by the sync. If a caller asks for a line that duplicates a managed rule (database reads, TypeScript, responsive, slugs), drop it: the managed block already says it, in one place.
+
 ## Target sections
 
 The CLAUDE.md file follows a conventional structure created by `/bootstrap`. Recognized sections:

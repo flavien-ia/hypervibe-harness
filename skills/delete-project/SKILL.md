@@ -18,7 +18,7 @@ You delete a Hypervibe project and **all** of its associated cloud infrastructur
 The skill relies on 3 scripts that do the heavy lifting:
 
 - **`scripts/delete-project/discover-resources.mjs`**: Phase 1 (inventory). Scans 17 surfaces in parallel (Vercel, Neon, R2, DNS, crons of the shared worker, env vars, etc.). Returns 1 structured JSON. ~3-5 sec.
-- **`scripts/delete-project/execute-deletions.mjs`**: Phase 3 (execution). Takes the inventory + the scope chosen by the user, deletes in parallel where it is safe. Returns a {deleted, failed, skipped} report.
+- **`scripts/delete-project/execute-deletions.mjs`**: Phase 3 (execution). Takes the inventory + the scope chosen by the user, deletes in parallel where it is safe. Returns a {deleted, failed, skipped} report. Requires `--confirm <project-name>`, matched against the inventory: nothing it does can be undone, so the target is named rather than inherited from a command line that may be stale.
 - **`scripts/delete-project/db-backup-remove-target.mjs`**: sub-script for the surgical edit of the shared `db-backup` worker.
 
 Your role = orchestrate the confirmations, validate the scope, present things nicely, never hand-code what the scripts already handle.
@@ -241,8 +241,11 @@ If the user chose "Delete everything", pass `["all"]`. Otherwise remove the cate
 # Same portable temp paths as Phase 1 (recomputed identically; shell state does not persist between calls).
 INV="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/delete-project-inventory.json'")"
 REPORT="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/delete-project-report.json'")"
+# --confirm names the target: the script refuses to run unless it matches the
+# inventory. Substitute the real project name (the one confirmed above).
 node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/execute-deletions.mjs" \
   --inventory "$INV" \
+  --confirm "<project-name>" \
   --scope '["all"]' > "$REPORT"
 cat "$REPORT"
 rm -f "$INV" "$REPORT"

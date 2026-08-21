@@ -209,6 +209,25 @@ Clear display:
 
 → Capture `AGENT_DAILY_BUDGET_USD` and `AGENT_MONTHLY_BUDGET_USD` (defaults `5` and `50`).
 
+### Q6 - Who may this agent write to?
+
+This agent will read content from the open web and can query the database. Those two together are what makes it worth attacking: a page it reads can try to make it mail your data somewhere. It cannot be talked out of a list it is not allowed to leave, so we set the list now.
+
+Ask in plain language, proposing the defaults:
+
+> 📤 **Who may this agent contact?**
+>
+> It can send emails and call external services. To keep a web page it reads from turning it against you, I restrict both, right now:
+>
+> - **Emails**: only to `<ADMIN_EMAIL detected in the web .env>` *(you can add addresses, or a whole domain like `@yourcompany.com`)*
+> - **External services it may WRITE to**: none *(it can read anything; writing is what I lock down)*
+>
+> Does that suit you?
+
+→ Capture `MAIL_ALLOWLIST` (comma separated; default: the admin address found in step 0.b) and `FETCH_WRITE_HOSTS` (comma separated hostnames, default empty). If the agent's job obviously requires posting somewhere (a webhook, an API it must update), propose that host explicitly rather than leaving it to be discovered later.
+
+Both land in `render.yaml` and stay editable in the Render dashboard.
+
 ### Inferring the agent name
 
 No question - infer a kebab-case slug from the description. E.g.:
@@ -219,6 +238,8 @@ No question - infer a kebab-case slug from the description. E.g.:
 Check that no `apps/<slug>/` already exists - if it does, suffix it (`-2`, `-3`).
 
 ### Inferring the system prompt
+
+⚠️ Write the **mission only**. Do not put safety rules in it (how to treat fetched content, what must never leave). Those live in `AGENT_SAFETY_PROMPT`, a separate constant in `loop.ts` that the scaffold does not overwrite: `--system-prompt` replaces the mission constant wholesale, so anything written there would be lost on the next scaffold and duplicated in the meantime.
 
 Generate a clear system prompt from the description. Format:
 
@@ -296,7 +317,9 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/setup-agent.mjs" \
   --trigger "<TRIGGER>" \
   --memory "<MEMORY_MODE>" \
   --model "<MODEL_ID>" \
-  --system-prompt "<GENERATED_SYSTEM_PROMPT>"
+  --system-prompt "<GENERATED_SYSTEM_PROMPT>" \
+  --mail-allowlist "<MAIL_ALLOWLIST>" \
+  --fetch-write-hosts "<FETCH_WRITE_HOSTS>"
 ```
 
 The script chains 12 sub-steps (preflight, anthropicKey, ensureMonorepo, scaffoldAgent, patchSystemPrompt, patchAgentName, patchTools, patchMemory, mergeSchema, installDeps, drizzlePush, handoff). Show progress to the user via `↳ <action>` then `✅`.

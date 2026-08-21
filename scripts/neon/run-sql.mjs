@@ -19,6 +19,16 @@
 //   --no-tx  run the statements one by one instead, for commands that cannot run
 //            inside a transaction block (CREATE INDEX CONCURRENTLY, VACUUM, ...).
 //
+// DESTRUCTIVE STATEMENTS: DROP, TRUNCATE, and DELETE/UPDATE without a WHERE
+// clause are refused unless --destructif is passed. On this stack the database
+// reached by DATABASE_URL is very often production itself, and these mistakes
+// are not recoverable between two backups. The flag makes the intent explicit,
+// which is the whole point: a guard you can pass on purpose, never by accident.
+//
+// The check lives here, and not only in the Bash guardrail, because a hook only
+// sees the command line: SQL arriving through a file, a heredoc or a pipe would
+// slip past it, and hosts without hooks (Codex) have no guardrail at all.
+//
 // Output (stdout): JSON. Single statement → { rows, rowCount, command } (unchanged).
 // Several statements → { statements: [{ command, rowCount, rows }], statementCount, atomic }.
 // Exit 0 ok, 1 error.
@@ -31,9 +41,11 @@ const args = process.argv.slice(2);
 let conn = null;
 let query = null;
 let noTx = false;
+let destructifOk = false;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--conn") conn = args[++i];
   else if (args[i] === "--no-tx") noTx = true;
+  else if (args[i] === "--destructif" || args[i] === "--destructive") destructifOk = true;
   else if (query === null) query = args[i];
 }
 
@@ -130,14 +142,67 @@ export function splitStatements(sql) {
   return out;
 }
 
+/**
+ * Les instructions qu'on refuse d'executer sans intention explicite.
+ *
+ * L'analyse se fait par instruction (via splitStatements, qui connait deja les
+ * chaines, les commentaires et les corps dollar-quotes) : un `DELETE FROM t
+ * WHERE ...` legitime au milieu d'un lot ne doit pas etre confondu avec le
+ * `DELETE FROM t` nu qui le suit. Les mots-cles sont cherches hors chaines,
+ * pour qu'un `INSERT INTO log VALUES ('DROP TABLE')` passe sans encombre.
+ */
+export function statementsDestructrices(sql) {
+  const trouve = [];
+  for (const stmt of splitStatements(sql)) {
+    // Neutralise chaines et commentaires avant de chercher les mots-cles.
+    const nu = stmt
+      .replace(/'(?:[^']|'')*'/g, "''")
+      .replace(/"(?:[^"])*"/g, '""')
+      .replace(/--[^\n]*/g, " ")
+      .replace(/\/\*[\s\S]*?\*\//g, " ");
+    if (/\bDROP\s+(TABLE|SCHEMA|DATABASE|INDEX|VIEW|TYPE|COLUMN)\b/i.test(nu)) {
+      trouve.push("DROP");
+      continue;
+    }
+    if (/\bTRUNCATE\b/i.test(nu)) {
+      trouve.push("TRUNCATE");
+      continue;
+    }
+    if (/\bALTER\s+TABLE\b[\s\S]*\bDROP\b/i.test(nu)) {
+      trouve.push("ALTER ... DROP");
+      continue;
+    }
+    if (/\bDELETE\s+FROM\b/i.test(nu) && !/\bWHERE\b/i.test(nu)) {
+      trouve.push("DELETE sans WHERE");
+      continue;
+    }
+    if (/\bUPDATE\b[\s\S]*\bSET\b/i.test(nu) && !/\bWHERE\b/i.test(nu)) {
+      trouve.push("UPDATE sans WHERE");
+      continue;
+    }
+  }
+  return [...new Set(trouve)];
+}
+
 // Importing this file (e.g. to unit-test splitStatements) must not run the query.
 const isMain =
   !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isMain) {
   if (!query) {
-    console.error('Usage: run-sql.mjs [--conn <url>] [--no-tx] "<SQL>"');
+    console.error('Usage: run-sql.mjs [--conn <url>] [--no-tx] [--destructif] "<SQL>"');
     process.exit(1);
+  }
+
+  const danger = statementsDestructrices(query);
+  if (danger.length > 0 && !destructifOk) {
+    console.error(
+      `Refuse : instruction destructrice (${danger.join(", ")}).\n` +
+        "Sur cette stack, la base atteinte par DATABASE_URL est souvent la production.\n" +
+        "Si c'est bien voulu, relancer la meme commande avec le drapeau --destructif.\n" +
+        "Pour un DELETE ou un UPDATE, ajouter une clause WHERE suffit le plus souvent.",
+    );
+    process.exit(6);
   }
   // Resolve the connection string: --conn > env DATABASE_URL > ./.env / apps/web/.env.
   if (!conn) conn = process.env.DATABASE_URL || null;
