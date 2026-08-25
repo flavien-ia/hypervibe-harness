@@ -40,6 +40,7 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { readUserEnv } from "../_read-user-env.mjs";
 import { tokenMatches } from "../_match.mjs";
+import { manifestExistant } from "../manifest/locate.mjs";
 
 const args = process.argv.slice(2);
 function arg(name) {
@@ -181,9 +182,11 @@ async function downloadViaS3(env) {
 // nothing like the project is still found because its creation recorded it.
 function manifestBuckets() {
   try {
-    const m = JSON.parse(
-      readFileSync(join(PROJECT_DIR, ".hypervibe", "resources.json"), "utf8"),
-    );
+    // Walk-up lookup: aimed at `apps/web` of a monorepo, the manifest at the
+    // repo root is still found (one manifest per repository, at its root).
+    const fichier = manifestExistant(PROJECT_DIR);
+    if (!fichier) return [];
+    const m = JSON.parse(readFileSync(fichier, "utf8"));
     return (m.resources || [])
       .filter((r) => r.kind === "r2-bucket" && r.name && !r.shared)
       .map((r) => ({ name: r.name, jurisdiction: r.jurisdiction === "eu" ? "eu" : "global" }));

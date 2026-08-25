@@ -26,6 +26,7 @@ import { getSecret } from "../vault/vault.mjs";
 import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
 import { loadAuthToken, readLinkedProject } from "../_vercel-auth.mjs";
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
+import { manifestExistant } from "../manifest/locate.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -878,9 +879,12 @@ async function existsHttp(url, headers) {
 async function reconcileManifest() {
   let manifest = null;
   try {
-    manifest = JSON.parse(readFileSync(join(PROJECT_DIR, ".hypervibe", "resources.json"), "utf8"));
+    // Walk-up lookup, same rule as the writers: one manifest per repository,
+    // at its root - being aimed one level below must not hide it.
+    const fichier = manifestExistant(PROJECT_DIR);
+    if (fichier) manifest = JSON.parse(readFileSync(fichier, "utf8"));
   } catch {
-    /* absent or unreadable: nothing declared */
+    /* unreadable: nothing declared */
   }
   if (!manifest || !Array.isArray(manifest.resources) || manifest.resources.length === 0) {
     return { found: false };

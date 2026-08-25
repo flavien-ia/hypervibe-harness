@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.9.5 (25 août 2026)
+
+### Améliorations
+- **Manifeste des ressources : ancrage automatique à la racine** : quel que soit le dossier visé, le manifeste s'écrit et se lit à la racine du dépôt du projet. Un monorepo à plusieurs apps garde un seul manifeste qui liste tout ; dans un dossier qui regroupe plusieurs dépôts, chacun a le sien.
+- **Sauvegarde et suppression** : les deux retrouvent le manifeste même lancées depuis un sous-dossier du projet, au lieu de retomber sans bruit sur la recherche par nom.
+- **Adoption d'un projet existant** : elle lit les identifiants du sous-dossier visé et de la racine (utile en monorepo), et reconnaît les bases dont l'adresse de connexion passe par un pooler.
+- **Mise à jour du plugin** : la proposition d'adoption repère les dossiers qui regroupent plusieurs projets et propose d'adopter chacun, en distinguant monorepo et regroupement de dépôts.
+
 ## v2.9.4 (25 août 2026)
 
 ### Nouveautés

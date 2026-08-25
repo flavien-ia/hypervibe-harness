@@ -16,6 +16,7 @@
 //
 // Final stdout = JSON report. Exit 0 on success, 1 on fatal error.
 
+import { manifestExistant } from "../manifest/locate.mjs";
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, rmSync,
   cpSync, statSync, readdirSync, unlinkSync,
@@ -335,8 +336,8 @@ function stepConfigs() {
   // Resource manifest: the declared identities of everything the project owns
   // in the cloud. Already inside the git bundle, but a restore starts by
   // reading config/ - it belongs here in the clear.
-  const manifestFile = join(PROJECT_DIR, ".hypervibe", "resources.json");
-  if (existsSync(manifestFile)) {
+  const manifestFile = manifestExistant(PROJECT_DIR);
+  if (manifestFile && existsSync(manifestFile)) {
     cpSync(manifestFile, join(configDir, "resources.json"));
     captured.resourceManifest = true;
   }

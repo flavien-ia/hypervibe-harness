@@ -53,6 +53,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { depotRacine, manifestExistant, emplacementCanonique } from "./locate.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -85,7 +86,13 @@ function fields() {
 }
 
 const PROJECT_DIR = resolve(arg("--project-dir") || process.cwd());
-const FILE = join(PROJECT_DIR, ".hypervibe", "resources.json");
+// The rule "one manifest per repository, at its root" is enforced HERE, not
+// left to callers: aimed at `apps/web` of a monorepo, the manifest still
+// lands (and is found) at the repo root. An existing manifest written at
+// another depth keeps being used rather than splitting the brain.
+const FILE = manifestExistant(PROJECT_DIR) ?? emplacementCanonique(PROJECT_DIR);
+/** Repo root (identity files can live there too, e.g. a monorepo root .env). */
+const RACINE = depotRacine(PROJECT_DIR) ?? PROJECT_DIR;
 
 function fail(reason, extra = {}) {
   console.log(JSON.stringify({ ok: false, reason, ...extra }));
@@ -133,11 +140,15 @@ function load() {
   }
 }
 function projectNameFromPackageJson() {
-  try {
-    return JSON.parse(readFileSync(join(PROJECT_DIR, "package.json"), "utf8")).name || null;
-  } catch {
-    return null;
+  for (const base of [RACINE, PROJECT_DIR]) {
+    try {
+      const nom = JSON.parse(readFileSync(join(base, "package.json"), "utf8")).name;
+      if (nom) return nom;
+    } catch {
+      /* try the next one */
+    }
   }
+  return null;
 }
 function save(manifest) {
   manifest.updatedAt = new Date().toISOString();
@@ -148,7 +159,7 @@ function save(manifest) {
       String(a.kind).localeCompare(String(b.kind)) ||
       String(a.id ?? a.name ?? "").localeCompare(String(b.id ?? b.name ?? "")),
   );
-  mkdirSync(join(PROJECT_DIR, ".hypervibe"), { recursive: true });
+  mkdirSync(dirname(FILE), { recursive: true });
   writeFileSync(FILE, JSON.stringify(manifest, null, 2) + "\n", "utf8");
 }
 function emptyManifest() {
@@ -273,10 +284,10 @@ function cmdList() {
 // wrangler.toml, git remote) - never from name similarity. Name-based
 // discovery stays where it belongs: in /delete-project's scans, presented to
 // a human for validation.
-function readEnvFile(file) {
+function readEnvFile(file, base = PROJECT_DIR) {
   const out = {};
   try {
-    for (const line of readFileSync(join(PROJECT_DIR, file), "utf8").split(/\r?\n/)) {
+    for (const line of readFileSync(join(base, file), "utf8").split(/\r?\n/)) {
       const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
       if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
     }
@@ -334,11 +345,22 @@ async function neonProjectByHost(host) {
 
 async function cmdAdopt() {
   const found = [];
-  const env = { ...readEnvFile(".env"), ...readEnvFile(".env.local") };
+  // Root first, aimed folder second: in a monorepo, `apps/web` values are the
+  // more specific ones and win over the repo root's.
+  const env = {
+    ...readEnvFile(".env", RACINE),
+    ...readEnvFile(".env.local", RACINE),
+    ...readEnvFile(".env"),
+    ...readEnvFile(".env.local"),
+  };
 
-  // Vercel: the link file carries the exact ids.
+  // Vercel: the link file carries the exact ids. Linked from the aimed
+  // folder or from the repo root, both are seen.
   try {
-    const link = JSON.parse(readFileSync(join(PROJECT_DIR, ".vercel", "project.json"), "utf8"));
+    const lienVercel = [PROJECT_DIR, RACINE]
+      .map((b) => join(b, ".vercel", "project.json"))
+      .find(existsSync);
+    const link = JSON.parse(readFileSync(lienVercel, "utf8"));
     if (link.projectId) {
       found.push({
         resource: {
@@ -388,9 +410,12 @@ async function cmdAdopt() {
     found.push({ resource: { kind: "upstash-db", name: upstash[1] }, source: "UPSTASH_REDIS_REST_URL" });
   }
 
-  // Dedicated worker: wrangler.toml names it.
+  // Dedicated worker: wrangler.toml names it (aimed folder or repo root).
   try {
-    const toml = readFileSync(join(PROJECT_DIR, "wrangler.toml"), "utf8");
+    const tomlPath = [PROJECT_DIR, RACINE]
+      .map((b) => join(b, "wrangler.toml"))
+      .find(existsSync);
+    const toml = readFileSync(tomlPath, "utf8");
     const m = /^\s*name\s*=\s*"([^"]+)"/m.exec(toml);
     if (m) found.push({ resource: { kind: "cf-worker", name: m[1] }, source: "wrangler.toml" });
   } catch {

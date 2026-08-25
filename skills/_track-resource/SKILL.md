@@ -24,6 +24,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add \
   --added-by <calling-skill> [--shared] [--note "<short human note>"]
 ```
 
+- **`--project-dir` can be any folder inside the project**: the tool anchors the manifest at the **repository root** on its own (nearest `.git` upward), and readers walk up the same way. One manifest per repository: a **monorepo** with several apps has a single manifest at its root, listing every app's resources (two Vercel projects deployed from one repo are two `vercel-project` entries in the same file); in an **umbrella folder** holding several repositories, each sub-repository has its own, and the umbrella never has one.
 - **Idempotent**: re-running updates the entry in place (`action: "unchanged"` or `"updated"`). Call it unconditionally after the resource exists - including when the resource already existed and the skill merely connected it to the project.
 - **`--id` whenever a stable id exists** (Vercel `projectId`, Neon project id, Stripe webhook id...). Ids survive renames; names do not.
 - **`--shared` for mutualized infrastructure** (e.g. the `hypervibe-jobs` worker, used by every project on the machine). A shared resource is listed so backups know it exists, and deletion knows to NEVER remove it.
