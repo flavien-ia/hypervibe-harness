@@ -679,3 +679,16 @@ The OAuth / Stripe / Analytics reminders are already covered by Step 11 - do not
 
 Finish with:
 > The HTTPS certificate is managed automatically by Vercel.
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the zone once it is active on Cloudflare (the zone id is in the API responses you already handle):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind dns-zone --name "<apex-domain>" --id "<cloudflare-zone-id>" --added-by add-domain
+```

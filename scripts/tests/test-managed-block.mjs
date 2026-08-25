@@ -265,6 +265,50 @@ const read = (f) => readFileSync(f, "utf8");
   check("n. pas de base -> pas de regle Neon", !r.added.includes("neon-rest-vault"), `added=${r.added.length}`);
 }
 
+// ── Une regle qui quitte le global : morte, ou descendue dans le projet ? ──
+// Les deux sortent du bloc global, et les confondre coute cher : une regle
+// morte ne demande rien a l'utilisateur, une regle descendue en projet ne
+// s'applique PLUS NULLE PART tant qu'il n'a pas ecrit le bloc projet dans ses
+// depots existants. Signale le 21/08/2026 par un utilisateur qui a vu sept
+// regles disparaitre de son global sans savoir qu'il devait aller les
+// chercher ailleurs.
+{
+  const projet = CATALOG.find((r) => r.scope === "project" && !r.retired);
+  const morte = CATALOG.find((r) => r.retired);
+  const globale = CATALOG.find((r) => r.scope === "global" && !r.retired && !r.enabledBy);
+  if (!projet || !morte || !globale) {
+    check("o. catalogue exploitable pour le test de scission", false, "un des trois cas manque");
+  } else {
+    const home = box();
+    writeGlobal(home, [
+      [globale.id, globale.text, true],
+      [projet.id, projet.text, true],
+      [morte.id, morte.text, true],
+    ]);
+    const r = runGlobal(home);
+    check(
+      "o. la regle descendue en projet est signalee comme telle",
+      r.movedToProject?.includes(projet.id) && !r.droppedForGood?.includes(projet.id),
+      `movedToProject=${(r.movedToProject ?? []).join(",")}`,
+    );
+    check(
+      "p. la regle morte est signalee comme abandonnee",
+      r.droppedForGood?.includes(morte.id) && !r.movedToProject?.includes(morte.id),
+      `droppedForGood=${(r.droppedForGood ?? []).join(",")}`,
+    );
+    check(
+      "q. retired reste la liste complete (appelants d'avant la scission)",
+      r.retired.length === (r.movedToProject ?? []).length + (r.droppedForGood ?? []).length,
+      `retired=${r.retired.length}`,
+    );
+    check(
+      "r. la regle globale active n'est pas emportee",
+      !r.retired.includes(globale.id),
+      r.retired.join(","),
+    );
+  }
+}
+
 for (const d of boxes) rmSync(d, { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} verifications`);

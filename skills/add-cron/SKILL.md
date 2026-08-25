@@ -416,3 +416,22 @@ On the shared clock, the registry job name is `JOB_NAME` = `<PROJECT_NAME>-<TASK
 - **"change the schedule"** (shared): re-run the register command from Step 6 with the new `--cron` (same project + same task name = update in place).
 - **"delete this task"** (shared): `node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --remove --name <JOB_NAME>`. Also offer to delete the now-unused `/api/cron/<TASK_NAME>` route.
 - If **after** the final summary the user says *"no, GitHub instead"* / *"give it a dedicated clock"*, restart from Step 6 with the forced `CHOICE`. Not before - the automatic decision is the default.
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the scheduled task, naming the clock that carries it:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind cron-job --name "<task-name>" --field worker=hypervibe-jobs --field "schedule=<cron-expr>" --added-by add-cron
+```
+
+A dedicated worker created for the task is recorded separately by `_create-cloudflare-worker`. The shared `hypervibe-jobs` worker, if this is the project's first job on it, gets one informative entry:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind cf-worker --name hypervibe-jobs --shared --note "shared Hypervibe clock - never deleted with this project" --added-by add-cron
+```

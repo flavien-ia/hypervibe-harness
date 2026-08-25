@@ -257,11 +257,19 @@ function stepR2Download() {
     logStep("r2-download", "error", { error: payload.reason || (r.stderr || "").slice(0, 200) });
     return;
   }
-  logStep("r2-download", "ok", {
+  // « partial » = des objets manquent. Le dire ici, sinon le compte rendu
+  // final annonce un succes complet pour une archive trouee.
+  logStep("r2-download", payload.status === "partial" ? "partial" : "ok", {
     mode: payload.mode,
     bucketsScanned: payload.bucketsScanned,
     totalObjects: payload.totalObjects,
     totalSize: humanSize(payload.totalBytes || 0),
+    ...(payload.status === "partial"
+      ? {
+          missingObjects: payload.missingObjects,
+          missingList: "storage/_MANQUANTS.txt",
+        }
+      : {}),
   });
 }
 
@@ -323,6 +331,15 @@ function stepConfigs() {
   const configDir = join(SNAP_DIR, "config");
   mkdirSync(configDir, { recursive: true });
   const captured = {};
+
+  // Resource manifest: the declared identities of everything the project owns
+  // in the cloud. Already inside the git bundle, but a restore starts by
+  // reading config/ - it belongs here in the clear.
+  const manifestFile = join(PROJECT_DIR, ".hypervibe", "resources.json");
+  if (existsSync(manifestFile)) {
+    cpSync(manifestFile, join(configDir, "resources.json"));
+    captured.resourceManifest = true;
+  }
 
   // Vercel project link
   const vercelLink = join(PROJECT_DIR, ".vercel", "project.json");

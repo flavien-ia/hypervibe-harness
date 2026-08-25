@@ -391,3 +391,18 @@ If UI skipped:
 
 If the user has not yet created the R2 credentials (Step 8):
 > - 🔑 **Remaining manual step**: create the 2 R2 keys in the Cloudflare dashboard (instructions given above). Without these keys, no upload can work.
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the bucket with its jurisdiction - the same name can exist in both namespaces:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind r2-bucket --name "<bucket>" --field jurisdiction=eu --added-by add-storage
+```
+
+When the skill switches buckets (option 1) or migrates jurisdictions (option 5), also `remove` the entry of the bucket the project no longer uses, with its `--jurisdiction`.

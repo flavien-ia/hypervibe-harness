@@ -26,6 +26,13 @@
 // IMPORTANT - loud failure: if the project HAS R2 configured but zero objects
 // were downloaded, this reports `status: "error"`. A snapshot that silently
 // contains no files is worse than one that fails visibly.
+//
+// IMPORTANT - no silent hole: every object is retried (3 attempts, growing
+// backoff) because at 5 GB / 2000+ objects, transient network cuts are the
+// norm, not the exception. Whatever still fails is reported as
+// `status: "partial"` AND written to `_MANQUANTS.txt` inside the snapshot
+// itself - a list that lives in a work dir deleted right after zipping helps
+// nobody six months later.
 
 import { existsSync, mkdirSync, writeFileSync, statSync, readFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
@@ -136,11 +143,13 @@ async function downloadViaS3(env) {
         if (existsSync(dest) && statSync(dest).size === o.size) {
           // already fetched (resume)
         } else {
-          const res = await client.send(
-            new S3.GetObjectCommand({ Bucket: bucket, Key: o.key }),
-          );
-          const body = await res.Body.transformToByteArray();
-          writeFileSync(dest, Buffer.from(body));
+          await avecReprises(async () => {
+            const res = await client.send(
+              new S3.GetObjectCommand({ Bucket: bucket, Key: o.key }),
+            );
+            const body = await res.Body.transformToByteArray();
+            writeFileSync(dest, Buffer.from(body));
+          });
         }
         // Read the counter AFTER the await: `x += await ...` loses updates
         // under concurrency (classic read-modify-write race).
@@ -166,11 +175,51 @@ async function downloadViaS3(env) {
   };
 }
 
+// ── Project resource manifest (.hypervibe/resources.json) ─────────────────
+// Written by the add-* skills at provisioning time: the DECLARED buckets, by
+// exact name and jurisdiction. Read before any name-guessing - a bucket named
+// nothing like the project is still found because its creation recorded it.
+function manifestBuckets() {
+  try {
+    const m = JSON.parse(
+      readFileSync(join(PROJECT_DIR, ".hypervibe", "resources.json"), "utf8"),
+    );
+    return (m.resources || [])
+      .filter((r) => r.kind === "r2-bucket" && r.name && !r.shared)
+      .map((r) => ({ name: r.name, jurisdiction: r.jurisdiction === "eu" ? "eu" : "global" }));
+  } catch {
+    return [];
+  }
+}
+
 // ── Fallback mode: Cloudflare REST API (no S3 credentials needed) ──────────
 // The account API token lists AND reads objects through the v4 API. Only the
 // wrangler CLI is limited (get/put/delete, no `list`), which is what made the
 // previous fallback impossible. Bucket names are matched by convention since
 // the .env cannot tell us which bucket belongs to the project.
+/**
+ * Rejoue une operation reseau qui echoue.
+ *
+ * Les echecs observes en conditions reelles (2172 objets, 5 Go) sont des
+ * coupures : `terminated`, `fetch failed`. Ils ne se reproduisent pas au
+ * second essai. Sans reprise, chacun laissait un trou definitif dans une
+ * archive qui se declarait complete.
+ */
+async function avecReprises(operation, essais = 3) {
+  let derniere;
+  for (let i = 0; i < essais; i++) {
+    try {
+      return await operation();
+    } catch (e) {
+      derniere = e;
+      // Attente croissante : une coupure passagere veut du temps, pas de
+      // l'insistance.
+      if (i < essais - 1) await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+  throw derniere;
+}
+
 const CF_TOKEN = readUserEnv("CLOUDFLARE_API_TOKEN") || readUserEnv("CF_API_TOKEN") || "";
 
 const encodeKey = (key) => key.split("/").map(encodeURIComponent).join("/");
@@ -206,16 +255,28 @@ async function downloadViaRest() {
   const accountId = await cfAccountId(auth);
   if (!accountId) return null;
 
+  // The manifest is the PRIMARY source (exact identities recorded at creation
+  // time); name-matching stays as the net for what predates it. Union of the
+  // two, deduplicated - a declared bucket is downloaded even when its name
+  // looks nothing like the project, and an undeclared legacy bucket still
+  // gets caught by the match.
+  const declared = manifestBuckets().map((b) => ({ ...b, source: "manifest" }));
   let buckets;
   try {
-    buckets = await findProjectBuckets(accountId, auth);
+    const guessed = (await findProjectBuckets(accountId, auth)).map((b) => ({ ...b, source: "name-match" }));
+    const seen = new Set(declared.map((b) => `${b.name}|${b.jurisdiction}`));
+    buckets = [...declared, ...guessed.filter((b) => !seen.has(`${b.name}|${b.jurisdiction}`))];
   } catch (e) {
-    return { mode: "rest-api", buckets: [], totalObjects: 0, totalBytes: 0, errors: [{ error: String(e) }] };
+    if (declared.length === 0) {
+      return { mode: "rest-api", buckets: [], totalObjects: 0, totalBytes: 0, errors: [{ error: String(e) }] };
+    }
+    // Listing failed but the manifest speaks: download what is declared.
+    buckets = declared;
   }
   if (buckets.length === 0) return { mode: "rest-api", buckets: [], totalObjects: 0, totalBytes: 0, errors: [] };
 
   const report = { mode: "rest-api", buckets: [], totalObjects: 0, totalBytes: 0, errors: [] };
-  for (const { name, jurisdiction } of buckets) {
+  for (const { name, jurisdiction, source } of buckets) {
     const headers = { ...auth };
     if (jurisdiction === "eu") headers["cf-r2-jurisdiction"] = "eu";
     const base = `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets/${encodeURIComponent(name)}`;
@@ -255,9 +316,11 @@ async function downloadViaRest() {
           try {
             mkdirSync(dirname(dest), { recursive: true });
             if (!(existsSync(dest) && statSync(dest).size === o.size)) {
-              const res = await fetch(`${base}/objects/${encodeKey(o.key)}`, { headers });
-              if (!res.ok) throw new Error(`HTTP ${res.status}`);
-              writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+              await avecReprises(async () => {
+                const res = await fetch(`${base}/objects/${encodeKey(o.key)}`, { headers });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+              });
             }
             // Read the counter AFTER the await (read-modify-write race).
             const size = statSync(dest).size;
@@ -265,13 +328,15 @@ async function downloadViaRest() {
             bytes += size;
           } catch (e) {
             failed++;
-            if (report.errors.length < 50) report.errors.push({ bucket: name, key: o.key, error: e.message });
+            // Liste COMPLETE : c'est elle qui dit quoi rattraper. La tronquer
+            // a 50 rendait un rattrapage impossible sur un gros bucket.
+            report.errors.push({ bucket: name, key: o.key, error: e.message });
           }
         }
       }),
     );
 
-    report.buckets.push({ name, jurisdiction, objectCount: objects.length, downloaded, failed, bytes });
+    report.buckets.push({ name, jurisdiction, source: source || "name-match", objectCount: objects.length, downloaded, failed, bytes });
     report.totalObjects += downloaded;
     report.totalBytes += bytes;
   }
@@ -319,7 +384,8 @@ if (!r2env.complete && report.buckets.length === 0) {
   console.log(
     JSON.stringify({
       status: "skipped",
-      reason: "no R2 credentials in .env and no R2 bucket found for this project",
+      reason:
+        "no R2 credentials in .env, nothing declared in .hypervibe/resources.json, and no R2 bucket matched the project name - if this project DOES store files, record its bucket in the manifest (see the _track-resource skill) and re-run",
       configured: false,
       totalObjects: 0,
       totalBytes: 0,
@@ -339,14 +405,38 @@ if (r2env.complete && report.totalObjects === 0) {
   );
 }
 
+// Un objet manquant sur 2172 reste un trou dans une sauvegarde : il se dit.
+// La liste part DANS l'instantane, pas seulement dans un `_summary.json` que
+// le dossier de travail emporte a la suppression.
+const manquants = report.errors.map((e) => e.key).filter(Boolean);
+if (manquants.length > 0) {
+  writeFileSync(
+    resolve(OUT, "_MANQUANTS.txt"),
+    [
+      `${manquants.length} objet(s) n'ont pas pu etre telecharges, malgre 3 essais chacun.`,
+      `Le reste de la sauvegarde est complet : ces cles-la, et elles seules,`,
+      `manquent a l'archive. Pour les recuperer, relancer /save-project (une`,
+      `nouvelle sauvegarde repart de zero, elle ne reprend pas celle-ci), ou`,
+      `les tirer une a une depuis le stockage avec les cles ci-dessous.`,
+      "",
+      ...manquants,
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+}
+
 console.log(
   JSON.stringify({
-    status: "ok",
+    status: manquants.length > 0 ? "partial" : "ok",
     mode: report.mode,
     configured: Boolean(r2env.complete),
     bucketsScanned: report.buckets.length,
     totalObjects: report.totalObjects,
     totalBytes: report.totalBytes,
     errors: report.errors.length,
+    ...(manquants.length > 0
+      ? { missingObjects: manquants.length, missingList: "_MANQUANTS.txt" }
+      : {}),
   }),
 );

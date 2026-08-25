@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.9.4 (25 août 2026)
+
+### Nouveautés
+- **Manifeste des ressources** : chaque projet garde désormais la liste exacte de ce qu'il possède dans le cloud (base de données, stockage, domaine, tâches planifiées...) dans un petit fichier versionné avec le code, rempli automatiquement à la création de chaque ressource. Les sauvegardes et la suppression s'appuient dessus au lieu de deviner par ressemblance de noms.
+- **Adoption des projets existants** : après une mise à jour du plugin, un projet déjà en place peut générer ce manifeste en une commande, à partir de ses propres identifiants (jamais par similarité de noms), avec validation avant écriture.
+
+### Améliorations
+- **Sauvegarde complète (/save-project)** : chaque fichier du stockage est retéléchargé jusqu'à trois fois en cas de coupure réseau ; si des fichiers manquent malgré tout, la sauvegarde l'annonce clairement et la liste des manquants est incluse dans l'archive, au lieu d'un faux succès silencieux. Un stockage nommé différemment du projet est maintenant retrouvé grâce au manifeste.
+- **Suppression de projet (/delete-project)** : l'inventaire distingue ce que le projet déclare posséder de ce qui est deviné par le nom, vérifie chaque déclaration par son identifiant exact, et protège les ressources partagées entre projets.
+
+### Coulisses
+- Ajustements de l'onboarding /start et de la synchronisation des règles gérées.
+
 ## v2.9.3 (21 août 2026)
 
 ### Correctifs

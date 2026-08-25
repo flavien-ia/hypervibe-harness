@@ -55,7 +55,7 @@ node "$PLUGIN_DIR/scripts/update/update-hypervibe.mjs" install --zip "<file from
 
 The script unpacks the archive to a temporary folder and checks it is a complete plugin **before** touching the installation in place. Only then does it move the current folder aside as a backup and put the new one in its place. If anything fails at any point, the previous version is restored on its own.
 
-- `ok: true` → the JSON gives `version`, `oldVersion` and `backup`. Go to Step 4.
+- `ok: true` → the JSON gives `version`, `oldVersion` and `backup`. Go to Step 3b.
 - `ok: false` → nothing was replaced, or the previous version was put back. Report the `message` honestly. **STOP.**
 
 ## Step 3b - Bring the rules in step
@@ -69,11 +69,39 @@ node "$PLUGIN_DIR/scripts/update-global-claude-md.mjs"
 
 One JSON line comes back. Mention only what is not empty, in one sentence, in the user's language: rules added, updated, removed. **If `keptEdited` is not empty, name those rules**: they have a newer version, but the user's own wording was kept.
 
-If the current folder is a web project (`package.json` with `next`, and a `CLAUDE.md`), offer to bring its project rules in step too, and run it only if the user agrees:
+⚠️ **If `movedToProject` is not empty, say so and give the command, whatever folder we are in.** Those rules left the global block because they belong to a web project, and until the user writes the project block into each of their existing repositories, **they apply nowhere**. The gap is invisible: the rules simply vanish from `~/.claude/CLAUDE.md`. Reported on 2026-08-21 by a user who watched seven rules disappear with no way to know he had to go and fetch them:
+
+> Those rules now live in your projects rather than in every session. In each existing web project, run: `node "<PLUGIN_DIR>/scripts/rules/update-project-claude-md.mjs"` (replace `<PLUGIN_DIR>` with the real path). New projects get the block on their own.
+
+Then, if the current folder is itself a web project (`package.json` with `next`, and a `CLAUDE.md`), offer to bring its project rules in step right away, and run it only if the user agrees:
 
 ```bash
 node "$PLUGIN_DIR/scripts/rules/update-project-claude-md.mjs"
 ```
+
+## Step 3c - Adopt the resource manifest in existing projects
+
+Recent plugin versions record every cloud resource a project owns in `.hypervibe/resources.json` (the **resource manifest**), at the moment the resource is created. Backups and deletion read it first, instead of guessing resources by name - the guessing is what used to make a backup silently skip a bucket named differently from the project. Projects created before this mechanism have no manifest: this step catches them up, the same way Step 3b catches up the rules.
+
+If the current folder is a web project (`package.json` with `next`) **without** `.hypervibe/resources.json`, offer to adopt it. If the user agrees:
+
+```bash
+node "$PLUGIN_DIR/scripts/manifest/manifest.mjs" adopt --project-dir "<project-root>"
+```
+
+This is a **dry run**: it derives resources from the project's own identifiers (database host, storage variables, Vercel link, git remote, wrangler.toml, public URL) - never from name similarity - and touches nothing. Present what it found, in plain language, with each `source`. Then, only after the user confirms:
+
+```bash
+node "$PLUGIN_DIR/scripts/manifest/manifest.mjs" adopt --project-dir "<project-root>" --write
+```
+
+Three things to say around it:
+
+1. **The file is meant to be committed** (never gitignored): it holds identifiers only, no secrets, and documents the project's infrastructure.
+2. **Adoption only sees what the project itself declares locally.** Resources with no local trace (a cron on the shared clock, a domain zone the env does not mention, a storage bucket whose credentials are kept elsewhere) are not found - list what obviously might be missing and offer to record them with `manifest.mjs add` (the `_track-resource` skill documents kinds and fields). Better an explicitly incomplete manifest than a guessed one.
+3. **Other existing projects need the same pass**: adoption runs per project. Mention it once, with the command to run from each project's folder.
+
+If the current folder is not a project (the update ran from elsewhere), just mention that each existing project can be adopted this way, and move on.
 
 ## Step 4 - Wrap up
 

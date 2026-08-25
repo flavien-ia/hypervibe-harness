@@ -456,8 +456,29 @@ await step("pushEnvVars", pushEnvVars);
 
 dumpHandoff(true);
 
+// Record the freshly created Neon project in the resource manifest: this is
+// what lets /save-project and /delete-project find it with certainty instead
+// of guessing by name. Never fatal - the database itself is up.
+{
+  const r = spawnSync(
+    "node",
+    [
+      join(__dirname, "manifest", "manifest.mjs"),
+      "add",
+      "--project-dir", WEB_DIR,
+      "--kind", "neon-project",
+      "--id", state.projectId,
+      "--name", state.projectName,
+      "--field", `host=${state.host}`,
+      "--added-by", "add-db",
+    ],
+    { encoding: "utf8" },
+  );
+  if (r.status === 0) ok("Recorded in the project resource manifest (.hypervibe/resources.json)");
+  else warn(`Could not record in the resource manifest: ${(r.stdout || r.stderr || "").trim().slice(0, 160)}`);
+}
+
 console.log(`
-🎉 setup-db complete.
 
    Neon project: ${state.projectName} (${state.projectId})
    Host:         ${state.host}

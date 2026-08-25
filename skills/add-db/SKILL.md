@@ -339,3 +339,16 @@ Tell the user:
   - If not enableable: see the Step 6 table
 
 If any warnings were raised by the script (`NEON_QUOTA_NEAR_LIMIT`, `NEON_PROJECT_NAME_CONFLICT`, etc.), mention them here.
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+The bundled script already records the Neon project on success (look for "Recorded in the project resource manifest" in its output). You only record manually when the script could not run (monorepo path, manual provisioning):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind neon-project --id "<neon-project-id>" --name "<neon-project-name>" --field host=<ep-host> --added-by add-db
+```

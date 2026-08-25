@@ -70,3 +70,16 @@ Expected: `200`. If `401`, the key is wrong → ask the user again. Otherwise, s
 > ✅ Render key saved in the vault. Render is driven via its REST API - nothing to install.
 
 Return control to the calling skill (`/add-automation` or `/add-agent`).
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the service right after creation (the `srv-...` id is in the API response):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind render-service --id "<srv-id>" --name "<service-name>" --added-by <calling-skill>
+```

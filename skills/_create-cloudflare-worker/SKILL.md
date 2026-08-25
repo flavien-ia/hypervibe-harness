@@ -165,3 +165,16 @@ If `NEEDS_CRON=yes`, also tell the user:
 > The CRON is handled natively by Cloudflare via `[triggers]` in `wrangler.toml`. Current schedule: `<CRON_EXPRESSION>`. To change it, edit `wrangler.toml` and redeploy.
 
 Return control to the calling skill (`/add-automation`). Pass back the worker URL so the orchestrator can include it in its final summary.
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the worker right after the first successful deploy:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind cf-worker --name "<worker-name>" --added-by <calling-skill>
+```

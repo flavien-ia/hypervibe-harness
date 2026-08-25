@@ -223,3 +223,16 @@ Tell the user:
 > ✅ GitHub Actions setup complete. You can now manage your collaborators.
 
 Return control to the calling skill (typically `/add-collab`).
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the repository once it exists:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind github-repo --name "<owner>/<repo>" --added-by <calling-skill>
+```

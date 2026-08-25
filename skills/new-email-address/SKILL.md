@@ -212,3 +212,16 @@ them and must never suggest removing the entry.
 > Do you want to create another address on `<domain>`? Just tell me the prefix and I will start over (I keep `<dest>` as the default destination).
 
 If yes → loop back to Step 5 (we skip steps 1-4 which are already OK).
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the routing rule:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind email-route --name "<address@domain>" --field zone=<apex-domain> --added-by new-email-address
+```

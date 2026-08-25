@@ -373,3 +373,17 @@ Invoke `_update-claude-md` with:
   Never run `wrangler delete` for this: the worker is shared, other projects may still depend on it for their backups and for the other jobs (quota watch, cron pings). Deleting the whole `hypervibe-jobs` worker is an **account-wide decision** that kills every job for every project; only consider it if the user explicitly wants to dismantle the entire shared system, and say so clearly first.
 - **Manual test run**: the `ADMIN` + `curl .../trigger?name=neon-backups` pair from Step 6.
 - **Live logs**: `cd ~/.hypervibe-jobs && npx wrangler tail`
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the backup target (and the shared worker, informatively, if not already listed):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind db-backup --name "<neon-project-name>" --field worker=hypervibe-jobs --added-by add-backup-db
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind cf-worker --name hypervibe-jobs --shared --note "shared Hypervibe clock - never deleted with this project" --added-by add-backup-db
+```

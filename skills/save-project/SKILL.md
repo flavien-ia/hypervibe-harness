@@ -140,7 +140,7 @@ Show a clear recap:
 > | Code + history | ✅ ok | <bundleBytes in MB>, uncommitted changes: <yes/no> |
 > | Env variables | ✅ ok | <production: X vars, preview: Y, dev: Z> |
 > | Database | ✅ ok | <driver>, <tableCount> tables, <totalRows> rows in total |
-> | Cloudflare R2 | <✅ ok / ➖ skipped> | <bucketsScanned> buckets, <totalObjects> objects (<totalSize>) |
+> | Cloudflare R2 | <✅ ok / ⚠️ partial / ➖ skipped> | <bucketsScanned> buckets, <totalObjects> objects (<totalSize>)<, MISSING: N objects> |
 > | Claude memory | ✅ ok | <matchedDirs> memory folder(s) copied |
 > | Configs | ✅ ok | <captured> |
 >
@@ -157,6 +157,8 @@ Show a clear recap:
 
 If a step has `status: "error"`, mention it honestly with the error message - no need to hide it.
 
+If `r2-download` has `status: "partial"`, say so PROMINENTLY - this is a backup with holes in it, and the whole point of a backup is that the holes are found now, not the day it is needed. Give the number of missing objects and point to `storage/_MANQUANTS.txt` inside the zip, which lists every missing key. Each object was already retried three times with growing backoff, so what remains is not a transient cut: either the object disappeared from the bucket between the listing and the download, or something is genuinely wrong with the storage. Offer to re-run the backup (a new run starts from scratch; it does not resume this one).
+
 If the `git-bundle` step is skipped (not a git repo), insist: **without a git bundle, the source code is not in the snapshot**. Ask the user whether they still want to keep this zip or cancel everything.
 
 ---
@@ -167,6 +169,7 @@ If the `git-bundle` step is skipped (not a git repo), insist: **without a git bu
 - **DATABASE_URL not found**: the project may not have a Neon DB, or the variable has a different name. Ask the user whether they want to continue without a DB (the snapshot is still useful for the code/env/configs).
 - **Vercel CLI missing**: env-vars step skipped, we continue. Mention it in the report.
 - **Wrangler CLI missing**: r2-download step skipped, we continue.
+- **R2 bucket not found while the project HAS storage**: the download reads the project resource manifest (`.hypervibe/resources.json`) first - a bucket recorded there is found by its exact name and jurisdiction, whatever it is called. Only unrecorded buckets fall back to name-matching against the project name, and that match is deliberately strict (it is shared with `/delete-project`, where a loose match would destroy another project's data): a bucket whose name does not contain the project name as a whole token is NOT found, and the step reports "no R2 bucket found for this project" - which reads exactly like "this project has no storage". Never relay that as fact without checking. The durable fix is to record the bucket in the manifest (see `_track-resource`); the authoritative alternative is the project's `.env` (`R2_BUCKET_NAME`, `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`), which takes the S3 path and skips guessing entirely. Seen in the wild: a project named `app-<name>` whose bucket is `<name>-assets` - no whole-token match, and the backup would have shipped without a single image while reporting success.
 - **The script crashes entirely (exit 1)**: the `WORK_DIR` is left as is for debugging. The path is in the JSON output. Give it to the user so they can go check / delete it manually.
 
 ---

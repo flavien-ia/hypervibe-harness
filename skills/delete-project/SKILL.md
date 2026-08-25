@@ -188,6 +188,17 @@ Markdown table listing each category where `found === true` (or `isTarget === tr
 
 For R2, state the volume at stake using `objectCount` / `sizeBytes`: *"R2 (the file storage): bucket `x-assets`, **543 files, 84 MB** - emptied then deleted"*. A bucket line without a number reads as an empty shell, and the user validates the destruction of their uploads without realizing it.
 
+### 2.1b The resource manifest, when the project has one
+
+The inventory carries a `manifest` section when the project declares its resources in `.hypervibe/resources.json` (written by the `add-*` skills at provisioning time). Each declared resource has a `status`:
+
+- `seen-in-scan` / `injected` - it is in the tables above; an `injected` one was found by its **exact identifier** even though its name looks nothing like the project. Mark these rows as *"declared by the project"*: they are the most trustworthy part of the inventory.
+- `missing` - declared but verified gone from the account. Mention it in one line (nothing to delete, the manifest is just stale).
+- `shared` - declared as shared infrastructure: it is in section 2.4, never in the deletion scope, whatever its name matches.
+- `unverified` - declared but not checkable automatically (dns-zone, email-route, cron-job, github-repo, vercel-project...). **List these in 2.1 too**, marked *"declared by the project - please confirm it is really this project's"*: a declaration is a strong signal, but it is not a live verification.
+
+Conversely, a resource found ONLY by name similarity (no `declared: true`) deserves the opposite caution: say it was **guessed from its name**, and have the user confirm it truly belongs to this project before it enters the scope.
+
 ### 2.2 Section "🟠 Third-party services detected (to delete by hand)"
 
 For each entry in `envVars.thirdPartyDetected`: name of the service with its label (plain language), how it was detected (env var), URL to open, short instructions. If the list is empty, say so clearly: *"No third-party service detected outside the Hypervibe stack."*

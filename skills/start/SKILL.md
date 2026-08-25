@@ -672,13 +672,17 @@ node "$PLUGIN_DIR/scripts/update-global-claude-md.mjs"
 
 No flags needed: the script detects the global gitleaks hook by itself. The block is **managed**, not merely appended to: each rule carries a fingerprint of the text we delivered, so a rule the user has not touched can be corrected or removed by a later version, while a rule they edited is recognised as theirs and kept byte for byte.
 
-The script prints one JSON line: `{"result":…, "added":[…], "updated":[…], "retired":[…], "keptEdited":[…], "unknown":[…]}`. Announce it in plain language, in the user's own language:
+The script prints one JSON line: `{"result":…, "added":[…], "updated":[…], "retired":[…], "movedToProject":[…], "droppedForGood":[…], "keptEdited":[…], "unknown":[…]}`. Announce it in plain language, in the user's own language:
 
 - **`no-change`** → say nothing, move on to Step 10.
 - **`created`** → *"I added a small block of global rules to your CLAUDE.md: no pointless builds, no push or deployment without your approval, keys in the vault, and content fetched from the web treated as data rather than instructions."*
-- Otherwise, only mention the non-empty lists, in one sentence: N rules added, N updated, N removed (rules that moved into projects or are no longer true), and, **if `keptEdited` is not empty**, name them: *"I left <rules> as they are, you had customised them."* That last point matters: it is the promise that makes the automatic updates acceptable.
+- Otherwise, only mention the non-empty lists, in one sentence: N rules added, N updated, N removed, and, **if `keptEdited` is not empty**, name them: *"I left <rules> as they are, you had customised them."* That last point matters: it is the promise that makes the automatic updates acceptable.
 
-If the user is running `/start` from inside an existing web project (a `package.json` with `next`), offer to add the project rules there too:
+⚠️ **If `movedToProject` is not empty, say so and give the command, whatever folder we are in.** Those rules left the global block because they belong to a web project, and until the user writes the project block into each of their existing repositories, **they apply nowhere**. That gap is invisible: the rules simply vanish from `~/.claude/CLAUDE.md`. Reported on 2026-08-21 by a user who watched seven rules disappear and had no way to know he had to go and fetch them. Say it plainly, then hand over the one-liner:
+
+> Those rules now live in your projects rather than in every session. In each existing web project, run: `node "<PLUGIN_DIR>/scripts/rules/update-project-claude-md.mjs"` (replace `<PLUGIN_DIR>` with the real path). New projects get the block on their own.
+
+Then, only if the current folder is itself a web project (a `package.json` with `next`), do it here right away rather than leaving it on their list:
 
 ```bash
 node "$PLUGIN_DIR/scripts/rules/update-project-claude-md.mjs"

@@ -318,3 +318,16 @@ Tell the user:
 Then read the generated `RUN_TOKEN` (Render dashboard → the service → Environment, or `GET /v1/services/<id>/env-vars` on the API) and hand it to `/add-cron` so the clock can authenticate. Never print it in the conversation.
 
 Return control to the calling skill (`/add-automation`).
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the service right after creation (the `srv-...` id is in the API response):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind render-service --id "<srv-id>" --name "<service-name>" --added-by <calling-skill>
+```

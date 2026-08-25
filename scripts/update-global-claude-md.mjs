@@ -37,7 +37,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { buildRuleSets } from "./rules/rules.mjs";
+import { buildRuleSets, CATALOG } from "./rules/rules.mjs";
 import { GLOBAL_BLOCK } from "./rules/blocks.mjs";
 import { syncManagedBlock } from "./rules/managed-block.mjs";
 
@@ -76,4 +76,27 @@ const report = syncManagedBlock({
   dryRun: args.has("--dry-run"),
 });
 
-console.log(JSON.stringify({ ...report, file }));
+// Une regle qui quitte le bloc global le quitte pour deux raisons opposees, et
+// les confondre coute cher a l'utilisateur : soit elle n'est plus vraie et il
+// n'a rien a faire, soit elle est descendue dans le bloc PROJET et elle ne
+// s'applique alors PLUS NULLE PART tant qu'il n'a pas ecrit ce bloc dans ses
+// projets existants. Remonte le 21/08/2026 par un utilisateur qui a vu sept
+// regles disparaitre de son global sans savoir qu'il devait aller les chercher
+// ailleurs. Le catalogue sait deja les distinguer : la liste est donc separee
+// ici, pour que l'appelant puisse le dire au lieu de le deviner.
+const parScope = new Map(CATALOG.map((r) => [r.id, r]));
+const deplacees = (report.retired ?? []).filter(
+  (id) => parScope.get(id) && !parScope.get(id).retired && parScope.get(id).scope === "project",
+);
+const abandonnees = (report.retired ?? []).filter((id) => !deplacees.includes(id));
+
+console.log(
+  JSON.stringify({
+    ...report,
+    // `retired` reste la liste complete : un appelant ecrit avant cette
+    // separation continue de fonctionner a l'identique.
+    movedToProject: deplacees,
+    droppedForGood: abandonnees,
+    file,
+  }),
+);

@@ -860,6 +860,181 @@ if (memory && Array.isArray(memory.files)) {
   }
 }
 
+// ─── Resource manifest reconciliation ──────────────────────────────────────
+// `.hypervibe/resources.json` is written by the add-* skills at provisioning
+// time: the DECLARED identities of what this project owns. The scans above
+// filter by NAME similarity, so a declared resource named nothing like the
+// project never even enters the inventory - it must be verified by its exact
+// identifier and INJECTED. Conversely, a declared `shared` resource must
+// never be offered for deletion, whatever its name matches.
+async function existsHttp(url, headers) {
+  try {
+    const res = await fetch(url, { headers });
+    return { ok: res.ok, status: res.status };
+  } catch (e) {
+    return { ok: false, status: 0, error: String(e) };
+  }
+}
+async function reconcileManifest() {
+  let manifest = null;
+  try {
+    manifest = JSON.parse(readFileSync(join(PROJECT_DIR, ".hypervibe", "resources.json"), "utf8"));
+  } catch {
+    /* absent or unreadable: nothing declared */
+  }
+  if (!manifest || !Array.isArray(manifest.resources) || manifest.resources.length === 0) {
+    return { found: false };
+  }
+  const out = {
+    found: true,
+    file: ".hypervibe/resources.json",
+    // What each declared resource became: "seen-in-scan", "injected" (verified
+    // by id and added to the inventory), "missing" (verified gone), "shared"
+    // (excluded from deletion), "unverified" (no way to check - present the
+    // declaration itself to the human).
+    resources: [],
+  };
+  const mark = (arr, pred) => {
+    const hit = (arr || []).find(pred);
+    if (hit) {
+      hit.declared = true;
+      return true;
+    }
+    return false;
+  };
+  const cfHeaders = { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` };
+  for (const r of manifest.resources) {
+    const entry = { ...r };
+    if (r.shared) {
+      entry.status = "shared";
+      // A declared shared worker found by the name scan leaves the deletion
+      // inventory, same treatment as the built-in shared list.
+      if (r.kind === "cf-worker" && workers && Array.isArray(workers.workers)) {
+        const i = workers.workers.findIndex(
+          (w) => (w.id || "").toLowerCase() === String(r.name || "").toLowerCase(),
+        );
+        if (i >= 0) {
+          const [w] = workers.workers.splice(i, 1);
+          workers.excluded = [
+            ...(workers.excluded || []),
+            { ...w, excludedReason: "declared shared in the project manifest (never deleted here)" },
+          ];
+          workers.found = workers.workers.length > 0;
+        }
+      }
+      out.resources.push(entry);
+      continue;
+    }
+    let status = null;
+    try {
+      if (r.kind === "neon-project") {
+        if (mark(neon && neon.projects, (p) => (r.id && p.id === r.id) || (r.name && p.name === r.name))) {
+          status = "seen-in-scan";
+        } else if (r.id && NEON_API_KEY) {
+          const d = await httpJson(`https://console.neon.tech/api/v2/projects/${r.id}`, {
+            headers: { Authorization: `Bearer ${NEON_API_KEY}` },
+          });
+          if (!d.__error && d.project) {
+            (neon.projects ||= []).push({
+              id: d.project.id,
+              name: d.project.name,
+              region: d.project.region_id,
+              createdAt: d.project.created_at,
+              declared: true,
+              foundVia: "manifest",
+            });
+            neon.found = true;
+            status = "injected";
+          } else if (String(d.__error || "").includes("404")) {
+            status = "missing";
+          }
+        }
+      } else if (r.kind === "r2-bucket") {
+        if (
+          mark(
+            r2 && r2.buckets,
+            (b) =>
+              b.name === r.name &&
+              (b.jurisdiction || "global") === (r.jurisdiction === "eu" ? "eu" : "global"),
+          )
+        ) {
+          status = "seen-in-scan";
+        } else if (r.name && CLOUDFLARE_API_TOKEN && CF_ACCOUNT_ID) {
+          const jur = r.jurisdiction === "eu" ? "eu" : "global";
+          const h = jur === "eu" ? { ...cfHeaders, "cf-r2-jurisdiction": "eu" } : cfHeaders;
+          const probe = await existsHttp(
+            `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/r2/buckets/${encodeURIComponent(r.name)}`,
+            h,
+          );
+          if (probe.ok) {
+            (r2.buckets ||= []).push({ name: r.name, jurisdiction: jur, declared: true, foundVia: "manifest" });
+            r2.found = true;
+            status = "injected";
+          } else if (probe.status === 404) {
+            status = "missing";
+          }
+        }
+      } else if (r.kind === "cf-worker") {
+        if (mark(workers && workers.workers, (w) => (w.id || "").toLowerCase() === String(r.name || "").toLowerCase())) {
+          status = "seen-in-scan";
+        } else if (r.name && CLOUDFLARE_API_TOKEN && CF_ACCOUNT_ID) {
+          const probe = await existsHttp(
+            `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/workers/services/${encodeURIComponent(r.name)}`,
+            cfHeaders,
+          );
+          if (probe.ok) {
+            (workers.workers ||= []).push({ id: r.name, declared: true, foundVia: "manifest" });
+            workers.found = true;
+            status = "injected";
+          } else if (probe.status === 404) {
+            status = "missing";
+          }
+        }
+      } else if (r.kind === "render-service") {
+        if (mark(render && render.services, (sv) => (r.id && sv.id === r.id) || (r.name && sv.name === r.name))) {
+          status = "seen-in-scan";
+        } else if (r.id && RENDER_API_KEY) {
+          const d = await httpJson(`https://api.render.com/v1/services/${r.id}`, {
+            headers: { Authorization: `Bearer ${RENDER_API_KEY}` },
+          });
+          if (!d.__error && d.id) {
+            (render.services ||= []).push({ id: d.id, name: d.name, type: d.type, declared: true, foundVia: "manifest" });
+            render.found = true;
+            status = "injected";
+          } else if (String(d.__error || "").includes("404")) {
+            status = "missing";
+          }
+        }
+      } else if (r.kind === "stripe-webhook") {
+        if (mark(stripe && stripe.webhooks, (w) => (r.id && w.id === r.id) || (r.name && w.url === r.name))) {
+          status = "seen-in-scan";
+        } else if (r.id && STRIPE_SECRET_KEY) {
+          const d = await httpJson(`https://api.stripe.com/v1/webhook_endpoints/${r.id}`, {
+            headers: { Authorization: `Bearer ${STRIPE_SECRET_KEY}` },
+          });
+          if (!d.__error && d.id) {
+            (stripe.webhooks ||= []).push({ id: d.id, url: d.url, declared: true, foundVia: "manifest" });
+            stripe.webhooksFound = true;
+            status = "injected";
+          } else if (String(d.__error || "").includes("404")) {
+            status = "missing";
+          }
+        }
+      } else if (r.kind === "upstash-db") {
+        if (mark(upstash && upstash.databases, (d) => (r.id && d.id === r.id) || (r.name && d.name === r.name))) {
+          status = "seen-in-scan";
+        }
+      }
+    } catch (e) {
+      entry.reconcileError = String(e);
+    }
+    entry.status = status || "unverified";
+    out.resources.push(entry);
+  }
+  return out;
+}
+const manifestReport = await reconcileManifest();
+
 const elapsedMs = Date.now() - startedAt;
 
 const report = {
@@ -885,6 +1060,7 @@ const report = {
   localDir: local,
   memory,
   github,
+  manifest: manifestReport,
 };
 
 console.log(JSON.stringify(report, null, 2));

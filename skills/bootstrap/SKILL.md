@@ -941,3 +941,19 @@ Adapt the content and numbering based on which options were actually selected. D
 - **Explain each step** briefly as you go, so the user knows what's happening.
 - **If a service requires manual action** (e.g., creating OAuth credentials in Google Console, generating R2 API tokens, OAuth authorization in a browser), clearly tell the user what to do and wait for confirmation before continuing.
 - **NEVER INVOKE `preview_start` DURING the bootstrap to test the app**. The Next.js preview (dev server) must only be launched AT THE VERY END, and ONLY after the user has explicitly answered "yes" to the question "Do you want me to launch the preview?" at Step 8. No "let me quickly check that it compiles by launching the preview" between 2 steps, no "let me test that the page renders well" during the bootstrap. To validate that the code works technically, use `pnpm tsc --noEmit` (typecheck) or `pnpm lint` - **never** `pnpm dev` nor `preview_start`. Launching the preview during the bootstrap steals the screen focus, occupies a port, and breaks the communication rhythm with the user (who does not expect to see their browser open on its own in the middle of the conversation).
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+After the Vercel link exists (`.vercel/project.json`) and the GitHub repository is created, record both - the ids are in the link file and the `gh` output:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind vercel-project --id "<projectId>" --name "<project-name>" --field orgId=<orgId> --added-by bootstrap
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind github-repo --name "<owner>/<repo>" --added-by bootstrap
+```
+
+The `add-*` skills that bootstrap chains (database, storage, domain...) each record their own resources; do not duplicate theirs here.

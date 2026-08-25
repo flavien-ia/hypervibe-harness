@@ -461,3 +461,12 @@ From the JSON captured in Step 5, display exactly:
 - **"The error email doesn't arrive"** → check `ADMIN_EMAIL` is set on Render + email provider (BREVO/RESEND) operational. Test with an invocation that fails on purpose.
 - **"The worker crashes at boot with ANTHROPIC_API_KEY missing"** → the var isn't surfaced to Render. Re-check in the Render dashboard → service → Environment.
 - **"db:push fails with a schema error"** → conflict with the existing schema (table `agent_invocations` already present with other columns?). Inspect the diff.
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record whatever infrastructure the chosen architecture created: a `render-service` (via `_setup-render` / `_create-render-worker`, which document their own recording) or a `cf-worker` (via `_create-cloudflare-worker`). If this skill creates a resource directly, record it here with the matching kind.

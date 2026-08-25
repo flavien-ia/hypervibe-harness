@@ -617,3 +617,16 @@ Update the CLAUDE.md stack line (which says "Currently in **TEST mode**") so it 
 > - Your local `.env` keeps the TEST webhook secret (for `stripe listen` in dev) - this is intentional.
 > - The Vercel redeploy is needed for the new keys to be active - tell me *"deploy"* if you have not pushed yet.
 > - First live payment = test with a small-amount card of your own (like 1 EUR) to validate the whole end-to-end flow.
+
+
+---
+
+## Resource manifest (always)
+
+Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
+
+Record the webhook endpoint (its `we_...` id is in the creation response):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind stripe-webhook --id "<we_id>" --name "<endpoint-url>" --added-by add-stripe
+```
