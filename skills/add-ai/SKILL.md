@@ -1,6 +1,6 @@
 ---
 name: add-ai
-description: "Add AI features to the user's app, powered by OpenRouter (one key, hundreds of models, no markup on inference). Discovery phase asks what the AI must DO, who will use it, at what volume, and whether personal data flows through it, then infers the right recipe: a chat assistant (streaming, in-app), a processing pipeline (classify, extract, summarise on an event), or content generation. Cost is decided BEFORE any code: the skill reads live prices from the OpenRouter catalogue, shows what the feature will cost per use and per month, and provisions a SPENDING-CAPPED key so no bug can exceed the budget. Every call is logged with its real cost, visible in the app. Use for AI that is part of the PRODUCT and answers in seconds. NOT for autonomous background agents with tools and memory (that is /add-agent), and NOT for scheduled non-AI processing (that is /add-automation)."
+description: "Add AI to an existing Next.js project through OpenRouter: chat assistant, content processing, or generation. Estimates the cost from live prices and provisions a spending-capped key before writing any code."
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js 18+. Needs an OpenRouter account; the management key is read from the vault when it is there, otherwise the user creates one inference key by hand."
 ---

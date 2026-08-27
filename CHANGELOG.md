@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.10.1 (27 août 2026)
+
+### Améliorations
+
+- **La page de `/add-ai` est désormais en français**, avec sa documentation complète : quand utiliser la commande, comment ça se passe, ce qu'elle crée pour vous, et quatre encadrés sur les pièges du budget et des données personnelles. La version précédente n'affichait qu'un résumé technique en anglais.
+
+### Coulisses
+
+- Un contrôle automatique vérifie qu'une nouvelle commande arrive avec sa documentation dans les deux langues, et une description courte, avant d'être publiée. C'est ce qui a manqué à la version précédente.
+
 ## v2.10.0 (27 août 2026)
 
 ### Nouveautés
