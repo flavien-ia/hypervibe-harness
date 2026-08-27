@@ -1,6 +1,6 @@
 ---
 name: add-workflow
-description: "Add an agentic workflow to the project: a finite, event-triggered pipeline of typed steps (some intelligent via the Claude API) that runs INSIDE the Next.js app, within serverless limits - no dedicated worker, no 24/7 agent, no extra infrastructure. The sweet spot between /add-cron (a scheduled task) and /add-agent (an autonomous product agent): 'when X happens, do A then B then C, one of which needs to understand/decide/write'. Scaffolds a shared step-runner with per-step retry and run logging, the workflow module, and the chosen trigger (user action, webhook, or schedule via /add-cron). Invoked directly or routed from /add-automation."
+description: "Add an event-triggered pipeline inside the app: when X happens, do A then B then C. Shared step runner with retries, a run log, and the trigger (user action, webhook, or schedule). It ends, unlike /add-agent."
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js and pnpm; the project must be a Next.js app (typically from /bootstrap)."
 ---
 

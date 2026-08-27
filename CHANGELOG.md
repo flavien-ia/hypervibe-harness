@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.10.2 (27 août 2026)
+
+### Améliorations
+
+- **Les commandes d'automatisation se distinguent enfin au premier coup d'oeil.** Six d'entre elles se ressemblaient dans la liste, avec des descriptions si longues qu'on ne voyait plus ce qui les séparait. Chacune dit maintenant en une phrase ce qu'elle installe, et nomme sa voisine la plus proche pour vous aiguiller :
+
+  - `/add-ai` répond en quelques secondes, dans votre application
+  - `/add-workflow` enchaîne des étapes quand un événement arrive, et se termine
+  - `/add-agent` tourne en boucle, choisit ses actions et se souvient
+  - `/add-cron` se déclenche à l'heure, pas sur un événement
+  - `/add-routine` est une mission récurrente pour vous, sur votre compte Claude
+  - `/add-automation` vous oriente vers la bonne quand vous hésitez
+
+### Coulisses
+
+- Nettoyage de ponctuation dans la commande de tâches planifiées.
+
 ## v2.10.1 (27 août 2026)
 
 ### Améliorations

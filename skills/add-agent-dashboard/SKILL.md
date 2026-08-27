@@ -1,6 +1,6 @@
 ---
 name: add-agent-dashboard
-description: Add a monitoring dashboard for AI agents into the project's admin area (/admin/agents). Lists all agents with their stats (cost, success/error counts, last run), shows invocation history per agent, drills into the turn-by-turn reasoning trace of any single invocation, and lets the admin trigger an agent run manually with a custom prompt. Idempotent - safe to re-run, will skip already-installed pages. Auto-invoked by /add-agent at the end if the user opts in. Can also be invoked standalone if the user skipped the dashboard at first or wants to add it after creating multiple agents. Requires admin auth (/add-auth in admin mode) and at least one agent already created (/add-agent first).
+description: "Add a monitoring screen for AI agents in the project admin: cost, run history, turn-by-turn traces, and a button to launch a run by hand. Installed by /add-agent, safe to re-run."
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---

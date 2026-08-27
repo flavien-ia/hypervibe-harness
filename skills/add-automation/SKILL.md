@@ -1,6 +1,6 @@
 ---
 name: add-automation
-description: "Add an automation - scheduled task, in-app agentic workflow, background process, long-running worker, webhook handler, heavy computation, or a personal recurring AI mission. Acts as a smart orchestrator over the four shapes: /add-cron (scheduled app task), /add-workflow (finite event-triggered pipeline running inside the app, some steps intelligent), /add-agent (autonomous product agent), /add-routine (personal recurring AI mission on the user's own Claude account) - plus dedicated workers (Cloudflare, Render) for the heavy/continuous cases. Discovery phase to understand the actual need, infers whether the job belongs to the APP or to the OPERATOR, recommends with plain-words reasoning, and delegates after validation. Optionally converts the project to Turborepo when a dedicated worker is needed."
+description: "Route an automation need to the right shape: scheduled task, event-triggered pipeline, background worker, autonomous agent, or a personal recurring mission. Start here when you are not sure which one you want."
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
 

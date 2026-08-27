@@ -1,6 +1,6 @@
 ---
 name: add-routine
-description: "Create a personal recurring AI mission (a Claude routine): 'brief me every morning', 'analyze my week every Friday', 'watch X and alert me'. The mission runs on the USER'S OWN Claude account (cloud routine, or local scheduled task), not on any app infrastructure - zero code, zero deployment. Direct entry point to the routine engine; /add-automation routes here automatically when it detects an operator-side AI mission. Guards against misuse: anything the APP depends on is rerouted to /add-cron or /add-automation."
+description: "Create a recurring AI mission for YOURSELF, on your own Claude account: a morning brief, a Friday analysis, a watch that alerts you. Zero code, zero deployment, nothing added to the app."
 compatibility: "Claude Code (CLI or desktop app). Cloud routines need Claude Code >= 2.1.81 or the desktop app; local scheduled tasks need the desktop app."
 ---
 
