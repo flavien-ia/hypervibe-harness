@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.10.0 (27 août 2026)
+
+### Nouveautés
+
+- **`/add-ai` : ajouter de l'IA dans votre application.** Un assistant conversationnel, une analyse automatique de vos contenus, ou de la rédaction : la commande vous pose quatre questions, en déduit la bonne approche, et installe tout. Elle passe par OpenRouter, qui ouvre l'accès à des centaines de modèles avec une seule clé.
+
+  Deux garde-fous, parce que l'IA se paie à l'usage. Le coût est calculé et validé **avant** la moindre ligne de code, à partir des prix réels du moment : vous dites oui à un montant, pas à une idée. Et la clé créée pour votre projet porte un **plafond de dépense** tenu par le fournisseur, qu'aucun bug ne peut dépasser. Chaque appel est ensuite enregistré avec son coût exact, visible dans votre application.
+
+### Améliorations
+
+- **Fenêtre du coffre-fort** : elle redemande votre mot de passe principal jusqu'à trois fois. Une faute de frappe se rattrape sur place, au lieu de devoir tout relancer.
+- **`/add-workflow`** s'appuie sur l'IA installée par `/add-ai` quand elle est déjà là : plus de deuxième clé à fournir, et le budget est encadré d'office.
+- **`/add-agent`** renvoie vers `/add-ai` quand vous décrivez un assistant qui répond en direct à vos utilisateurs : c'est l'outil fait pour ça, et il est bien plus léger qu'un agent autonome.
+
+### Coulisses
+
+- Deux nouvelles recettes de vérification tournent à chaque version : le choix des modèles selon le budget, et l'étanchéité des clés d'API.
+
 ## v2.9.5 (25 août 2026)
 
 ### Améliorations

@@ -37,6 +37,9 @@ const parseJson = (s, fallback) => {
 const SESSION_DIR = join(homedir(), ".hypervibe");
 const SESSION_FILE = join(SESSION_DIR, "bw-session");
 const TTL = 12 * 60 * 60;
+// How many times the window re-asks for the master password (sign-in and unlock alike) before
+// giving up. Mistyping it is ordinary; making the user re-launch the whole step for it is not.
+const MAX_ATTEMPTS = 3;
 
 // ── input helpers (work on a real TTY, cross-OS) ──────────────────────
 function promptVisible(q) {
@@ -187,27 +190,44 @@ async function doLogin() {
   // `bw login` (inherit), bw's own password input is FULLY hidden (no stars at all),
   // which feels broken to users. We pass the password via env (--passwordenv) and let
   // bw handle only the 2FA step interactively (it prompts by itself when 2FA is on).
-  const email = await promptVisible(t("email"));
+  let email = await promptVisible(t("email"));
   if (!email) throw new Error(t("emailRequired"));
-  const pwd = await promptMasked(t("masterPassword"));
-  console.log("");
-  console.log(t("signingIn"));
+  const loginCmd = resolveBwCmd();
+  // The 2FA explanation is a one-time briefing, not a status line: print it once, before the
+  // first attempt, so a retry does not bury bw's own error message under four lines of prose.
   console.log("");
   console.log(t("twoFactorIntro"));
   console.log(t("twoFactorWhere"));
   console.log(t("twoFactorMail"));
   console.log(t("twoFactorType"));
-  console.log("");
-  const loginCmd = resolveBwCmd();
-  const res = spawnSync(loginCmd, ["login", email, "--passwordenv", "BW_PASSWORD_LOGIN"], {
-    encoding: "utf8",
-    env: { ...process.env, BW_PASSWORD_LOGIN: pwd },
-    stdio: "inherit",      // keep stdin live so bw can prompt for the 2FA code if needed
-    shell: IS_WIN && loginCmd === "bw",
-    windowsHide: true,
-  });
-  if (res.status !== 0) throw new Error(t("signInFailed"));
-  console.log(t("signedIn"));
+  // Same reasoning as doUnlock: a wrong password, a mistyped 2FA code or a typo in the email is
+  // the ORDINARY case. We re-ask HERE instead of closing the window and making the user launch
+  // the whole sign-in again. The email is kept between attempts and Enter accepts it, so only
+  // what was actually wrong has to be typed a second time.
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (attempt > 1) {
+      const again = (await promptVisible(t("emailAgain", { email }))).trim();
+      if (again) email = again;
+    }
+    const pwd = await promptMasked(t("masterPassword"));
+    console.log("");
+    console.log(t("signingIn"));
+    console.log("");
+    const res = spawnSync(loginCmd, ["login", email, "--passwordenv", "BW_PASSWORD_LOGIN"], {
+      encoding: "utf8",
+      env: { ...process.env, BW_PASSWORD_LOGIN: pwd },
+      stdio: "inherit",      // keep stdin live so bw can prompt for the 2FA code if needed
+      shell: IS_WIN && loginCmd === "bw",
+      windowsHide: true,
+    });
+    if (res.status === 0) {
+      console.log(t("signedIn"));
+      return;
+    }
+    if (attempt < MAX_ATTEMPTS) console.log(t("signInRetry", { attempt, total: MAX_ATTEMPTS }));
+  }
+  // Thrown = non-zero exit, so the caller knows no account got signed in.
+  throw new Error(t("signInFailedFinal", { total: MAX_ATTEMPTS }));
 }
 
 async function doUnlock() {
@@ -223,19 +243,32 @@ async function doUnlock() {
     throw new Error(t("notSignedIn"));
   }
   console.log(t("unlocking", { email: status.userEmail }));
-  const pwd = await promptMasked(t("masterPassword"));
   const unlockCmd = resolveBwCmd();
-  const res = spawnSync(unlockCmd, ["unlock", "--passwordenv", "BW_PASSWORD_UNLOCK", "--raw"], {
-    encoding: "utf8",
-    env: { ...process.env, BW_PASSWORD_UNLOCK: pwd },
-    shell: IS_WIN && unlockCmd === "bw",
-    windowsHide: true,
-  });
-  const token = (res.stdout || "").trim();
-  if (!token) throw new Error(t("unlockFailed"));
-  if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
-  writeFileSync(SESSION_FILE, `${Math.floor(Date.now() / 1000)}\n${token}`, "utf8");
-  console.log(t("unlocked"));
+  // A mistyped master password is the ORDINARY case, not an exception. Closing the window on the
+  // first miss sent the user back to the conversation to have the whole step re-launched, just to
+  // type one character differently. So we ask again HERE, in the same window: a typo, a caps lock
+  // or the wrong keyboard layout is one retry away. We stop after MAX_ATTEMPTS instead of
+  // looping forever - past that point the cause is rarely a typo (wrong account, forgotten
+  // password), and an endless prompt would only hide it.
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const pwd = await promptMasked(t("masterPassword"));
+    const res = spawnSync(unlockCmd, ["unlock", "--passwordenv", "BW_PASSWORD_UNLOCK", "--raw"], {
+      encoding: "utf8",
+      env: { ...process.env, BW_PASSWORD_UNLOCK: pwd },
+      shell: IS_WIN && unlockCmd === "bw",
+      windowsHide: true,
+    });
+    const token = (res.stdout || "").trim();
+    if (token) {
+      if (!existsSync(SESSION_DIR)) mkdirSync(SESSION_DIR, { recursive: true });
+      writeFileSync(SESSION_FILE, `${Math.floor(Date.now() / 1000)}\n${token}`, "utf8");
+      console.log(t("unlocked"));
+      return;
+    }
+    if (attempt < MAX_ATTEMPTS) console.log(t("unlockWrongPassword", { attempt, total: MAX_ATTEMPTS }));
+  }
+  // Thrown = non-zero exit, so the caller knows the vault stayed closed and does not loop blindly.
+  throw new Error(t("unlockFailedFinal", { total: MAX_ATTEMPTS }));
 }
 
 async function doAdd() {

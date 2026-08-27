@@ -87,6 +87,7 @@ Chaque addon peut être activé pendant `/bootstrap` ou utilisé seul sur un pro
 | `/new-email-address` | Crée une adresse de réception (`contact@monsite.fr`) redirigée vers votre boîte mail (Cloudflare Email Routing) |
 | `/add-cron` | Tâche planifiée - Cloudflare Worker (précis) ou GitHub Action (best-effort), choisi selon ce que fait la tâche |
 | `/add-automation` | Traitement en arrière-plan - route vers cron, Cloudflare Worker, ou Render Background Worker selon le besoin. Bascule sur `/add-agent` si vous décrivez un agent IA. |
+| `/add-ai` | Ajouter de l'IA dans l'app (assistant conversationnel, analyse et classification, generation de contenu) via OpenRouter. Le cout est estime et valide AVANT tout code, la cle est plafonnee cote fournisseur, et chaque appel est journalise avec son cout reel. |
 | `/add-agent` | Agent IA autonome (Anthropic Claude + tools + mémoire sémantique optionnelle + circuit breaker budgétaire + persistance complète) déployé sur Render |
 | `/add-agent-dashboard` | Dashboard de monitoring des agents dans `/admin/agents` (coût, exécutions, détail tour par tour, lancer à la demande) |
 | `/add-collab` | Ajouter des collaborateurs GitHub qui peuvent déployer (via GitHub Actions, sans payer de siège Vercel) |

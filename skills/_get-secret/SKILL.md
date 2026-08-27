@@ -83,6 +83,8 @@ VAL=$(node "$VAULT" get CLOUDFLARE api_token); RC=$?
 
 The master password is typed **in the window**, never in the chat. The session stays valid for 12h (a single unlock per day).
 
+The window asks up to **3 times** before giving up, so a typo is fixed on the spot. If `launch.mjs unlock` still exits non-zero, the three attempts were wrong: say so in the chat and ask before opening another window, rather than looping on the same `get`.
+
 ## Key missing (RC = 4)
 
 The item is not in the vault yet. Offer to add it (the value will be entered in a masked window, never via Claude):

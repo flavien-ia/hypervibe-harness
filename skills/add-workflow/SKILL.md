@@ -32,7 +32,9 @@ If during discovery the need clearly falls in the right column, say so in one ho
 
 1. Invoke **`_detect-project-root`** → `PROJECT_NAME`, `IS_MONOREPO`, `WEB_DIR`, `IS_NEXTJS`. If not a Next.js project, stop: workflows live inside the app.
 2. Invoke **`_check-deps`** for the database. A real DB (Neon wired by `/add-db`) enables run logging in a table; without it the runner degrades to console logging (say so, and continue - do not force `/add-db`).
-3. **Anthropic key, ONLY if the pipeline will have intelligent steps** (checked again after discovery): look for `ANTHROPIC_API_KEY` in the project `.env`. If missing, follow `_collect-secret`: an API key is a secret, so it is never pasted into the conversation. Have them create the key at https://console.anthropic.com/settings/keys, then collect it through the masked window, which stores it in `.env` + Vercel itself:
+3. **The AI brick, ONLY if the pipeline will have intelligent steps**: if `src/server/ai.ts` already exists (installed by `/add-ai`), use it - `appelerIA({ usage: "traitement", ... })` - and skip the rest of this point: the key, the token cap, the cost log and the no-training routing are already in place. Otherwise, invoke **`/add-ai`** to install it, which also sizes and caps the budget. The legacy path below (a direct Anthropic key) is kept only for projects that already run on it.
+
+3b. **Legacy Anthropic key** (checked again after discovery): look for `ANTHROPIC_API_KEY` in the project `.env`. If missing, follow `_collect-secret`: an API key is a secret, so it is never pasted into the conversation. Have them create the key at https://console.anthropic.com/settings/keys, then collect it through the masked window, which stores it in `.env` + Vercel itself:
 
 ```bash
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \

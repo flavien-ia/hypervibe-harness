@@ -19,6 +19,8 @@ const SUITES = [
   ["bash guardrails", join(ROOT, "hooks", "test-hooks.mjs")],
   ["agent template fences", join(ROOT, "scripts", "tests", "test-agent-template-tools.mjs")],
   ["SECURITY.md claims", join(ROOT, "scripts", "tests", "test-security-claims.mjs")],
+  ["AI model selection", join(ROOT, "scripts", "tests", "test-ai-models.mjs")],
+  ["AI secret containment", join(ROOT, "scripts", "tests", "test-ai-secret.mjs")],
 ];
 
 let failed = 0;

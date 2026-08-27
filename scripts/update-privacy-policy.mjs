@@ -272,6 +272,39 @@ const CATALOG = {
       },
     },
   },
+  openrouter: {
+    name: "OpenRouter, Inc.",
+    address: "1111B S Governors Ave STE 27308, Dover, DE 19904, USA",
+    country: "US",
+    purpose:
+      "Routage des appels d'intelligence artificielle vers les modèles retenus (assistant conversationnel, analyse et génération de contenu)",
+    dataTypes: [
+      "Contenu soumis aux fonctionnalités d'IA : messages saisis, documents ou textes analysés",
+    ],
+    retention:
+      "Variable selon le fournisseur de modèle finalement sollicité. Les requêtes sont routées vers des fournisseurs qui n'utilisent pas les données à des fins d'entraînement",
+    legalBasis:
+      "Exécution du contrat / intérêt légitime (selon la fonctionnalité concernée)",
+    isEUResident: false,
+    transferMechanism: "Clauses contractuelles types (CCT)",
+    privacyUrl: "https://openrouter.ai/privacy",
+    dpaUrl: "https://openrouter.ai/terms",
+    i18n: {
+      en: {
+        purpose:
+          "Routing AI calls to the selected models (conversational assistant, content analysis and generation)",
+        dataTypes: [
+          "Content submitted to AI features: entered messages, analysed documents or text",
+        ],
+        retention:
+          "Varies with the model provider ultimately reached. Requests are routed to providers that do not use the data for training",
+        legalBasis:
+          "Performance of the contract / legitimate interest (depending on the feature)",
+        transferMechanism: "Standard contractual clauses (SCC)",
+      },
+    },
+  },
+
   anthropic: {
     name: "Anthropic PBC",
     address: "548 Market Street #84749, San Francisco, CA 94104, USA",

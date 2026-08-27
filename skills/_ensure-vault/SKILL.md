@@ -34,6 +34,7 @@ Depending on `ST`:
   node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>
   node "$VAULT" status   # should return "unlocked"
   ```
+  The window asks for the master password up to **3 times** before giving up, so a typo is fixed on the spot. If it still exits non-zero, the three attempts were wrong: say so in the chat and ask the user before opening another window. Never reopen one on your own - that is how a mistyped password turns into an endless chain of windows.
 - **Empty output / error** (no `bw`, no account connected → vault never configured) → the vault does not exist yet: **delegate to `_add-keyring`** (installs bw + creates the account + login + unlock), then re-check. If the user declines to set up the vault, flag it and stop cleanly (the skill will not be able to retrieve its keys).
 
 ## When to use it

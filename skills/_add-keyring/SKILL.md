@@ -114,7 +114,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" login --lang <LANG> --
 ```
 The command **blocks until the window is closed and now returns the real exit code** (0 = success, non-zero = failure: wrong password or wrong 2FA code). **NEVER assume success just because the window closed.** Always re-check with `bw status`:
 - `status` ≠ `unauthenticated` (so `locked` or `unlocked`) → connection succeeded, go to Step 5.
-- still `unauthenticated` → the connection failed: explain it to the user and offer to retry (wrong credentials or wrong 2FA code; or wrong region: if they thought they were on EU but it did not work, retry with the US server). **Do not move on to Step 5 until `bw status` confirms the connection.**
+- still `unauthenticated` → the connection failed: explain it to the user and offer to retry (wrong credentials or wrong 2FA code; or wrong region: if they thought they were on EU but it did not work, retry with the US server). The window already asked **3 times** before closing, so a failure here means three wrong attempts: ask the user before opening another one, never relaunch it on reflex. **Do not move on to Step 5 until `bw status` confirms the connection.**
 
 ---
 
@@ -130,7 +130,7 @@ Blocks until closed. The window **self-repairs and re-checks the state before un
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status
 ```
 - `unlocked` → ✅ success.
-- `locked`/`expired` → the unlock did not complete (wrong password): offer Step 5 again **once**. If it fails again with "not connected", it is a login problem (Step 3), not an unlock one: do not insist on the unlock.
+- `locked`/`expired` → the unlock did not complete: the window already asked for the password **3 times**, so offer Step 5 again **once** only, and only after asking. If it fails again with "not connected", it is a login problem (Step 3), not an unlock one: do not insist on the unlock.
 
 ---
 
