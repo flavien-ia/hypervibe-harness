@@ -87,7 +87,7 @@ Wait for the user's reply, then explain the requested topic using the content be
 > - **Stripe** - The cash register. To accept payments online.
 > - **Cloudflare R2** - The storage unit. To store files, images, and documents uploaded by your users.
 > - **Google Analytics** - The visitor counter. To know how many people visit your site and what they do there (with a GDPR cookie banner).
-> - **Anthropic** - The AI brain. When you add an autonomous agent (`/add-agent`), it's Anthropic's Claude API that thinks for your agent.
+> - **OpenRouter** - The door to the AI models. Whenever your app needs to understand, classify or write something (an intelligent chain, an autonomous agent, a chat assistant), the call goes through OpenRouter, which routes it to the model of your choice. Changing model is one line to edit, and the key carries a spending cap held by them.
 > - **Render** - The background engine. To host AI agents and automations that run continuously, outside the classic lifecycle of a web page.
 > - **MapLibre + OpenFreeMap** - The cartographer. Displays interactive maps (a single point, multiple branches, a map-first app) with European OpenStreetMap data. Free, no API key, no cookies - no Google Maps.
 
@@ -176,8 +176,8 @@ Wait for the user's reply, then explain the requested topic using the content be
 > **Automation and AI agents**
 >
 > - **/add-cron** - To run code at a fixed time, with no human intervention: sending a daily newsletter, nightly cleanup, periodic synchronization.
-> - **/add-automation** - For heavier or continuous background tasks. Depending on your need, I choose between a Cloudflare Worker (fast, event-driven) or a Render Background Worker (long-running, persistent state). If you actually describe an AI agent, I switch you over to `/add-agent`.
-> - **/add-agent** - The skill dedicated to **autonomous AI agents**. The agent runs on Render, connected to the Claude API (Anthropic), with its own tools (read a website, send an email, read your DB), an optional memory (semantic search via Cloudflare Workers AI), a budget circuit breaker ($5/day, $50/month by default - it auto-pauses if you exceed it), and complete persistence of every execution.
+> - **/add-automation** - For heavier or continuous background tasks. Depending on your need, I choose between a Cloudflare Worker (fast, event-driven) or a Render Background Worker (long-running, persistent state). If you actually describe an AI agent, I build that instead: its own server, its own capped budget.
+> - **Autonomous agents** (through `/add-automation`) - The agent runs on Render, calls its model through OpenRouter with a key capped for it alone, with its own tools (read a website, send an email, read your DB), an optional memory (semantic search via Cloudflare Workers AI), a budget circuit breaker ($5/day, $50/month by default - it auto-pauses if you exceed it), and complete persistence of every execution.
 > - **/add-agent-dashboard** - A monitoring dashboard for your agents in `/admin/agents`: cost, executions, turn-by-turn detail of every agent decision, "run now" button.
 >
 > **Visual**

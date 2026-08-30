@@ -1,6 +1,6 @@
 ---
 name: add-agent-dashboard
-description: "Add a monitoring screen for AI agents in the project admin: cost, run history, turn-by-turn traces, and a button to launch a run by hand. Installed by /add-agent, safe to re-run."
+description: "Add a monitoring screen for AI agents in the project admin: cost, run history, turn-by-turn traces, and a button to launch a run by hand. Installed when an agent is created, safe to re-run."
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
@@ -38,7 +38,7 @@ If `missing` -> stop and tell the user:
 
 ### 0.b - At least one existing agent
 
-No dashboard for zero agents. Check that the `agent_*` tables are in the DB (meaning at least one `/add-agent` has run).
+No dashboard for zero agents. Check that the `agent_*` tables are in the DB (meaning at least one agent has been created).
 
 ```bash
 grep -q "agentInvocations" apps/web/src/server/db/schema.ts && echo "ok" || echo "missing"
@@ -46,7 +46,7 @@ grep -q "agentInvocations" apps/web/src/server/db/schema.ts && echo "ok" || echo
 
 If `missing` -> stop and say:
 
-> To have an agents dashboard, you need at least one existing agent. Run `/add-agent` first - it creates the agent + the required tables. Then come back here for the dashboard.
+> To have an agents dashboard, you need at least one existing agent. Run `/add-automation` first and describe what it should do - that creates the agent and the required tables. Then come back here for the dashboard.
 
 ---
 
@@ -98,7 +98,7 @@ From the JSON:
 > 2. Sign in to the admin area
 > 3. Go to `/admin/agents`
 >
-> You can add more agents with `/add-agent` - they will automatically show up in the dashboard with nothing else to do.
+> You can add more agents with `/add-automation` - they will automatically show up in the dashboard with nothing else to do.
 
 If some files were already in place (idempotent re-run), simply say:
 
@@ -110,6 +110,6 @@ If some files were already in place (idempotent re-run), simply say:
 
 - **i18n convention**: the `/admin/agents` dashboard and all its sub-pages **stay in French** regardless of the project's locale. No string extraction to `messages/`, no `useTranslations()`. Single-user surface (admin/owner), high string volume, near-zero translation ROI - same convention as `/admin/users` and the legal pages. If the user really wants to translate it, they can do it manually afterwards.
 - **Idempotence**: the SKILL can be run multiple times without breaking anything. Re-run = no-op if everything is already in place.
-- **No per-agent specific pages**: the dashboard is generic, it lists all the agents found in the DB and adapts its views. When the user adds a new agent via `/add-agent`, it shows up automatically (no need to re-install the dashboard).
+- **No per-agent specific pages**: the dashboard is generic, it lists all the agents found in the DB and adapts its views. When the user adds a new agent, it shows up automatically (no need to re-install the dashboard).
 - **Customization**: if the user wants business KPIs specific to their agent (e.g. "number of emails answered by my agent this month"), it's up to you to add it ad-hoc in `apps/web/src/app/admin/agents/[name]/page.tsx` at their request. The boilerplate is generic.
 - **Auth required**: all the pages do `redirect("/admin/signin")` if `await isAdmin()` returns `false`. The tRPC router uses `adminProcedure`. No non-admin access possible.

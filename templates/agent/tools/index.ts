@@ -1,15 +1,31 @@
 // agent/tools/index.ts - Tool registry consumed by loop.ts.
 //
 // Each tool is a `{ definition, handler }` pair:
-//   - definition : the JSON schema sent to Claude (name, description, input_schema)
-//   - handler    : an async JS function that runs the tool with the args Claude provides
+//   - definition : the JSON schema describing the tool (name, description, input_schema)
+//   - handler    : an async JS function that runs the tool with the args the model provides
 //
 // Add or remove tools here. The loop reads `Object.values(tools)` to build
-// the `tools` array sent to the Anthropic API, so anything added here is
-// automatically available to the agent.
+// the tool list sent to the model, so anything added here is automatically
+// available to the agent.
 //
 // To remove a tool the agent shouldn't access, just delete its line. To add
 // one, mirror the pattern of the existing ones.
+//
+// The definition shape is deliberately provider-neutral: `loop.ts` converts it
+// to the wire format at call time. Describing a tool never depends on which
+// model ends up running it.
+
+/** What every tool in this folder declares. */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required?: string[];
+    [k: string]: unknown;
+  };
+}
 
 import { tool as httpFetchTool } from "./http-fetch.js";
 import { tool as sendEmailTool } from "./send-email.js";

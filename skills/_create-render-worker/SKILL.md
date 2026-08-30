@@ -48,7 +48,7 @@ That second point is not a defect to work around, it is the shape of the thing. 
 
 The 750 free instance hours are granted **per workspace per calendar month**, not per service. One service kept awake round the clock therefore consumes essentially the entire allowance, and Render suspends every free service of the workspace once it is spent. Say this to the user before choosing "kept awake".
 
-**When a process genuinely must never stop** (persistent connection, queue consumer that cannot miss a message, an agent watching a stream), the free tier is the wrong answer: switch to a real background worker, `type: worker` + `plan: starter`, around 7 USD/month. That is exactly what `/add-agent` does, and its `templates/agent/render.yaml` is the reference.
+**When a process genuinely must never stop** (persistent connection, queue consumer that cannot miss a message, an agent watching a stream), the free tier is the wrong answer: switch to a real background worker, `type: worker` + `plan: starter`, around 7 USD/month. That is exactly what `_create-agent` does, and its `templates/agent/render.yaml` is the reference.
 
 ---
 

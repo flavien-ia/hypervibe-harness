@@ -41,5 +41,5 @@ Once the routine is in place: *"pause my routine"*, *"change the schedule"*, *"s
 {{/callout}}
 
 {{callout:warning|Never for your app}}
-Everything your **app** needs to function (cleanups, customer emails, syncs) belongs on the app's infrastructure: `/add-cron`, `/add-workflow`, or `/add-automation`. A routine that stops must never break anything beyond your own comfort.
+Everything your **app** needs to function (cleanups, customer emails, syncs) belongs on the app's infrastructure: `/add-cron` or `/add-automation`. A routine that stops must never break anything beyond your own comfort.
 {{/callout}}

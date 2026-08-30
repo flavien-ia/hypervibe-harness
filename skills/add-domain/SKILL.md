@@ -472,7 +472,7 @@ Depending on the output:
 
 ### 11.4 - Auto-fix: Render Services env vars
 
-`/add-agent` and the Render variant of `/add-automation` read the app's URL via an env var on Render (typically `APP_URL` or `NEXT_PUBLIC_APP_URL`). Render has no automatic link with Vercel: if `NEXT_PUBLIC_APP_URL` changes on the Vercel side, Render keeps the old value.
+`_create-agent` and the Render variant of `/add-automation` read the app's URL via an env var on Render (typically `APP_URL` or `NEXT_PUBLIC_APP_URL`). Render has no automatic link with Vercel: if `NEXT_PUBLIC_APP_URL` changes on the Vercel side, Render keeps the old value.
 
 Run the block below if `RENDER_API_KEY` is available in the user's environment (otherwise skip silently - the user probably has no Render service).
 

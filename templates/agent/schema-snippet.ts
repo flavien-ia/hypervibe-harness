@@ -70,7 +70,7 @@ export const agentTurns = pgTable(
       .references(() => agentInvocations.id, { onDelete: "cascade" }),
     turnNumber: integer("turn_number").notNull(),
     stopReason: text("stop_reason").notNull(), // end_turn | tool_use | max_tokens | refusal
-    content: jsonb("content").notNull(),       // raw Anthropic content blocks (text + tool_use)
+    content: jsonb("content").notNull(),       // what the model produced this turn (text + tool calls)
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     cacheCreationTokens: integer("cache_creation_tokens").notNull().default(0),

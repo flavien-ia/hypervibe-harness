@@ -252,7 +252,7 @@ console.log("vault:" + putItem(process.env.VITEM, [{ name: process.env.VFIELD, v
 
 | Secret | Vercel | Cloudflare Worker | Render Service |
 |---|---|---|---|
-| `ANTHROPIC_API_KEY` | ✅ (already done in Step 4) | - | ✅ (agent) |
+| `ANTHROPIC_API_KEY` | ✅ (already done in Step 4) | - | - |
 | `RESEND_API_KEY` | ✅ | - | ✅ (agent if emails) |
 | `BREVO_API_KEY` | ✅ | - | ✅ (agent if emails) |
 | `CRON_SECRET` | ✅ | ✅ (worker call-back to Next.js) | - |

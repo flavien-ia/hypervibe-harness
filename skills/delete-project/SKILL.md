@@ -199,6 +199,26 @@ The inventory carries a `manifest` section when the project declares its resourc
 
 Conversely, a resource found ONLY by name similarity (no `declared: true`) deserves the opposite caution: say it was **guessed from its name**, and have the user confirm it truly belongs to this project before it enters the scope.
 
+### 2.1c The project's AI keys
+
+A `kind: "ai-key"` entry in the manifest means the project has a spending-capped
+key of its own (and an agent, if there is one, has a second). They are not
+deleted by the inventory script: revoke them explicitly, in the execution phase,
+once the user has validated the scope:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/ai/ai-setup.mjs" revoquer --hash <hash>
+```
+
+Two reasons not to skip this. A key left alive after the project is gone is a
+key nobody watches any more, and the cap that made it safe is now protecting
+nothing. And the entries carry the `hash`, so there is no guessing: revoke
+exactly those, never "the keys whose name looks like the project".
+
+An entry with `mode: "direct"` has no key of ours to revoke: the project calls a
+provider on the user's own account. Say so in section 2.2, so they can revoke it
+themselves if they want to.
+
 ### 2.2 Section "🟠 Third-party services detected (to delete by hand)"
 
 For each entry in `envVars.thirdPartyDetected`: name of the service with its label (plain language), how it was detected (env var), URL to open, short instructions. If the list is empty, say so clearly: *"No third-party service detected outside the Hypervibe stack."*

@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.0.0 (30 août 2026)
+
+### Ce qui change pour vous
+
+- **Deux commandes disparaissent : `/add-workflow` et `/add-agent`.** Vous n'avez plus à choisir vous-même entre une chaîne d'étapes et un agent autonome : décrivez votre besoin à **`/add-automation`**, qui reconnaît la bonne forme et la construit. Se tromper entre les deux coûtait cher, l'une ne demande aucune infrastructure, l'autre un serveur à elle.
+- **Toute l'IA de vos projets passe désormais par OpenRouter.** Changer de modèle devient une ligne à modifier au lieu d'un chantier, et vous n'êtes plus lié à un seul fournisseur.
+- **Trois garanties, appliquées partout de la même façon** : le coût est estimé et validé par vous avant la première ligne de code, la clé de votre projet porte un plafond de dépense tenu par le fournisseur (une boucle emballée tape un mur, pas votre carte bancaire), et chaque appel refuse que vos données servent à entraîner un modèle.
+- **Vous préférez appeler OpenAI ou Anthropic en direct ?** Dites-le : le choix est respecté, noté, et plus jamais remis en question.
+
+### Améliorations
+
+- **Agents** : chaque agent reçoit maintenant sa propre clé plafonnée, distincte de celle de votre application. Un agent qui s'emballe ne peut plus assécher le budget des fonctionnalités que vos utilisateurs ont sous les yeux.
+- **`/security`** signale, à titre informatif, un appel de modèle écrit en dehors du fichier partagé, donc hors plafond et hors journal des coûts.
+- **Suppression d'un projet** : ses clés d'IA sont désormais révoquées avec le reste.
+
+### Coulisses
+
+- Le worker des agents n'embarque plus aucune bibliothèque de fournisseur, il parle au modèle directement.
+- Le coût de chaque appel vient du fournisseur lui-même, il n'est plus recalculé depuis une grille de prix à tenir à jour.
+
 ## v2.10.2 (27 août 2026)
 
 ### Améliorations

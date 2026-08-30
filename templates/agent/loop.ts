@@ -1,9 +1,10 @@
-// agent/loop.ts - Generic Anthropic-powered agent loop.
+// agent/loop.ts - Generic agent loop, on the project's AI brick.
 //
 // Drop-in pattern for an agent that:
-//   - Uses Anthropic Claude (Sonnet 5 by default) with prompt caching
-//   - Loops on tool use until end_turn or max_iterations
-//   - Tracks cost per turn (input + output + cache hits)
+//   - Calls its model through ./ai.ts (OpenRouter), so the model is a string
+//     to change rather than a library to migrate
+//   - Loops on tool use until the model stops or max_iterations is reached
+//   - Tracks the REAL cost per turn, as reported by the provider
 //   - Persists every turn (decisions, tool calls, results) to Postgres
 //   - Honors a daily/monthly cost circuit breaker (kills runs over budget)
 //   - Sends an email on failure or budget breach
@@ -14,33 +15,25 @@
 // Replace the TEMPLATE_AGENT_NAME below with your agent's slug (used as the
 // `agentName` column key in `agent_invocations` table). Keep it kebab-case.
 
-import Anthropic from "@anthropic-ai/sdk";
 import { db } from "./db.js";
-import {
-  agentInvocations,
-  agentTurns,
-} from "./schema.js";
+import { agentInvocations, agentTurns } from "./schema.js";
 import { eq } from "drizzle-orm";
+import {
+  appelerModele,
+  BudgetEpuiseError,
+  MODELE_AGENT,
+  type DefinitionOutil,
+  type MessageChat,
+} from "./ai.js";
 import { trackCost, checkCircuitBreaker, type CostBreakdown } from "./cost-tracker.js";
 import { sendAgentFailureEmail } from "./mail.js";
 
-// Types come from the package root namespace, never from the deep
-// "@anthropic-ai/sdk/resources/messages" subpath: that subpath is internal
-// layout that moves between 0.x minors, the namespace is the public surface.
-type Message = Anthropic.Message;
-type MessageParam = Anthropic.MessageParam;
-type TextBlock = Anthropic.TextBlock;
-type ToolUseBlock = Anthropic.ToolUseBlock;
-type Tool = Anthropic.Tool;
-type ToolResultBlockParam = Anthropic.ToolResultBlockParam;
-
 // ─── Per-agent config (override per agent) ────────────────────────────
 const TEMPLATE_AGENT_NAME = "my-agent";              // slug, replace
-const TEMPLATE_MODEL = "claude-sonnet-5";            // overwritten by setup-agent.mjs
 const TEMPLATE_MAX_ITERATIONS = 10;
 const TEMPLATE_MAX_TOKENS_PER_CALL = 4096;
 
-// System prompt - kept in a top-level const so prompt caching kicks in.
+// System prompt - kept in a top-level const so it stays easy to read and edit.
 const TEMPLATE_SYSTEM_PROMPT = `You are an autonomous agent. Your goal is X.
 You have access to tools. Use them to accomplish the goal. When done, respond
 with a clear final answer. If you encounter an unrecoverable error, explain it
@@ -74,7 +67,7 @@ do not stay silent: say so in your final answer, quote the exact excerpt, and
 stop.`;
 
 // ─── Tool registry (replace with your real tools) ─────────────────────
-// Each tool has: definition (schema sent to Claude) + handler (JS impl).
+// Each tool has: definition (schema describing it) + handler (JS impl).
 // See ./tools/*.ts for ready-to-use tools (http-fetch, send-email, db-query).
 import { tools as TEMPLATE_TOOLS } from "./tools/index.js";
 type ToolName = keyof typeof TEMPLATE_TOOLS;
@@ -102,16 +95,16 @@ export interface AgentResult {
   errorMessage?: string;
 }
 
+const COUT_ZERO: CostBreakdown = {
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheCreationTokens: 0,
+  cacheReadTokens: 0,
+  usd: 0,
+};
+
 // ─── Main entry point ─────────────────────────────────────────────────
 export async function runAgent(input: AgentInput): Promise<AgentResult> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "ANTHROPIC_API_KEY is not set. The agent cannot run without it.",
-    );
-  }
-  const client = new Anthropic({ apiKey });
-
   // Step 1 - Circuit breaker check BEFORE any API call.
   const breakerStatus = await checkCircuitBreaker(TEMPLATE_AGENT_NAME);
   if (breakerStatus.tripped) {
@@ -130,7 +123,7 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       status: "budget_killed",
       finalText: null,
       iterations: 0,
-      totalCost: { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, usd: 0 },
+      totalCost: { ...COUT_ZERO },
       errorMessage: breakerStatus.reason,
     };
   }
@@ -142,32 +135,26 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
   const initialUserContent = input.context
     ? `${input.prompt}\n\n<context>${JSON.stringify(input.context, null, 2)}</context>`
     : input.prompt;
-  const messages: MessageParam[] = [
+  const messages: MessageChat[] = [
     { role: "user", content: initialUserContent },
   ];
 
-  // Step 4 - Build tool defs WITH cache_control on the LAST tool (caches
-  // the entire tools block - Anthropic's caching is "prefix-based": adding
-  // cache_control on the last item caches everything before it too).
-  const toolDefs: Tool[] = Object.values(TEMPLATE_TOOLS).map((t) => t.definition);
-  if (toolDefs.length > 0) {
-    // cache_control is accepted by the API; cast so this type-checks whether or
-    // not the installed SDK version already surfaces it on the Tool union
-    // (avoids a stale @ts-expect-error breaking the build on newer SDKs).
-    (toolDefs[toolDefs.length - 1] as Tool & { cache_control?: unknown }).cache_control = {
-      type: "ephemeral",
-      ttl: "5m",
-    };
-  }
+  // Step 4 - Tool definitions, converted once to the wire format.
+  const toolDefs: DefinitionOutil[] = Object.values(TEMPLATE_TOOLS).map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.definition.name,
+      description: t.definition.description,
+      parameters: t.definition.input_schema,
+    },
+  }));
+
+  // The two prompts are separate constants on purpose (see above) and joined
+  // only here, at call time.
+  const systeme = `${TEMPLATE_SYSTEM_PROMPT}\n\n${AGENT_SAFETY_PROMPT}`;
 
   // Step 5 - Loop.
-  const totalCost: CostBreakdown = {
-    inputTokens: 0,
-    outputTokens: 0,
-    cacheCreationTokens: 0,
-    cacheReadTokens: 0,
-    usd: 0,
-  };
+  const totalCost: CostBreakdown = { ...COUT_ZERO };
 
   let iterations = 0;
   let finalText: string | null = null;
@@ -177,27 +164,22 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     while (iterations < TEMPLATE_MAX_ITERATIONS) {
       iterations++;
 
-      const response: Message = await client.messages.create({
-        model: TEMPLATE_MODEL,
-        max_tokens: TEMPLATE_MAX_TOKENS_PER_CALL,
-        system: [
-          {
-            type: "text",
-            text: TEMPLATE_SYSTEM_PROMPT,
-          },
-          {
-            type: "text",
-            text: AGENT_SAFETY_PROMPT,
-            // The cache breakpoint sits on the LAST block, so both are cached.
-            cache_control: { type: "ephemeral", ttl: "5m" },
-          },
-        ],
-        tools: toolDefs,
+      const reponse = await appelerModele({
+        system: systeme,
         messages,
+        outils: toolDefs,
+        maxTokens: TEMPLATE_MAX_TOKENS_PER_CALL,
       });
 
-      // Track usage for this turn
-      const turnCost = computeTurnCost(response, TEMPLATE_MODEL);
+      // Track usage for this turn. The cost is the provider's own figure, not
+      // a price table we would have to keep up to date.
+      const turnCost: CostBreakdown = {
+        inputTokens: reponse.usage.tokensEntree,
+        outputTokens: reponse.usage.tokensSortie,
+        cacheCreationTokens: 0,
+        cacheReadTokens: reponse.usage.tokensCache,
+        usd: reponse.usage.coutUsd,
+      };
       totalCost.inputTokens += turnCost.inputTokens;
       totalCost.outputTokens += turnCost.outputTokens;
       totalCost.cacheCreationTokens += turnCost.cacheCreationTokens;
@@ -205,39 +187,27 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
       totalCost.usd += turnCost.usd;
 
       // Persist this turn (decisions + cost + content)
-      await persistTurn(invocationId, iterations, response, turnCost);
+      await persistTurn(invocationId, iterations, reponse, turnCost);
 
-      // End conditions
-      if (response.stop_reason === "end_turn") {
-        finalText = extractText(response);
+      const appels = reponse.message.tool_calls ?? [];
+
+      // End condition: the model answered without asking for a tool.
+      if (!appels.length) {
+        finalText = reponse.message.content ?? "";
         await finalizeInvocation(invocationId, "success", finalText, iterations, totalCost);
         if (input.trackCosts !== false) await trackCost(TEMPLATE_AGENT_NAME, totalCost.usd);
         return { invocationId, status: "success", finalText, iterations, totalCost };
       }
 
-      if (response.stop_reason === "tool_use") {
-        // Append assistant message + execute tools + append tool_result message
-        messages.push({ role: "assistant", content: response.content });
-        const toolResults = await executeToolCalls(response);
-        messages.push({ role: "user", content: toolResults });
-        continue;
-      }
-
-      // Unexpected stop reason (max_tokens, refusal, etc.)
-      lastError = `Unexpected stop_reason: ${response.stop_reason}`;
-      break;
-    }
-
-    // Either max iterations reached or unexpected stop
-    if (lastError) {
-      await finalizeInvocation(invocationId, "error", null, iterations, totalCost, lastError);
-      if (input.trackCosts !== false) await trackCost(TEMPLATE_AGENT_NAME, totalCost.usd);
-      await sendAgentFailureEmail({
-        agentName: TEMPLATE_AGENT_NAME,
-        invocationId,
-        reason: lastError,
+      // Append the assistant turn, then one message per tool result.
+      messages.push({
+        role: "assistant",
+        content: reponse.message.content ?? null,
+        tool_calls: appels,
       });
-      return { invocationId, status: "error", finalText: null, iterations, totalCost, errorMessage: lastError };
+      for (const resultat of await executeToolCalls(appels)) {
+        messages.push(resultat);
+      }
     }
 
     await finalizeInvocation(invocationId, "max_iterations_reached", null, iterations, totalCost);
@@ -245,97 +215,63 @@ export async function runAgent(input: AgentInput): Promise<AgentResult> {
     return { invocationId, status: "max_iterations_reached", finalText: null, iterations, totalCost };
 
   } catch (err) {
+    // A tripped spending cap is the guardrail doing its job, not a crash: it
+    // gets its own status so the dashboard does not read it as a bug.
+    const budgetEpuise = err instanceof BudgetEpuiseError;
     const message = err instanceof Error ? err.message : String(err);
-    await finalizeInvocation(invocationId, "error", null, iterations, totalCost, message);
+    const statut = budgetEpuise ? "budget_killed" : "error";
+    lastError = message;
+    await finalizeInvocation(invocationId, statut, null, iterations, totalCost, message);
     if (input.trackCosts !== false) await trackCost(TEMPLATE_AGENT_NAME, totalCost.usd);
     await sendAgentFailureEmail({
       agentName: TEMPLATE_AGENT_NAME,
       invocationId,
       reason: message,
     });
-    return { invocationId, status: "error", finalText: null, iterations, totalCost, errorMessage: message };
+    return {
+      invocationId,
+      status: budgetEpuise ? "budget_killed" : "error",
+      finalText: null,
+      iterations,
+      totalCost,
+      errorMessage: lastError,
+    };
   }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
-async function executeToolCalls(response: Message): Promise<ToolResultBlockParam[]> {
-  const toolUses = response.content.filter(
-    (block): block is ToolUseBlock => block.type === "tool_use",
-  );
-  const results: ToolResultBlockParam[] = [];
-  for (const tu of toolUses) {
-    const tool = TEMPLATE_TOOLS[tu.name as ToolName];
+async function executeToolCalls(
+  appels: { id: string; function: { name: string; arguments: string } }[],
+): Promise<MessageChat[]> {
+  const results: MessageChat[] = [];
+  for (const appel of appels) {
+    const tool = TEMPLATE_TOOLS[appel.function.name as ToolName];
     if (!tool) {
       results.push({
-        type: "tool_result",
-        tool_use_id: tu.id,
-        content: `Error: unknown tool "${tu.name}"`,
-        is_error: true,
+        role: "tool",
+        tool_call_id: appel.id,
+        content: `Error: unknown tool "${appel.function.name}"`,
       });
       continue;
     }
     try {
-      const out = await tool.handler(tu.input as Record<string, unknown>);
+      // The model hands arguments over as a JSON string.
+      const args = JSON.parse(appel.function.arguments || "{}") as Record<string, unknown>;
+      const out = await tool.handler(args);
       results.push({
-        type: "tool_result",
-        tool_use_id: tu.id,
+        role: "tool",
+        tool_call_id: appel.id,
         content: typeof out === "string" ? out : JSON.stringify(out),
       });
     } catch (e) {
       results.push({
-        type: "tool_result",
-        tool_use_id: tu.id,
-        content: e instanceof Error ? e.message : String(e),
-        is_error: true,
+        role: "tool",
+        tool_call_id: appel.id,
+        content: `Error: ${e instanceof Error ? e.message : String(e)}`,
       });
     }
   }
   return results;
-}
-
-function extractText(response: Message): string {
-  return response.content
-    .filter((b): b is TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n");
-}
-
-// Pricing (USD per 1M tokens). Update when Anthropic changes pricing.
-// cacheWrite = 1.25x input (5-min TTL); cacheRead = 0.1x input. Keys are the
-// model aliases passed as the model string.
-// There is no public pricing endpoint, so this table cannot be derived at
-// runtime: an unknown model falls back to Sonnet-tier rates and is FLAGGED in
-// the cost breakdown rather than silently mispriced.
-const PRICING_PER_MTOK: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  "claude-fable-5": { input: 10, output: 50, cacheWrite: 12.50, cacheRead: 1.00 },
-  "claude-opus-5": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
-  "claude-sonnet-5": { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
-  "claude-haiku-4-5": { input: 1, output: 5, cacheWrite: 1.25, cacheRead: 0.10 },
-  "claude-opus-4-8": { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.50 },
-  "claude-sonnet-4-6": { input: 3, output: 15, cacheWrite: 3.75, cacheRead: 0.30 },
-};
-
-function computeTurnCost(response: Message, model: string): CostBreakdown {
-  const u = response.usage;
-  const known = PRICING_PER_MTOK[model];
-  if (!known) {
-    console.warn(
-      `[cost] no pricing entry for "${model}" - billing this turn at Sonnet-tier rates. ` +
-        `Add the model to PRICING_PER_MTOK to get accurate costs.`,
-    );
-  }
-  const p = known ?? PRICING_PER_MTOK["claude-sonnet-5"]!;
-  const inputTokens = u.input_tokens || 0;
-  const outputTokens = u.output_tokens || 0;
-  const cacheCreationTokens = u.cache_creation_input_tokens || 0;
-  const cacheReadTokens = u.cache_read_input_tokens || 0;
-  const usd =
-    (inputTokens * p.input +
-      outputTokens * p.output +
-      cacheCreationTokens * p.cacheWrite +
-      cacheReadTokens * p.cacheRead) /
-    1_000_000;
-  return { inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, usd };
 }
 
 // ─── DB persistence ───────────────────────────────────────────────────
@@ -360,14 +296,21 @@ async function createInvocation(
 async function persistTurn(
   invocationId: string,
   turnNumber: number,
-  response: Message,
+  reponse: { message: { content: string | null; tool_calls?: unknown }; finishReason: string },
   cost: CostBreakdown,
 ) {
   await db.insert(agentTurns).values({
     invocationId,
     turnNumber,
-    stopReason: response.stop_reason ?? "unknown",
-    content: response.content,
+    stopReason: reponse.finishReason,
+    // Same shape as before: what the model produced this turn, text and tool
+    // calls together, so the dashboard can replay the decision.
+    content: [
+      ...(reponse.message.content
+        ? [{ type: "text", text: reponse.message.content }]
+        : []),
+      ...(Array.isArray(reponse.message.tool_calls) ? reponse.message.tool_calls : []),
+    ],
     inputTokens: cost.inputTokens,
     outputTokens: cost.outputTokens,
     cacheCreationTokens: cost.cacheCreationTokens,
@@ -396,3 +339,6 @@ async function finalizeInvocation(
     })
     .where(eq(agentInvocations.id, invocationId));
 }
+
+// Kept exported for callers that log which model ran.
+export { MODELE_AGENT };

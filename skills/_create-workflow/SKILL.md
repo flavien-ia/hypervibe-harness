@@ -1,10 +1,28 @@
 ---
-name: add-workflow
-description: "Add an event-triggered pipeline inside the app: when X happens, do A then B then C. Shared step runner with retries, a run log, and the trigger (user action, webhook, or schedule). It ends, unlike /add-agent."
+name: _create-workflow
+description: "Internal - builds an event-triggered pipeline inside the app: when X happens, do A then B then C, with per-step retries and a run log. Invoked by add-automation or add-ai with a routing brief. Not meant to be invoked directly by users."
+user-invocable: false
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js and pnpm; the project must be a Next.js app (typically from /bootstrap)."
 ---
 
-# Add Workflow - A finite intelligent pipeline inside the app
+# Create Workflow - A finite intelligent pipeline inside the app
+
+## The brief you are invoked with
+
+You are never reached by a user typing a command: `add-automation` (or `add-ai`)
+has already decided that a workflow is the right shape, and hands you what it
+learned. **Do not re-run that decision, and do not re-ask what you were given.**
+
+| Field | What it carries |
+|---|---|
+| `TRIGGER` | user action / webhook / schedule |
+| `STEPS` | the steps in order, and which of them need intelligence |
+| `VOLUME` | how often it runs, how big the inputs are |
+| `NAME` | the kebab-case name of the workflow |
+
+Anything genuinely missing from the brief, you may ask (at most two questions).
+Anything present in it, you use as-is.
 
 ## Communication
 - Detect the user's language from the conversation (the user's own messages, anywhere in the session - not just this invocation: a bare slash command like `/bootstrap` carries no language signal by itself). If nothing in the conversation gives a signal, fall back to the OS locale (`node -e "console.log(Intl.DateTimeFormat().resolvedOptions().locale)"`) before defaulting to English. ALWAYS reply in that language for every user-facing message: questions, progress, confirmations, summaries, errors - including any example text quoted in this skill, which is illustrative and must be translated, never sent verbatim.
@@ -14,62 +32,73 @@ compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js a
 
 ## What a workflow is (and is not)
 
-A workflow is **a finite sequence of steps that the app itself executes when something happens**: a user clicks, a file lands, a payment arrives, a schedule fires. Some steps are plain code (call an API, write to the database, send an email); some steps are **intelligent** (a Claude API call that reads, classifies, extracts, or writes). The whole run finishes in seconds to a couple of minutes, inside a normal serverless function.
+A workflow is **a finite sequence of steps that the app itself executes when something happens**: a user clicks, a file lands, a payment arrives, a schedule fires. Some steps are plain code (call an API, write to the database, send an email); some steps are **intelligent** (a model call that reads, classifies, extracts, or writes, through the project's AI brick). The whole run finishes in seconds to a couple of minutes, inside a normal serverless function.
 
-Most people who ask for "an agent" actually want this. The test:
-
-| It is a WORKFLOW if... | It is NOT a workflow (route elsewhere) |
-|---|---|
-| The sequence is finite and known in advance (2-8 steps) | The AI decides its own next actions in a loop with tools → `/add-agent` |
-| Triggered by an event, then it ENDS | Runs continuously, 24/7, polls or listens → `/add-automation` (worker) |
-| State lives in the database between runs | Needs in-memory state across runs, queues, websockets → `/add-automation` (worker) |
-| Fits within the serverless time budget (see Step 2) | Minutes of CPU, transcoding, huge files → `/add-automation` (worker) |
-| Output serves the app or its users | Output is a brief/report for the operator themselves → `/add-routine` |
-
-If during discovery the need clearly falls in the right column, say so in one honest sentence and hand off to the right command. Do not force a workflow.
+Most people who ask for "an agent" actually want this, which is why the shape is
+chosen upstream: `add-automation` holds the routing table and has already
+applied it. The one case that still sends work back is the duration gate in
+Step 2, because only the detailed steps reveal it.
 
 ## Step 0 - Preflight
 
 1. Invoke **`_detect-project-root`** → `PROJECT_NAME`, `IS_MONOREPO`, `WEB_DIR`, `IS_NEXTJS`. If not a Next.js project, stop: workflows live inside the app.
 2. Invoke **`_check-deps`** for the database. A real DB (Neon wired by `/add-db`) enables run logging in a table; without it the runner degrades to console logging (say so, and continue - do not force `/add-db`).
-3. **The AI brick, ONLY if the pipeline will have intelligent steps**: if `src/server/ai.ts` already exists (installed by `/add-ai`), use it - `appelerIA({ usage: "traitement", ... })` - and skip the rest of this point: the key, the token cap, the cost log and the no-training routing are already in place. Otherwise, invoke **`/add-ai`** to install it, which also sizes and caps the budget. The legacy path below (a direct Anthropic key) is kept only for projects that already run on it.
+The AI brick is NOT handled here: whether the pipeline needs intelligence is
+only known after discovery, so it happens in Step 2b.
 
-3b. **Legacy Anthropic key** (checked again after discovery): look for `ANTHROPIC_API_KEY` in the project `.env`. If missing, follow `_collect-secret`: an API key is a secret, so it is never pasted into the conversation. Have them create the key at https://console.anthropic.com/settings/keys, then collect it through the masked window, which stores it in `.env` + Vercel itself:
+## Step 1 - Read the brief
 
-```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
-  --keys "ANTHROPIC_API_KEY:secret" --project-dir "<PROJECT_DIR>" \
-  --url "https://console.anthropic.com/settings/keys"
-```
-
-Read the exit code before continuing; never echo the value.
-
-## Step 1 - Discovery
-
-Ask one open question:
+The brief already carries the trigger, the steps and the volume. Restate them in
+one line so the user can correct you, then move on. Only ask the open question
+below if a field is genuinely missing:
 
 > **Describe what should happen, from trigger to result**: what event starts it, what the app must do step by step, and what comes out at the end.
 
-Read the answer against the table above FIRST (workflow or not). Then extract:
+What you need:
 
 - **Trigger**: a user action in the app / an external service calling us (webhook) / a schedule
 - **The steps**, in order, and which of them need intelligence (understand, classify, extract, summarize, decide, draft)
 - **Volume and duration feel**: how often, how big are the inputs
 
-Ask at most 2 clarifying questions if something is genuinely ambiguous. Typical: *"This summary the workflow writes, who reads it: your users, or you?"* (the answer may reroute to `/add-routine`).
+Ask at most 2 clarifying questions if something is genuinely ambiguous.
 
 ## Step 2 - The duration budget (the honest gate)
 
 A workflow runs inside a Vercel serverless function, and functions have a **maximum duration that depends on the plan and configuration**. Do not recite numbers from memory:
 
 1. Check `vercel.json` / route `maxDuration` exports in the project for an explicit setting.
-2. Estimate the pipeline: each plain API step ~1-3s, each Claude step ~5-30s depending on input size, file processing depends on size.
+2. Estimate the pipeline: each plain API step ~1-3s, each model step ~5-30s depending on input size, file processing depends on size.
 3. Rule of thumb to say out loud: **under a minute is always safe; a few minutes needs the right plan configuration; beyond that, a workflow is the wrong shape**.
 
 If the estimate clearly exceeds the budget, be honest and reroute:
-> Your pipeline as described would run ~X. That is beyond what the app can safely do in one shot. Two good options: split it (the trigger records the request, a scheduled tick processes the queue step by step), or a dedicated worker via `/add-automation`. Want me to set up the split version?
+> Your pipeline as described would run ~X. That is beyond what the app can safely do in one shot. Two good options: split it (the trigger records the request, a scheduled tick processes the queue step by step), or a dedicated worker. Want me to set up the split version? (If a worker is the answer, hand back to `add-automation` with what you learned.)
 
 The split version stays a workflow (trigger enqueues → cron-triggered runs process), so it usually keeps everything self-contained.
+
+## Step 2b - The AI brick (only if the pipeline has intelligent steps)
+
+If discovery found no step that needs to understand, classify, extract,
+summarize or draft, skip this entirely: a workflow without intelligence needs
+no key and no brick.
+
+Otherwise invoke **`_ensure-ai`** with the brief:
+
+| Field | Value |
+|---|---|
+| `USAGE` | `workflow_<kebab-name>` - one entry per workflow, so its token ceiling and its cost are readable on their own |
+| `PROFIL` | `traitement` in most cases (`generation` if the step drafts a text meant to be read as-is) |
+| `PAR_JOUR` | the volume from discovery |
+| `DONNEES_PERSONNELLES` | `oui` if end-user content passes through (documents, messages, CVs) |
+| `CIBLE` | `app` |
+
+It installs or reuses the project's single brick, with the validated budget, the
+capped key, the cost log and the no-training routing. When the brick is already
+there it is silent and simply binds the new usage.
+
+It hands back `MODE`, `FOURNISSEUR`, `MODELE`. If `MODE` is `direct`, the
+project deliberately calls a provider itself: write the intelligent step against
+the project's existing pattern instead of `appelerIA`, and do not bring up
+OpenRouter.
 
 ## Step 3 - Scaffold
 
@@ -215,12 +244,8 @@ Create `src/server/workflows/<kebab-name>.ts`. Template, to be tailored to the d
 
 ```ts
 // src/server/workflows/analyze-upload.ts
-import Anthropic from "@anthropic-ai/sdk";
-import { env } from "~/env";
+import { appelerIA } from "~/server/ai";
 import { runWorkflow, type Step } from "./_runner";
-
-// Latest balanced model; use claude-haiku-4-5 for cheap high-volume steps.
-const MODEL = "claude-sonnet-5";
 
 type Input = { documentUrl: string; userEmail: string };
 type Extracted = Input & { text: string };
@@ -240,17 +265,17 @@ const analyze: Step<Extracted, Analyzed> = {
   name: "analyze",
   retryable: true,
   run: async (input) => {
-    const anthropic = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-    const msg = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
+    // Le modèle, son plafond de jetons et le journal des coûts vivent dans
+    // src/server/ai.ts, sous l'entrée `workflow_analyze_upload` de MODELES.
+    const { texte } = await appelerIA({
+      usage: "workflow_analyze_upload",
+      temperature: 0,
       messages: [{
         role: "user",
         content: `Summarize this document in 3 sentences, then classify it as one of: invoice, contract, report, other.\nRespond as JSON: {"summary": "...", "category": "..."}\n\n${input.text.slice(0, 50_000)}`,
       }],
     });
-    const block = msg.content[0];
-    const parsed = JSON.parse(block?.type === "text" ? block.text : "{}") as { summary?: string; category?: string };
+    const parsed = JSON.parse(texte || "{}") as { summary?: string; category?: string };
     return { ...input, summary: parsed.summary ?? "", category: parsed.category ?? "other" };
   },
 };
@@ -273,7 +298,7 @@ export function analyzeUpload(input: Input, idempotencyKey?: string) {
 }
 ```
 
-Install the SDK if missing: `pnpm add @anthropic-ai/sdk`. Add `ANTHROPIC_API_KEY` to `src/env.js` (server section) following the file's existing pattern.
+No SDK to install and no key to wire here: `_ensure-ai` already did both, and the intelligent step calls the project's brick like any other feature.
 
 ### 3.d The trigger
 
@@ -323,18 +348,21 @@ Invoke `_update-claude-md` with:
   - heading: `## Workflows`
   - body:
     ```
-    - **<kebab-name>** - <trigger: user action | webhook | schedule> - <1-sentence purpose>. Steps: <a → b → c>. Runs in-app (src/server/workflows/<kebab-name>.ts), logged in `workflow_run`<if AI steps>, intelligent steps on <MODEL></if>. Budget: ~<estimate>s per run.
+    - **<kebab-name>** - <trigger: user action | webhook | schedule> - <1-sentence purpose>. Steps: <a → b → c>. Runs in-app (src/server/workflows/<kebab-name>.ts), logged in `workflow_run`<if AI steps>, intelligent steps through `src/server/ai.ts` (usage `workflow_<kebab-name>`)</if>. Budget: ~<estimate>s per run.
     ```
 
-## Step 7 - RGPD (conditional)
+## Step 7 - RGPD
 
-If the workflow sends END-USER data to the Claude API (intelligent steps processing user documents, messages, personal data), add Anthropic to the subprocessor registry:
+Nothing to do here when the workflow has intelligent steps: `_ensure-ai` already
+added the AI provider to the subprocessor registry when it installed the brick.
+
+If the workflow sends end-user data to any OTHER third party of its own (a
+storage service, an enrichment API, a mailer the project did not have yet),
+declare that one:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add anthropic
+node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add <service>
 ```
-
-Skip when the intelligent steps only touch the operator's own data or public content.
 
 ## Step 8 - Final summary
 
@@ -342,7 +370,7 @@ Skip when the intelligent steps only touch the operator's own data or public con
 >
 > **<kebab-name>**: <trigger> → <steps in plain words> → <result>
 > **Logged**: every run and step in your database (table `workflow_run`)<if no DB> in the server logs</if>
-> **Cost note**<if AI steps>: each run makes <N> Claude call(s); at your expected volume that is roughly <order of magnitude> per month. The `workflow_run` timings let you watch it.</if>
+> **Cost note**<if AI steps>: each run makes <N> model call(s); at your expected volume that is roughly <order of magnitude> per month. Every call is logged with its real cost in `ai_usage`, and the key is capped.</if>
 >
 > To evolve it, just describe the change ("add a step that...", "make it also..."). To see activity: "show me the last workflow runs".
 

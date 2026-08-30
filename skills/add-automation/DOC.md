@@ -10,7 +10,7 @@ Adds an automation: a process that runs in the background for your app, or a rec
 - You have **persistent state** to keep between runs (internal queue, memory cache)
 - You want a **recurring mission for yourself**: a morning brief, a weekly analysis, a watch that alerts you
 
-If your need is a simple short periodic task (< 60s, stateless), Hypervibe redirects you to `/add-cron`. If it is a **finite intelligent chain triggered by an event** ("when X happens, do A then B then C"), it routes you to `/add-workflow`: the most common case behind "I want an agent", running inside your app with no extra infrastructure. If it is a **true AI agent that is part of your product** (an autonomous loop with tools), it switches you to `/add-agent`. And a recurring mission for yourself can go straight through `/add-routine`.
+You never have to pick the shape: you describe, Hypervibe decides and explains why. A simple short periodic task (< 60s, stateless) goes to `/add-cron`. A **finite intelligent chain triggered by an event** ("when X happens, do A then B then C") is built inside your app: the most common case behind "I want an agent", and it needs no extra infrastructure. A **true autonomous agent** (one that picks its own next actions, in a loop, with tools) gets its own server and its own budget. And a recurring mission for yourself goes through `/add-routine`.
 
 ## How it works
 
@@ -33,10 +33,10 @@ If your need is a simple short periodic task (< 60s, stateless), Hypervibe redir
 4. **Automatic decision**:
   - **Personal recurring AI mission** → **Claude routine** (your own Claude runs it on schedule; no infrastructure at all)
   - **Simple periodic task for the app** → delegates to `/add-cron` (which registers it on your shared clock by default)
-  - **Finite event-triggered chain, possibly intelligent** → delegates to `/add-workflow` (the chain runs inside your app, every run traced step by step; no new infrastructure)
+  - **Finite event-triggered chain, possibly intelligent** → **a chain inside your app** (it runs in your site, every run traced step by step; no new infrastructure)
   - **Light worker / event-driven / sub-minute precision** → **Cloudflare Worker** (fast to deploy, auto-scaling, free up to 100k requests/day)
   - **Heavy, long, or stateful processing** → **Render**, in one of two shapes depending on a single question: "can it sleep between runs?". If it can, it is a free service woken by your shared clock. If it cannot (a permanent connection, a message queue that must not drop anything), it is a real background process at around 7 USD/month: Render offers no free instance for that service type, and Hypervibe tells you before creating it, never after.
-  - **AI serving your app's end users** → hands off to `/add-agent` (a production agent with budget caps and full traceability)
+  - **Autonomous AI serving your app's end users** → **a production agent**: its own server, its own capped access key, and every decision kept for audit
 
 5. **Conversion to a monorepo if needed** (workers only): to host the worker alongside your Next.js, Hypervibe converts your project to Turborepo (idempotent, no risk if already a monorepo). Your Next.js code ends up in `apps/web/`, the worker in `apps/worker/`.
 
@@ -69,7 +69,11 @@ A job that serves **your app** goes on the app's infrastructure: it must keep ru
 {{/callout}}
 
 {{callout:info|4 shapes, 1 command}}
-`/add-automation` is an **orchestrator** over the 4 automation shapes: `/add-cron` (scheduled task), `/add-workflow` (intelligent chain inside the app), `/add-agent` (autonomous product agent), `/add-routine` (recurring mission for yourself). It can also scaffold a dedicated worker (Cloudflare or Render) for the heavy or continuous cases. Each shape stays directly invocable; you never have to choose yourself: you describe, Hypervibe decides and explains why.
+`/add-automation` is the front door for everything your app does on its own. Behind it, four shapes: a **scheduled task**, an **intelligent chain inside the app**, an **autonomous agent** with its own server, or a **dedicated worker** for heavy processing. Two of them stay directly available when you already know what you want: `/add-cron` and `/add-routine`. The other two are chosen for you, because getting "chain" and "agent" the wrong way round is expensive: the first costs nothing to host, the second needs a server of its own.
+{{/callout}}
+
+{{callout:info|Chain or agent: the difference in one sentence}}
+A **chain** follows steps you know in advance ("when a document arrives: read it, summarise it, notify the right person"). It runs inside your site, finishes in seconds, and every run is traced step by step. An **agent** picks its own actions, in a loop, with tools, and can remember between runs: it needs a server of its own (~7 USD/month), its own capped access key and a budget circuit breaker. Most people who ask for "an agent" actually want a chain, and Hypervibe says so plainly rather than selling you the heavier infrastructure.
 {{/callout}}
 
 {{callout:warning|Render = paid for the worker}}
@@ -77,5 +81,5 @@ Render offers a free plan for simple web services, but for **Background Workers*
 {{/callout}}
 
 {{callout:tip|AI for your product = dedicated command}}
-If the AI serves **your app's end users** (classify THEIR tickets, personalize THEIR emails, process THEIR documents), Hypervibe switches you to `/add-agent`, which is built for this: Claude model, memory between runs, budget cap (by default 5 USD/day, 50 USD/month), persistence of each decision for audit. If the AI works **for you** (brief, watch, analysis), a routine does the job without any of that machinery. Same entry point either way: `/add-automation` routes automatically.
+Whichever shape wins, as soon as a step needs to understand, classify, extract or draft, Hypervibe installs (or reuses) **your project's AI brick**: a single file every model call goes through. Three things follow, and they are worth telling your accountant as much as your IT lead. The cost is estimated and **approved by you before the first line of code**. The access key carries a **spending cap held by the provider**: a runaway loop hits a wall, not your credit card. And every call explicitly refuses to let your data train a model. It runs through OpenRouter, so **changing model is one line to edit**, not a migration. If you would rather call OpenAI or Anthropic directly on your own account, say so: Hypervibe does it, records the choice, and stops asking.
 {{/callout}}

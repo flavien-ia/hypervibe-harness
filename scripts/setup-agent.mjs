@@ -1,14 +1,15 @@
 #!/usr/bin/env node
-// setup-agent.mjs - Deterministic core for /add-agent.
+// setup-agent.mjs - Deterministic core for _create-agent.
 //
-// Scaffolds an Anthropic-powered agent into a Turborepo monorepo as
+// Scaffolds an AI agent into a Turborepo monorepo as
 // `apps/{agent-name}/`, ready to deploy on Render Background Worker.
 //
-// Pipeline (12 sub-steps, all run in parallel when possible):
+// Pipeline (13 sub-steps, all run in parallel when possible):
 //   1. preflight        - args, paths, Next.js detection, monorepo check
-//   2. anthropicKey     - read or self-heal ANTHROPIC_API_KEY at User scope
+//   2. resolveModel     - pick the model from the live OpenRouter catalogue
 //   3. ensureMonorepo   - convert to Turborepo if not already (delegates to caller)
 //   4. scaffoldAgent    - copy templates/agent/* → apps/{name}/ with subst
+//   4b. agentKey        - mint the agent's OWN capped OpenRouter key into its .env
 //   5. patchSystemPrompt- inject the user's system prompt into loop.ts
 //   6. patchAgentName   - set TEMPLATE_AGENT_NAME = "<slug>" in loop.ts and memory-kv.ts
 //   7. patchTools       - remove tools the user opted out of
@@ -25,8 +26,9 @@
 //     --web-dir "apps/web" \
 //     --trigger "cron"      # cron | continuous | manual
 //     --memory "kv"          # none | kv (pgvector for v1.5)
-//     --model "claude-sonnet-5"   # optional: omit to auto-pick the newest
-//                                 # claude-sonnet-* from GET /v1/models
+//     --model "anthropic/claude-sonnet-5"  # optional: omit to auto-pick the
+//                                 # top of the quality tier in the catalogue
+//     --budget-usd 20             # optional: cap of the agent's own key
 //
 // Output: live logs on stderr, final JSON object on stdout last line.
 //
@@ -36,12 +38,10 @@
 // lifting condition is a bug; a pin that is commented and watched is a
 // decision. The hypervibe-watch skill re-checks these every week.
 //
-//   @anthropic-ai/sdk  >=0.115.0 <1  Floats across 0.x minors on purpose: the
-//                                    template only touches the public
-//                                    `Anthropic.*` namespace types and
-//                                    messages.create, which are stable across
-//                                    them. Pin harder only if a minor ever
-//                                    breaks that surface.
+//   (no model SDK)                   The worker talks to OpenRouter over plain
+//                                    fetch, in ai.ts. No provider library to
+//                                    pin, and no migration the day the model
+//                                    changes: the model is a string.
 //   node-cron          ^3.0.3        v4 changed the cron.schedule signature,
 //                                    which entry.ts calls directly. Lift once
 //                                    entry.ts is ported to the v4 signature.
@@ -69,7 +69,6 @@ import {
 import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readUserEnv } from "./_read-user-env.mjs";
-import { writeUserEnv } from "./_write-user-env.mjs";
 
 import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
 
@@ -89,7 +88,8 @@ const opts = {
   webDir: "apps/web",
   trigger: "cron",
   memory: "kv",
-  model: "", // empty = resolve from /v1/models (see resolveModel)
+  model: "", // empty = resolve from the live catalogue (see resolveModel)
+  budgetUsd: 20, // spending cap of the agent's own OpenRouter key
   systemPrompt: "",
   // Who this agent may email, and which hosts it may write to. Empty means
   // "nothing goes out", which is the right default: an agent that reads the
@@ -108,6 +108,7 @@ for (let i = 0; i < args.length; i++) {
     case "--trigger": opts.trigger = next; i++; break;
     case "--memory": opts.memory = next; i++; break;
     case "--model": opts.model = next; i++; break;
+    case "--budget-usd": opts.budgetUsd = Number(next); i++; break;
     case "--system-prompt": opts.systemPrompt = next; i++; break;
     case "--mail-allowlist": opts.mailAllowlist = next; i++; break;
     case "--fetch-write-hosts": opts.fetchWriteHosts = next; i++; break;
@@ -120,14 +121,15 @@ const AGENT_DIR = join(REPO_ROOT, "apps", opts.name);
 
 // ─── handoff state ────────────────────────────────────────────────────
 const STEPS = [
-  "preflight", "anthropicKey", "ensureMonorepo", "scaffoldAgent",
+  "preflight", "resolveModel", "ensureMonorepo", "scaffoldAgent", "agentKey",
   "patchSystemPrompt", "patchAgentName", "patchTools", "patchMemory",
   "mergeSchema", "installDeps", "drizzlePush", "handoff",
 ];
 const completed = [];
 const warnings = [];
 const state = {
-  anthropicKeyJustCreated: false,
+  agentKeyHash: null,
+  agentKeyCapUsd: null,
   monorepoConverted: false,
   schemaPatched: false,
 };
@@ -209,28 +211,52 @@ async function preflight() {
   ok(`web app detected at: ${opts.webDir}/`);
 }
 
-// ─── Step 2 - anthropicKey (self-heal) ───────────────────────────────
-async function anthropicKey() {
-  let key = readUserEnv("ANTHROPIC_API_KEY");
-  if (key && key.startsWith("sk-ant-")) {
-    state.anthropicKey = key;
-    ok("ANTHROPIC_API_KEY found at User scope");
-    return;
+// ─── Step 2 - agentKey (a capped key of its own) ─────────────────────
+// The agent gets its OWN OpenRouter key, separate from the app's, for one
+// reason: an agent that runs away must not starve the features users are
+// looking at, and two budgets read separately are two budgets you can reason
+// about. The value never crosses this process - ai-setup writes it into the
+// agent's own .env itself (no Vercel project there, so it stays local), and
+// the SKILL tells the user to copy it into Render from that file.
+async function agentKey() {
+  const setup = join(__dirname, "ai", "ai-setup.mjs");
+  const res = spawnSync(
+    "node",
+    [
+      setup,
+      "cle",
+      "--nom", `${opts.name}-agent`,
+      "--plafond", String(opts.budgetUsd || 20),
+      "--projet", AGENT_DIR,
+    ],
+    { encoding: "utf8" },
+  );
+  let out = {};
+  try {
+    out = JSON.parse(res.stdout || "{}");
+  } catch {
+    /* handled below */
   }
-  // Self-heal: prompt the orchestrator (Claude) to ask the user. The script
-  // can't open a browser dialog, so it returns a status; the SKILL.md flow
-  // catches this status, asks the user for the key, then re-runs the script.
-  fail(`ANTHROPIC_API_KEY missing. The /add-agent SKILL must prompt the user to paste it (from https://console.anthropic.com/settings/keys), persist via _write-user-env.mjs, then re-run this script.`);
+  if (res.status === 2 && out.raison === "coffre-verrouille") {
+    fail(`Vault locked. The _create-agent SKILL must follow _ensure-vault, then re-run this script.`);
+  }
+  if (res.status === 2 && out.raison === "cle-absente") {
+    fail(`No OpenRouter management key. The _create-agent SKILL must follow _ensure-ai (one-time setup), then re-run this script.`);
+  }
+  if (res.status !== 0 || out.ok === false) {
+    fail(`Could not create the agent key: ${out.message || res.stderr || `exit ${res.status}`}`);
+  }
+  state.agentKeyHash = out.hash ?? null;
+  state.agentKeyCapUsd = out.plafondUsd ?? null;
+  ok(`agent key created and capped at ${out.plafondUsd} $ (written to ${relative(REPO_ROOT, AGENT_DIR)}/.env)`);
 }
 
 // ─── Step 2b - resolveModel (never hardcode a model generation) ──────
-// A model id baked into this script goes stale every time Anthropic ships a
+// A model id baked into this script goes stale every time a provider ships a
 // generation, and scaffolds agents on a previous one without anyone noticing.
-// /v1/models is the authoritative list and the key we just validated reads it,
-// so we pick the newest model of the target family at scaffold time.
-// --model always wins; a network failure falls back to MODEL_FALLBACK.
-const MODEL_FAMILY = "claude-sonnet-";
-const MODEL_FALLBACK = "claude-sonnet-5";
+// The OpenRouter catalogue is the authoritative list, and it is read live at
+// scaffold time. --model always wins; a network failure falls back.
+const MODEL_FALLBACK = "anthropic/claude-sonnet-5";
 
 async function resolveModel() {
   if (opts.model) {
@@ -238,32 +264,23 @@ async function resolveModel() {
     return;
   }
   try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 10000);
-    let res;
-    try {
-      res = await fetch("https://api.anthropic.com/v1/models?limit=100", {
-        headers: {
-          "x-api-key": state.anthropicKey,
-          "anthropic-version": "2023-06-01",
-        },
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = await res.json();
-    const newest = (body.data || [])
-      .filter((m) => typeof m.id === "string" && m.id.startsWith(MODEL_FAMILY))
-      // created_at is ISO 8601, so lexicographic order is chronological order.
-      .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
-    if (!newest) throw new Error(`no ${MODEL_FAMILY}* model in the response`);
-    opts.model = newest.id;
-    ok(`model: ${newest.id} (newest ${MODEL_FAMILY}* on /v1/models)`);
+    const setup = join(__dirname, "ai", "ai-setup.mjs");
+    // An agent reasons and calls tools over several turns: the quality tier is
+    // the right default here, where a one-shot classification would not need it.
+    const res = spawnSync(
+      "node",
+      [setup, "modeles", "--gamme", "qualite", "--limite", "1"],
+      { encoding: "utf8" },
+    );
+    if (res.status !== 0) throw new Error(`exit ${res.status}`);
+    const body = JSON.parse(res.stdout || "{}");
+    const best = (body.modeles || [])[0];
+    if (!best?.id) throw new Error("empty catalogue");
+    opts.model = best.id;
+    ok(`model: ${best.id} (top of the quality tier in the live catalogue)`);
   } catch (e) {
     opts.model = MODEL_FALLBACK;
-    warn(`Could not read /v1/models (${e.message}) - falling back to ${MODEL_FALLBACK}.`);
+    warn(`Could not read the model catalogue (${e.message}) - falling back to ${MODEL_FALLBACK}.`);
   }
 }
 
@@ -278,7 +295,7 @@ async function ensureMonorepo() {
   }
   // Not a monorepo. We can't convert from inside this script (the
   // _convert-to-turborepo SKILL is interactive). Bail with a clear status.
-  fail(`Project is not yet a Turborepo monorepo. The /add-agent SKILL must invoke _convert-to-turborepo before re-running this script.`);
+  fail(`Project is not yet a Turborepo monorepo. The _create-agent SKILL must invoke _convert-to-turborepo before re-running this script.`);
 }
 
 // ─── Step 4 - scaffoldAgent ──────────────────────────────────────────
@@ -381,22 +398,23 @@ async function patchAgentName() {
 // Without this the generated agent silently keeps the template's model while
 // the handoff JSON reports the resolved one.
 async function patchModel() {
-  const p = join(AGENT_DIR, "loop.ts");
+  // The model lives in ai.ts, the worker's single door to the provider.
+  const p = join(AGENT_DIR, "ai.ts");
   if (!existsSync(p)) {
-    warn("loop.ts not found - model not patched");
+    warn("ai.ts not found - model not patched");
     return;
   }
   const before = readFileSync(p, "utf8");
   const after = before.replace(
-    /const TEMPLATE_MODEL = "[^"]*";/,
-    `const TEMPLATE_MODEL = "${opts.model}";`,
+    /export const MODELE_AGENT = "[^"]*";/,
+    `export const MODELE_AGENT = "${opts.model}";`,
   );
   if (after === before) {
-    warn(`Could not find TEMPLATE_MODEL in loop.ts - the agent may run on the template default instead of ${opts.model}`);
+    warn(`Could not find MODELE_AGENT in ai.ts - the agent may run on the template default instead of ${opts.model}`);
     return;
   }
   writeFileSync(p, after, "utf8");
-  ok(`Model "${opts.model}" set in loop.ts`);
+  ok(`Model "${opts.model}" set in ai.ts`);
 }
 
 // ─── Step 7 - patchTools: keep the 3 default tools, and fence the two ─
@@ -448,7 +466,7 @@ async function patchMemory() {
   if (opts.memory === "kv") {
     // Keep memory-kv.ts (already scaffolded), clear memory-pgvector.ts
     if (existsSync(vecPath)) {
-      writeFileSync(vecPath, "// Vector memory not selected at scaffold time - use memory-kv instead, or re-run /add-agent with --memory pgvector.\nexport {};\n");
+      writeFileSync(vecPath, "// Vector memory not selected at scaffold time - use memory-kv instead, or re-run _create-agent with --memory pgvector.\nexport {};\n");
     }
     ok("Memory mode: KV (Postgres table agent_memory_kv)");
     return;
@@ -565,7 +583,7 @@ async function mergeSchema() {
     return;
   }
   // Append at end with a clear marker
-  const marker = `\n\n// ─── Agent tables (added by /add-agent on ${new Date().toISOString().slice(0, 10)}) ───\n`;
+  const marker = `\n\n// ─── Agent tables (added by _create-agent on ${new Date().toISOString().slice(0, 10)}) ───\n`;
   // Strip the snippet's imports - the main schema usually has its own
   const body = snippet
     .replace(/^[\s\S]*?(?=export const agentInvocations)/, "")  // strip header
@@ -606,10 +624,12 @@ async function handoff() {
 
 // ─── MAIN ─────────────────────────────────────────────────────────────
 await step("preflight", preflight);
-await step("anthropicKey", anthropicKey);
 await step("resolveModel", resolveModel);
 await step("ensureMonorepo", ensureMonorepo);
 await step("scaffoldAgent", scaffoldAgent);
+// The key is minted AFTER the scaffold: it is written into the agent folder,
+// which does not exist before.
+await step("agentKey", agentKey);
 await step("patchSystemPrompt", patchSystemPrompt);
 await step("patchAgentName", patchAgentName);
 await step("patchModel", patchModel);
@@ -647,7 +667,7 @@ process.stdout.write(JSON.stringify({
       "Click 'Apply'",
     ],
     envVarsToSet: [
-      "ANTHROPIC_API_KEY (already known by /add-agent - will be passed automatically)",
+      `OPENROUTER_API_KEY (the agent's own capped key, already created and capped at ${state.agentKeyCapUsd} $; copy the value from apps/${opts.name}/.env)`,
       `AGENT_MAIL_ALLOWLIST (who this agent may email: addresses or @domains, comma separated${opts.mailAllowlist ? `; set to ${opts.mailAllowlist}` : "; EMPTY, so it cannot send anything yet"})`,
       `AGENT_FETCH_WRITE_HOSTS (hosts it may POST/PUT to${opts.fetchWriteHosts ? `; set to ${opts.fetchWriteHosts}` : "; empty, so it only reads"})`,
       "DATABASE_URL (from your web .env)",

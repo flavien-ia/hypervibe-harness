@@ -1,6 +1,6 @@
 ---
 name: _create-routine
-description: Internal helper that turns an operator-side agentic task ("brief me every morning", "analyze my week every Friday", "watch X and alert me") into a Claude routine - a scheduled AI run on the user's own Claude account (cloud routine) or on their machine (local scheduled task). Detects which mechanism the current session offers, drafts a self-contained mission prompt, explains the account coupling and cost in plain words, creates the routine and verifies it. Invoked by /add-automation and /add-agent for the ops-agentic quadrant. NEVER for app runtime jobs (those go to /add-cron or a worker). Not meant to be invoked directly by users.
+description: Internal helper that turns an operator-side agentic task ("brief me every morning", "analyze my week every Friday", "watch X and alert me") into a Claude routine - a scheduled AI run on the user's own Claude account (cloud routine) or on their machine (local scheduled task). Detects which mechanism the current session offers, drafts a self-contained mission prompt, explains the account coupling and cost in plain words, creates the routine and verifies it. Invoked by /add-automation and _create-agent for the ops-agentic quadrant. NEVER for app runtime jobs (those go to /add-cron or a worker). Not meant to be invoked directly by users.
 user-invocable: false
 allowed-tools: Bash, Read, Skill
 compatibility: "Claude Code (CLI or desktop app). Cloud routines need Claude Code >= 2.1.81 or the desktop app; local scheduled tasks need the desktop app."

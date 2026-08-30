@@ -94,12 +94,12 @@ async function preflight() {
     fail(`src/server/auth.ts doesn't export isAdmin/adminProcedure. The agent dashboard needs admin auth - run /add-auth in admin mode first.`);
   }
 
-  // Agent tables must already exist (set up by /add-agent at least once)
+  // Agent tables must already exist (set up when an agent was created)
   const schemaPath = join(WEB_DIR, "src/server/db/schema.ts");
   if (existsSync(schemaPath)) {
     const schema = readFileSync(schemaPath, "utf8");
     if (!/agentInvocations/.test(schema)) {
-      fail(`Agent tables not in schema.ts - run /add-agent first to create at least one agent.`);
+      fail(`Agent tables not in schema.ts - run /add-automation first and describe your agent, so at least one exists.`);
     }
   } else {
     warn(`No schema.ts found at expected path. Continuing but the router may have unresolved imports.`);

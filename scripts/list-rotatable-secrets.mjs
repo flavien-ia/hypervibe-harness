@@ -45,7 +45,10 @@ const PATTERNS = [
   // OAuth
   { match: /^AUTH_GOOGLE_(ID|SECRET)$/, provider: "Google OAuth", label: "Google login (OAuth)", category: "auth", autoGen: false, group: "google-oauth" },
   { match: /^AUTH_GITHUB_(ID|SECRET)$/, provider: "GitHub OAuth", label: "GitHub login (OAuth)", category: "auth", autoGen: false, group: "github-oauth" },
-  // LLM providers
+  // LLM providers. OPENROUTER_API_KEY is the one the plugin installs; the two
+  // others belong to projects that deliberately call a provider directly, and
+  // they must stay rotatable for exactly that reason.
+  { match: /^OPENROUTER_API_KEY$/, provider: "OpenRouter", label: "AI key of the project", category: "llm", autoGen: false },
   { match: /^OPENAI_API_KEY$/, provider: "OpenAI", label: "OpenAI API key", category: "llm", autoGen: false },
   { match: /^ANTHROPIC_API_KEY$/, provider: "Anthropic", label: "Anthropic API key", category: "llm", autoGen: false },
   // Self-managed (auto-generatable)

@@ -50,5 +50,5 @@ Des modèles gratuits existent et rendent de vrais services pour prototyper. Mai
 {{/callout}}
 
 {{callout:info|IA en direct ou agent autonome}}
-Cette commande installe une IA qui répond en quelques secondes, à l'intérieur de votre application. Si vous cherchez un processus qui tourne tout seul en arrière-plan, prend des décisions et utilise des outils, c'est `/add-agent`. Et si le traitement n'a besoin d'aucune intelligence, c'est `/add-automation`.
+Cette commande installe une IA qui répond en quelques secondes, à l'intérieur de votre application. Si vous cherchez un processus qui tourne tout seul en arrière-plan, prend des décisions et utilise des outils, décrivez-le à `/add-automation` : elle construit la bonne forme, de la simple tâche planifiée à l'agent autonome complet. Même porte si le traitement n'a besoin d'aucune intelligence.
 {{/callout}}

@@ -59,13 +59,31 @@ interface OptionsAppel {
  */
 const CONFIDENTIALITE = { data_collection: "deny" as const };
 
+/**
+ * Restreindre le routage à des fournisseurs nommés. Vide par défaut, et c'est
+ * le bon défaut : OpenRouter choisit alors librement, ce qui donne la meilleure
+ * disponibilité et le meilleur prix.
+ *
+ * À ne remplir qu'en cas d'exigence explicite de résidence ou de conformité
+ * (« nos données ne sortent pas de tel périmètre », « uniquement des
+ * fournisseurs sous contrat »). Le prix de cette garantie est la
+ * disponibilité : si les fournisseurs listés sont saturés ou ne servent pas le
+ * modèle demandé, l'appel échoue au lieu d'être routé ailleurs.
+ *
+ * Les identifiants sont ceux d'OpenRouter, par exemple ["anthropic", "openai"].
+ * Voir openrouter.ai/docs/features/provider-routing.
+ */
+const FOURNISSEURS_AUTORISES: string[] = __FOURNISSEURS_AUTORISES__;
+
 function corps(o: OptionsAppel, modele: string, maxTokens: number) {
   return {
     model: modele,
     messages: o.messages,
     max_tokens: maxTokens,
     temperature: o.temperature ?? 0.3,
-    provider: CONFIDENTIALITE,
+    provider: FOURNISSEURS_AUTORISES.length
+      ? { ...CONFIDENTIALITE, only: FOURNISSEURS_AUTORISES }
+      : CONFIDENTIALITE,
   };
 }
 

@@ -260,7 +260,7 @@ if (hasDep("web-push") || sourcePatterns.has("web-push")) {
 
 // render - render.yaml at root means the project hosts something on Render. Do
 // not narrow this to "background worker": /add-automation now scaffolds a free
-// web service, /add-agent a paid worker, and both are the same subprocessor.
+// web service, _create-agent a paid worker, and both are the same subprocessor.
 if (HAS_RENDER_YAML) {
   detected.render = true;
   evidence.render = "render.yaml present at repo root";

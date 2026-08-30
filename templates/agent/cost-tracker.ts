@@ -8,7 +8,7 @@
 // checkCircuitBreaker() at the start of every invocation and skips the run
 // if tripped. trackCost() is called at the end to accumulate.
 //
-// All amounts in USD (the Anthropic API bills in USD). The dashboard / email
+// All amounts in USD (the provider bills in USD). The dashboard / email
 // templates can convert to EUR locally if you want - keep one currency
 // internally for simplicity.
 

@@ -41,5 +41,5 @@ Une fois la routine en place : *« mets ma routine en pause »*, *« change l'he
 {{/callout}}
 
 {{callout:warning|Jamais pour votre app}}
-Tout ce dont votre **app** a besoin pour fonctionner (nettoyages, emails aux clients, synchronisations) va sur l'infrastructure de l'app : `/add-cron`, `/add-workflow`, ou `/add-automation`. Une routine qui s'arrête ne doit jamais casser autre chose que votre propre confort.
+Tout ce dont votre **app** a besoin pour fonctionner (nettoyages, emails aux clients, synchronisations) va sur l'infrastructure de l'app : `/add-cron` ou `/add-automation`. Une routine qui s'arrête ne doit jamais casser autre chose que votre propre confort.
 {{/callout}}

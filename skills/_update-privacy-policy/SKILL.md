@@ -52,8 +52,9 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add neon --
 | `cloudflare-r2` | `/add-storage` | |
 | `vercel-analytics` | `/add-analytics` (no-cookie variant) | |
 | `google-analytics` | `/add-analytics` (cookie variant) | Marks `requiresConsent: true` |
-| `anthropic` | `/add-agent`, `/add-workflow` (intelligent steps) | |
-| `render` | `/add-automation` (Render variant), `/add-agent` | Free web service or paid worker, same legal entity either way |
+| `openrouter` | `_ensure-ai`, and therefore every skill that adds intelligence (`add-ai`, `_create-workflow`, `_create-agent`) | Added by `_ensure-ai` itself; the calling skill has nothing to do |
+| `anthropic` | a project that deliberately calls Anthropic directly | |
+| `render` | `/add-automation` (Render variant), `_create-agent` | Free web service or paid worker, same legal entity either way |
 | `openfreemap` | `/add-map` | The visitor's own browser fetches the tiles, so a third party gets their IP on every page carrying a map |
 | `cloudflare` | `/new-email-address`, `/add-domain` | DNS and email relay. **Distinct from `cloudflare-r2`**: same company, different processing. Flagged `manuallyDeclared` |
 | `web-push` | `/add-push-notification` | The browser vendor's push service carries the payload. Encrypted (VAPID), so it cannot read it |

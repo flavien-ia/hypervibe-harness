@@ -1,7 +1,8 @@
 ---
-name: add-agent
-description: "Scaffold an autonomous AI agent on a dedicated background worker: it loops, picks its own actions, uses tools, and can remember between runs. Budget circuit breaker and full trace included. Real-time answers are /add-ai."
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep
+name: _create-agent
+description: "Internal - scaffolds an autonomous AI agent on its own worker: a capped key, a budget circuit breaker, tools, optional memory and a full trace. Invoked by add-automation or add-ai with a routing brief. Not for direct use."
+user-invocable: false
+allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
 
@@ -13,10 +14,27 @@ compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; 
 node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs" 2>/dev/null
 ```
 
-(Not strictly required for add-agent, but handy if you hit a case where Wrangler is needed - typically not.)
+(Not strictly required here, but handy if you hit a case where Wrangler is needed - typically not.)
 
 
-# Add Agent - Scaffold an autonomous AI agent
+# Create Agent - Scaffold an autonomous AI agent
+
+## The brief you are invoked with
+
+You are never reached by a user typing a command: `add-automation` (or `add-ai`)
+has already established that this need has a real agentic loop or genuine
+autonomy, and that neither a workflow nor a routine fits. **Do not re-run that
+decision.** It hands you:
+
+| Field | What it carries |
+|---|---|
+| `GOAL` | what the agent must accomplish, in the user's words |
+| `TRIGGER` | cron / continuous / manual |
+| `VOLUME` | how often it runs |
+
+Q1 below is therefore already answered: restate the goal in one line and move to
+Q1.bis. The remaining questions (memory, budget, tools, allowlists) are yours to
+ask, because they have no equivalent upstream.
 
 ## Communication
 - Detect the user's language from the conversation (the user's own messages, anywhere in the session - not just this invocation: a bare slash command like `/bootstrap` carries no language signal by itself). If nothing in the conversation gives a signal, fall back to the OS locale (`node -e "console.log(Intl.DateTimeFormat().resolvedOptions().locale)"`) before defaulting to English. ALWAYS reply in that language for every user-facing message: questions, progress, confirmations, summaries, errors - including any example text quoted in this skill, which is illustrative and must be translated, never sent verbatim.
@@ -28,7 +46,7 @@ You help the user set up an AI agent in their project. You ask few questions (ma
 
 The deterministic code (scaffold templates, install deps, push schema, etc.) lives in `scripts/setup-agent.mjs`. This SKILL:
 1. Asks the discovery questions (and short-circuits to `_create-routine` when the mission is operator-side and low-frequency - see Q1.bis)
-2. Self-heals the Anthropic key if missing
+2. Makes sure the agent has its own capped key (via `_ensure-ai` for the one-time setup)
 3. Delegates to `_convert-to-turborepo` if the project is not a monorepo
 4. Runs `setup-agent.mjs` with the right args
 5. Communicates the result + the remaining manual actions (Render Blueprint setup)
@@ -37,7 +55,7 @@ The deterministic code (scaffold templates, install deps, push schema, etc.) liv
 
 ## Preflight - vault unlocked
 
-This skill reads the Anthropic key (and often Render/Cloudflare) from the vault → first, make sure it is unlocked (follow **`_ensure-vault`**): `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status` → if `locked`/`expired`, run `launch.mjs unlock`; if the vault does not exist, delegate to `_add-keyring`.
+This skill reads the OpenRouter management key (and often Render/Cloudflare) from the vault → first, make sure it is unlocked (follow **`_ensure-vault`**): `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status` → if `locked`/`expired`, run `launch.mjs unlock`; if the vault does not exist, delegate to `_add-keyring`.
 
 ---
 
@@ -81,7 +99,7 @@ If yes → invoke `/add-db`, wait, come back here. If no → explain that we can
 
 You ask the questions one by one, in simple language. The answers fill the args for `setup-agent.mjs`.
 
-If the user already gave a description as a command argument (`/add-agent <description>`), skip Q1 and infer the goal from their description.
+The brief already carries `GOAL`: skip Q1 and work from it.
 
 ### Q1 - What is the agent's goal?
 
@@ -146,7 +164,7 @@ If `cron` → ask a Q2.bis:
 
 → Capture `--memory`: `none` | `kv` | `pgvector`.
 
-**Recommendation**: `kv` covers 80% of cases. `pgvector` is useful if the agent needs to do semantic search over hundreds/thousands of memories. If the user hesitates, suggest `kv` - they can always add vector memory later via a second `/add-agent` command on the same name.
+**Recommendation**: `kv` covers 80% of cases. `pgvector` is useful if the agent needs to do semantic search over hundreds/thousands of memories. If the user hesitates, suggest `kv` - they can always add vector memory later by re-running the scaffold on the same name.
 
 ### Q3.bis - If pgvector: check the Workers AI scope on the Cloudflare token
 
@@ -170,25 +188,29 @@ If you (Claude) get this error from the script, tell the user:
 
 No need to regenerate the entire token (so no re-paste to do). Cloudflare lets you edit an existing token to add a scope.
 
-### Q4 - Claude model
+### Q4 - Model
 
-Sonnet 5 by default. Ask only if the user has a use case that justifies another:
+Do NOT ask by default. The script reads the live catalogue and picks the top of
+the quality tier at scaffold time, which is the right default for an agent: it
+reasons over several turns and calls tools, so this is not where to save a few
+cents.
 
-> I use Claude Sonnet 5 by default (optimal cost/quality balance). Do you want to switch to:
+Ask only if the user brings it up, or if their description points at one of the
+two edges:
+
+> By default I take the best reasoning model available at this moment. Two cases
+> where another choice is better:
 >
-> - **Opus 5** - max quality, ~1.7x more expensive (justified for complex analysis tasks)
-> - **Haiku 4.5** - faster and 3x cheaper (for simple agents that call few tools)
-> - **Keep Sonnet 5** *(default, recommended)*
+> - **a cheaper, faster model**, when the agent does something simple and repeats
+>   it a lot;
+> - **a specific model** you already know you want.
 
-→ Capture `--model`. Map:
-- "Sonnet 5" → `claude-sonnet-5`
-- "Opus 5" → `claude-opus-5`
-- "Haiku 4.5" → `claude-haiku-4-5`
+-> Capture `--model` with the full identifier, provider included, as OpenRouter
+writes it (`anthropic/claude-sonnet-5`, `google/gemini-2.5-flash`). To list what
+is available: `ai-setup.mjs modeles --gamme <eco|qualite>`.
 
-The mapped value MUST be one of the keys of `PRICING_PER_MTOK` in `templates/agent/loop.ts`.
-A model id absent from that table (a dated variant such as `claude-haiku-4-5-20251001`, for
-instance) makes the generated cost-tracker fall back to Sonnet-tier rates and report wrong
-costs. Add the entry to the table first if a new model is offered here.
+Nothing to keep in sync: the cost of every call comes from the provider's own
+figure, so a model this skill has never heard of is still billed correctly.
 
 ### Q5 - Budget cap
 
@@ -254,38 +276,38 @@ When done with a task, respond with a brief summary of what you did. If you can'
 
 ---
 
-## Step 2 - Self-heal Anthropic key
+## Step 2 - The agent's own key and budget
+
+The agent runs on **its own capped key**, separate from the app's. The reason is
+worth saying out loud to the user, because it is what makes an autonomous
+process safe to run: an agent that loops must not be able to drain the budget
+of the features their users are looking at, and two budgets read separately are
+two budgets you can actually reason about.
+
+Ask one question, and only this one:
+
+> An autonomous agent works on its own, so I give it **its own budget**, held by
+> the provider rather than by our code: past the cap, it stops, and it tells you.
+> **How much per month?** Twenty dollars is a comfortable start for a daily
+> agent, and you can raise it at any time.
+
+Then check the setup is in place, which is the same one-time setup as everywhere
+else in the plugin:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" ANTHROPIC_API_KEY
+node "${CLAUDE_SKILL_DIR}/../../scripts/ai/ai-setup.mjs" cles
 ```
 
-If the command returns a value that starts with `sk-ant-`, OK, move to Step 3.
+- Exit 0 -> ready. Pass the amount to `setup-agent.mjs` as `--budget-usd`, which
+  mints the key and writes it into the agent's own folder. Nothing else to do
+  here.
+- Exit 2, `raison: "coffre-verrouille"` -> follow **`_ensure-vault`**, retry.
+- Exit 2, `raison: "cle-absente"` -> follow **`_ensure-ai`**, which walks the
+  user through the one-time OpenRouter setup, then come back here.
 
-Otherwise, follow **`_collect-secret`**. An API key is a secret, so it is **never pasted into the conversation**: the user types it into a masked window, which stores it directly.
-
-Announce it:
-
-> To run the agent I need an **Anthropic API key**. It's free up to a certain volume, paid beyond that (but the budget guardrail prevents surprises).
->
-> 1. I'm opening **https://console.anthropic.com/settings/keys** in your browser
-> 2. Click **"Create Key"**, give it a name (e.g. `Hypervibe`)
-> 3. Copy the key that appears (starts with `sk-ant-...`)
->
-> ⚠️ Anthropic shows this key **only once**. A small window will then open on your machine: paste it in there, not in our conversation, so it never gets written into this chat.
-
-Then open the window (it opens the browser page itself, so the key goes from the provider straight into the window):
-
-```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
-  --keys "ANTHROPIC_API_KEY:secret" \
-  --project-dir "<PROJECT_DIR>" \
-  --url "https://console.anthropic.com/settings/keys"
-```
-
-The command blocks until the user is done and stores the key in the project's `.env` **and** on Vercel. **Read its exit code**: non-zero means they cancelled or it failed, so do not continue as if the key were there. You will not see the value yourself, which is the point.
-
-If no window can open in this session (headless, remote, scheduled run), apply the fallback documented in `_collect-secret`: warn explicitly, let the user choose, and if they paste it in chat anyway, remind them at the end of the skill to rotate that key.
+The key value never crosses the conversation: the script writes it into
+`apps/<agent-name>/.env` itself. The user copies it from that file into Render
+at deploy time, exactly like `DATABASE_URL`.
 
 ---
 
@@ -322,7 +344,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/setup-agent.mjs" \
   --fetch-write-hosts "<FETCH_WRITE_HOSTS>"
 ```
 
-The script chains 12 sub-steps (preflight, anthropicKey, ensureMonorepo, scaffoldAgent, patchSystemPrompt, patchAgentName, patchTools, patchMemory, mergeSchema, installDeps, drizzlePush, handoff). Show progress to the user via `↳ <action>` then `✅`.
+The script chains 13 sub-steps (preflight, resolveModel, ensureMonorepo, scaffoldAgent, agentKey, patchSystemPrompt, patchAgentName, patchModel, patchTools, patchMemory, mergeSchema, installDeps, drizzlePush, handoff). Show progress to the user via `↳ <action>` then `✅`.
 
 ### On success → JSON on stdout:
 
@@ -333,7 +355,7 @@ The script chains 12 sub-steps (preflight, anthropicKey, ensureMonorepo, scaffol
   "agentDir": "apps/<slug>",
   "trigger": "cron",
   "memory": "kv",
-  "model": "claude-sonnet-5",
+  "model": "anthropic/claude-sonnet-5",
   "schemaPatched": true,
   "warnings": [],
   "nextSteps": { ... }
@@ -346,7 +368,7 @@ Capture this JSON, use it for the final summary (Step 7).
 
 Read the error just above the handoff banner. Diagnose by step:
 - `preflight` → bad args (invalid slug, folder already existing) - fix then re-run
-- `anthropicKey` → the key was not persisted correctly, back to Step 2
+- `agentKey` → the capped key could not be created, back to Step 2
 - `ensureMonorepo` → `_convert-to-turborepo` did not run, back to Step 3
 - `scaffoldAgent` / `patchXxx` → rare (filesystem issue), inspect
 - `mergeSchema` → conflict in `src/server/db/schema.ts` (resolve manually at the end)
@@ -384,13 +406,13 @@ If the user says no:
 
 ## RGPD - Privacy policy
 
-Add Anthropic and Render to the project's RGPD subprocessor registry:
+Add OpenRouter and Render to the project's RGPD subprocessor registry:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add anthropic --add render
+node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add openrouter --add render
 ```
 
-Anthropic receives the prompts sent by the agent (potentially user data - varies by agent). Render hosts the background worker. The helper is idempotent.
+OpenRouter routes the prompts sent by the agent (potentially user data - varies by agent), with training refused on every call. Render hosts the background worker. The helper is idempotent.
 
 If the `politique-de-confidentialite/page.tsx` page exists (created by `/bootstrap`), it updates automatically. Otherwise, only the registry is created - `/rgpd-audit` can generate the page later.
 
@@ -426,7 +448,7 @@ From the JSON captured in Step 5, display exactly:
 >    - Click **"Apply"**
 >
 > 3. **Environment variables to fill in on Render**:
->    - `ANTHROPIC_API_KEY` - the one we configured earlier
+>    - `OPENROUTER_API_KEY` - the agent's own capped key, in `apps/<agent-name>/.env`
 >    - `DATABASE_URL` - copy from your web project's `.env`
 >    - `BREVO_API_KEY` + `BREVO_SENDER_EMAIL` + `BREVO_SENDER_NAME` *(or Resend equivalents)*
 >    - `ADMIN_EMAIL` - where the agent's error emails arrive
@@ -447,11 +469,11 @@ From the JSON captured in Step 5, display exactly:
 
 ## Important conventions
 
-- **Anthropic key at User scope**: never in the repo, never in the project's `.env`. Persisted by `_write-user-env.mjs`. Render receives it via the dashboard.
+- **The agent's key is its own, and capped**: minted for this agent alone, written into `apps/<name>/.env` (git-ignored), never in the repo and never shared with the app's key. Render receives it via the dashboard.
 - **Render = manual for Blueprint creation**: no reliable API/CLI for it. The skill scaffolds the code and explains the 2 min of remaining clicks.
 - **Shared schema**: the `agent_*` tables live in the main Neon DB, not in a separate DB. The worker has its own copy of `schema.ts` that points to the same physical tables.
 - **No chatbot**: if the user describes a real-time UI thing ("a chatbot on my site that answers visitors"), hand off to **`/add-ai`**: it is built exactly for that (streaming route, chat panel, capped key, cost log). An agent loop with tools and memory would be both heavier and slower for a question that must be answered in two seconds.
-- **The hosting bill starts the day the Blueprint is applied, not the day the agent first runs**: the Background Worker sits on the starter plan (~7 USD/month), and Render bills an always-on service whether or not it has anything to do. Only the Anthropic usage is proportional to actual runs. Say this before the user clicks Apply. If they want to try the agent without paying Render, it runs locally with `pnpm dev` in `apps/<name>/`, as long as they keep the terminal open. There is no free variant of this service type: Render's free instance type does not exist for background workers, and a free web service would sleep after 15 minutes, which defeats the purpose.
+- **The hosting bill starts the day the Blueprint is applied, not the day the agent first runs**: the Background Worker sits on the starter plan (~7 USD/month), and Render bills an always-on service whether or not it has anything to do. Only the model usage is proportional to actual runs. Say this before the user clicks Apply. If they want to try the agent without paying Render, it runs locally with `pnpm dev` in `apps/<name>/`, as long as they keep the terminal open. There is no free variant of this service type: Render's free instance type does not exist for background workers, and a free web service would sleep after 15 minutes, which defeats the purpose.
 
 ---
 
@@ -459,7 +481,7 @@ From the JSON captured in Step 5, display exactly:
 
 - **"The agent doesn't trigger despite the cron"** → check `AGENT_CRON_SCHEDULE` is set on the Render dashboard (not in the yaml - sync:false). Also check the cron format (5 fields: `m h dom mon dow`).
 - **"The error email doesn't arrive"** → check `ADMIN_EMAIL` is set on Render + email provider (BREVO/RESEND) operational. Test with an invocation that fails on purpose.
-- **"The worker crashes at boot with ANTHROPIC_API_KEY missing"** → the var isn't surfaced to Render. Re-check in the Render dashboard → service → Environment.
+- **"The worker crashes at boot with OPENROUTER_API_KEY missing"** → the var isn't surfaced to Render. Re-check in the Render dashboard → service → Environment.
 - **"db:push fails with a schema error"** → conflict with the existing schema (table `agent_invocations` already present with other columns?). Inspect the diff.
 
 

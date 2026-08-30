@@ -1,6 +1,6 @@
 ---
 name: _setup-render
-description: Internal helper that ensures the Render API key lives in the Bitwarden vault (item RENDER, field api_key). Triggered by /add-automation and /add-agent before any Render REST API call. No CLI install - Render is driven 100% via its REST API (api.render.com/v1). Not meant to be invoked directly by users.
+description: Internal helper that ensures the Render API key lives in the Bitwarden vault (item RENDER, field api_key). Triggered by /add-automation and _create-agent before any Render REST API call. No CLI install - Render is driven 100% via its REST API (api.render.com/v1). Not meant to be invoked directly by users.
 user-invocable: false
 allowed-tools: Bash
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
@@ -69,7 +69,7 @@ curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $K" "https://
 Expected: `200`. If `401`, the key is wrong → ask the user again. Otherwise, say:
 > ✅ Render key saved in the vault. Render is driven via its REST API - nothing to install.
 
-Return control to the calling skill (`/add-automation` or `/add-agent`).
+Return control to the calling skill (`/add-automation` or `_create-agent`).
 
 
 ---

@@ -1,6 +1,6 @@
 ---
 name: add-cron
-description: "Add a scheduled task (cron) to the project: a protected /api/cron route registered on the shared Hypervibe clock, a dedicated Cloudflare Worker, or a GitHub Action. Triggered by an event rather than a clock? /add-workflow."
+description: "Add a scheduled task (cron) to the project: a protected /api/cron route registered on the shared Hypervibe clock, a dedicated Cloudflare Worker, or a GitHub Action. Triggered by an event rather than a clock? /add-automation."
 argument-hint: "[description of what the cron should do]"
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---

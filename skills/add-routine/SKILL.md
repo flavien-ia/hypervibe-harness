@@ -13,7 +13,7 @@ compatibility: "Claude Code (CLI or desktop app). Cloud routines need Claude Cod
 
 ## What this skill is
 
-A thin, user-invocable front for the routine engine (**`_create-routine`**), so that the four automation shapes each have a clean direct entry: `/add-cron` (scheduled app task), `/add-workflow` (event-triggered in-app pipeline), `/add-agent` (autonomous product agent), `/add-routine` (personal recurring AI mission). `/add-automation` remains the orchestrator that picks among them for you.
+A thin, user-invocable front for the routine engine (**`_create-routine`**), so that the two shapes a user can name for themselves have a clean direct entry: `/add-cron` (scheduled app task) and `/add-routine` (personal recurring AI mission). The other two, an event-triggered in-app pipeline and an autonomous product agent, are chosen by `/add-automation`, which remains the orchestrator.
 
 ## Step 1 - Gather the mission (light discovery)
 
@@ -29,7 +29,7 @@ Extract `GOAL` (the mission, in the user's words) and `CADENCE` (plain language)
 
 Apply the operator-side test from the engine before anything else: if the output feeds the APP or its end users (cleaning the database, emailing customers, syncing displayed data), STOP and reroute honestly:
 
-> What you describe is something your **app** needs, so it must run on the app's infrastructure, not on your personal Claude account (if your subscription stopped, your app would silently break). The right command is <`/add-cron` | `/add-workflow` | `/add-automation`> - want me to run it?
+> What you describe is something your **app** needs, so it must run on the app's infrastructure, not on your personal Claude account (if your subscription stopped, your app would silently break). The right command is <`/add-cron` | `/add-automation`> - want me to run it?
 
 ## Step 3 - Delegate to the engine
 

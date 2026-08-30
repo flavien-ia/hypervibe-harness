@@ -4,7 +4,7 @@ Ajoute un tableau de bord dans votre espace admin pour suivre et piloter vos age
 
 ## Quand l'utiliser
 
-- Vous avez créé un ou plusieurs agents IA via `/add-agent` et vous voulez les **suivre** depuis votre site
+- Vous avez créé un ou plusieurs agents IA (via `/add-automation`) et vous voulez les **suivre** depuis votre site
 - Vous voulez **déclencher un agent à la demande** (par exemple : *"lance le brief RSS maintenant"*)
 - Vous voulez **comprendre les décisions** de vos agents (tour par tour, quel outil utilisé, quel résultat)
 - Vous voulez voir **combien coûte** chaque agent en USD
@@ -13,7 +13,7 @@ Ajoute un tableau de bord dans votre espace admin pour suivre et piloter vos age
 
 1. **Vérifications** : Hypervibe vérifie deux prérequis :
   - **Authentification admin** : votre site doit avoir `/add-auth` configuré en mode admin (le dashboard est privé)
-  - **Au moins un agent existant** : il faut au moins une exécution de `/add-agent` avant pour que les tables `agent_*` existent en base
+  - **Au moins un agent existant** : il faut avoir créé au moins un agent avant, pour que les tables `agent_*` existent en base
    
    Si l'un manque, Hypervibe vous explique et s'arrête.
 
@@ -41,7 +41,7 @@ Ajoute un tableau de bord dans votre espace admin pour suivre et piloter vos age
 ## Prérequis
 
 - L'authentification admin doit être configurée (`/add-auth` en mode admin)
-- Au moins un agent doit avoir été créé (`/add-agent`)
+- Au moins un agent doit avoir été créé (via `/add-automation`)
 
 ## Astuces
 
@@ -50,7 +50,7 @@ Le bouton de déclenchement manuel est précieux quand vous développez un agent
 {{/callout}}
 
 {{callout:info|Vos agents apparaissent tout seuls}}
-Vous n'avez rien à configurer dans le dashboard quand vous créez un nouvel agent : `/add-agent` enregistre déjà toutes les données nécessaires (exécutions, décisions, coûts) au fil de l'eau. Le nouvel agent apparaît automatiquement dans la liste dès sa première exécution.
+Vous n'avez rien à configurer dans le dashboard quand vous créez un nouvel agent : il enregistre déjà toutes les données nécessaires (exécutions, décisions, coûts) au fil de l'eau. Le nouvel agent apparaît automatiquement dans la liste dès sa première exécution.
 {{/callout}}
 
 {{callout:warning|Dashboard = admin only}}

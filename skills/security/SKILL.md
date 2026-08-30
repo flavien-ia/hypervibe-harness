@@ -158,6 +158,32 @@ pnpm audit --prod --json 2>&1
 - If found, verify the URL is validated against an allowlist: `https` only, expected hosts only, and never internal addresses (`localhost`, `127.0.0.1`, `10.x`, `192.168.x`, `169.254.169.254`...). Consequence if not: an attacker can make your server call internal services or the cloud provider's metadata endpoint, and exfiltrate credentials from inside.
 - If the project has no such call (common for a simple site), mark the point ✅ with "not applicable".
 
+### 1m - Model calls outside the AI brick (informative, never blocking)
+
+If the project has `src/server/ai.ts`, every model call is meant to go through
+it: that file is what carries the token ceiling, the cost log and the refusal to
+let providers train on the data. A call written beside it silently escapes all
+three.
+
+```bash
+grep -rlnE "@anthropic-ai/sdk|from \"openai\"|api\.anthropic\.com|api\.openai\.com" src/ 2>/dev/null | grep -v "src/server/ai.ts"
+```
+
+- Nothing found, or no `ai.ts` at all -> mark ✅ and move on.
+- **The project declares a deliberate direct provider** (a `kind: "ai-key"` entry
+  with `mode: "direct"` in `.hypervibe/resources.json`, or the matching line in
+  its CLAUDE.md) -> mark ✅ "deliberate choice, recorded" and say nothing more.
+  This is a decision the user made, not a finding.
+- Otherwise -> report it as **informative**, never as a vulnerability, and give
+  the reason rather than the rule:
+
+  > `<file>` calls a model directly, beside `src/server/ai.ts`. That call is
+  > outside the spending cap, absent from the cost log, and not covered by the
+  > no-training setting. Want me to route it through the shared file?
+
+Never fail the audit on this point, and never change the code without being
+asked. It is a lamp, not a gate.
+
 ---
 
 ## Step 2 - Report

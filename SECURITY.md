@@ -87,8 +87,8 @@ privileged status: it returns third-party content like any other fetch. When an
 injection attempt is detected, the rule is to stop and show you the source and
 the excerpt, not to handle it silently.
 
-The same applies to what the plugin **generates**. An agent scaffolded by
-`/add-agent` reads untrusted content, holds private data and can send things
+The same applies to what the plugin **generates**. An agent scaffolded through
+`/add-automation` reads untrusted content, holds private data and can send things
 out, which is precisely the combination indirect prompt injection needs. So:
 
 - it may only email addresses in `AGENT_MAIL_ALLOWLIST` (empty by default: it

@@ -29,7 +29,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: ANTHROPIC_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false  # set in dashboard, not committed
       - key: DATABASE_URL
         sync: false

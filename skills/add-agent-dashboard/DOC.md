@@ -4,7 +4,7 @@ Adds a dashboard to your admin area to monitor and drive your AI agents. You see
 
 ## When to use it
 
-- You have created one or more AI agents via `/add-agent` and you want to **monitor** them from your site
+- You have created one or more AI agents (through `/add-automation`) and you want to **monitor** them from your site
 - You want to **trigger an agent on demand** (for example: *"run the RSS brief now"*)
 - You want to **understand the decisions** of your agents (turn by turn, which tool was used, what result)
 - You want to see **how much** each agent costs in USD
@@ -13,7 +13,7 @@ Adds a dashboard to your admin area to monitor and drive your AI agents. You see
 
 1. **Checks**: Hypervibe verifies two prerequisites:
   - **Admin authentication**: your site must have `/add-auth` configured in admin mode (the dashboard is private)
-  - **At least one existing agent**: you need at least one run of `/add-agent` beforehand so that the `agent_*` tables exist in the database
+  - **At least one existing agent**: you need to have created at least one agent beforehand, so that the `agent_*` tables exist in the database
    
    If either is missing, Hypervibe explains and stops.
 
@@ -41,7 +41,7 @@ Adds a dashboard to your admin area to monitor and drive your AI agents. You see
 ## Prerequisites
 
 - Admin authentication must be configured (`/add-auth` in admin mode)
-- At least one agent must have been created (`/add-agent`)
+- At least one agent must have been created (through `/add-automation`)
 
 ## Tips
 
@@ -50,7 +50,7 @@ The manual trigger button is precious when you are developing an agent: you can 
 {{/callout}}
 
 {{callout:info|Your agents show up on their own}}
-You have nothing to configure in the dashboard when you create a new agent: `/add-agent` already records all the necessary data (runs, decisions, costs) as it goes. The new agent automatically appears in the list as soon as it runs for the first time.
+You have nothing to configure in the dashboard when you create a new agent: it already records all the necessary data (runs, decisions, costs) as it goes. The new agent automatically appears in the list as soon as it runs for the first time.
 {{/callout}}
 
 {{callout:warning|Dashboard = admin only}}

@@ -6,6 +6,7 @@
  *   node ai-setup.mjs estimer --gamme eco --profil chat --par-jour 50
  *   node ai-setup.mjs cle --nom mon-projet --plafond 10 [--reset-quotidien]
  *   node ai-setup.mjs cles
+ *   node ai-setup.mjs revoquer --hash <hash>
  *
  * Sort du JSON sur stdout (la skill le lit), et rien d'autre : les messages
  * destinés à l'humain passent par la skill, pas par ce script.
@@ -23,6 +24,7 @@ import {
   GAMMES,
   listerCles,
   PROFILS,
+  supprimerCle,
   tableauEstimation,
 } from "./openrouter.mjs";
 
@@ -214,12 +216,28 @@ async function principal() {
       break;
     }
 
+    case "revoquer": {
+      // La révocation ferme le robinet d'une clé compromise ou d'un projet
+      // supprimé. Le hash vient de `cles` ou de la sortie de `cle` : il
+      // identifie la clé, il ne permet pas de s'en servir.
+      const hash = opt("hash");
+      if (!hash) {
+        sortir(
+          { ok: false, message: "Usage : revoquer --hash <hash>" },
+          1,
+        );
+      }
+      await supprimerCle(cleGestion(), hash);
+      sortir({ ok: true, hash, revoquee: true });
+      break;
+    }
+
     default:
       sortir(
         {
           ok: false,
           message:
-            "Commandes : modeles | estimer | cle | cles (voir l'en-tête du script).",
+            "Commandes : modeles | estimer | cle | cles | revoquer (voir l'en-tête du script).",
         },
         1,
       );

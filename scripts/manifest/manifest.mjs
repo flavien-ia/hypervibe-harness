@@ -46,7 +46,7 @@
 // ----------------------------------------------
 //   vercel-project, neon-project, r2-bucket, cf-worker, dns-zone,
 //   render-service, stripe-webhook, upstash-db, cron-job, db-backup,
-//   email-route, github-repo
+//   email-route, github-repo, ai-key
 // Unknown kinds are accepted (forward compatibility) but flagged in output.
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -60,7 +60,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const KNOWN_KINDS = [
   "vercel-project", "neon-project", "r2-bucket", "cf-worker", "dns-zone",
   "render-service", "stripe-webhook", "upstash-db", "cron-job", "db-backup",
-  "email-route", "github-repo",
+  "email-route", "github-repo", "ai-key",
 ];
 
 // --- args ------------------------------------------------------------------

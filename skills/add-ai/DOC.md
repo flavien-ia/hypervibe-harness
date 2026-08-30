@@ -50,5 +50,5 @@ Free models exist and are genuinely useful for prototyping. But some providers r
 {{/callout}}
 
 {{callout:info|Live AI or autonomous agent}}
-This command installs AI that answers within seconds, inside your app. If you are after a process that runs on its own in the background, makes decisions and uses tools, that is `/add-agent`. And if the processing needs no intelligence at all, that is `/add-automation`.
+This command installs AI that answers within seconds, inside your app. If you are after a process that runs on its own in the background, makes decisions and uses tools, describe it to `/add-automation`: it builds the right shape, from a simple scheduled task to a full autonomous agent. Same door when the processing needs no intelligence at all.
 {{/callout}}

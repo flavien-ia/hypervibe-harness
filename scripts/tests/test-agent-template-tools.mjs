@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // test-agent-template-tools.mjs - Recette of the fences around a scaffolded agent.
 //
-// The agent /add-agent produces reads untrusted content, holds private data and
+// The agent _create-agent produces reads untrusted content, holds private data and
 // can send things out. What keeps those three from combining is not the system
 // prompt (that is the last line, not the first): it is two allowlists and a
 // per-call marker. Those are code, so they are tested like code.
@@ -91,9 +91,14 @@ check(
 
 // ── The safety block survives the scaffold ───────────────────────────
 check("loop.ts porte AGENT_SAFETY_PROMPT", /const AGENT_SAFETY_PROMPT = `/.test(loop));
+// Les deux prompts sont deux constantes separees (pour que le scaffold puisse
+// remplacer la mission sans emporter la surete), et ils ne sont joints qu'au
+// moment de l'appel. Ce controle suit ce chemin de bout en bout : la surete est
+// bien concatenee, et c'est bien cette variable qui part en `system`.
 check(
   "le bloc de surete est envoye au modele",
-  /text: AGENT_SAFETY_PROMPT/.test(loop),
+  /const systeme = `\$\{TEMPLATE_SYSTEM_PROMPT\}[\s\S]*?\$\{AGENT_SAFETY_PROMPT\}`;/.test(loop) &&
+    /system: systeme,/.test(loop),
 );
 {
   // La regex exacte de patchSystemPrompt (setup-agent.mjs).

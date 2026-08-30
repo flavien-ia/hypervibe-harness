@@ -10,7 +10,7 @@ Ajoute une automatisation : un traitement qui tourne en arrière-plan pour votre
 - Vous avez un **état persistant** à garder entre les exécutions (queue interne, cache mémoire)
 - Vous voulez une **mission récurrente pour vous-même** : un brief du matin, une analyse hebdo, une veille qui vous alerte
 
-Si votre besoin est une simple tâche périodique courte (< 60s, stateless), Hypervibe vous redirige vers `/add-cron`. Si c’est une **chaîne intelligente finie déclenchée par un événement** (« quand X arrive, fais A puis B puis C »), elle vous route vers `/add-workflow` : le cas le plus fréquent derrière « je veux un agent », qui tourne dans votre app sans infrastructure en plus. Si c’est un **vrai agent IA qui fait partie de votre produit** (boucle autonome avec outils), elle vous bascule sur `/add-agent`. Et une mission récurrente pour vous-même passe directement par `/add-routine`.
+Vous n’avez pas à choisir la forme : vous décrivez, Hypervibe décide et vous explique pourquoi. Une simple tâche périodique courte (< 60s, sans état) part sur `/add-cron`. Une **chaîne intelligente finie déclenchée par un événement** (« quand X arrive, fais A puis B puis C ») est construite dans votre app : c’est le cas le plus fréquent derrière « je veux un agent », et il ne demande aucune infrastructure en plus. Un **vrai agent autonome** (qui décide lui-même de ses actions, en boucle, avec des outils) obtient son propre serveur et son propre budget. Et une mission récurrente pour vous-même passe par `/add-routine`.
 
 ## Comment ça se passe
 
@@ -33,10 +33,10 @@ Si votre besoin est une simple tâche périodique courte (< 60s, stateless), Hyp
 4. **Décision automatique** :
   - **Mission IA récurrente pour vous** → **routine Claude** (votre propre Claude l’exécute au bon moment ; aucune infrastructure)
   - **Tâche périodique simple pour l’app** → délègue à `/add-cron` (qui l’inscrit par défaut sur votre horloge partagée)
-  - **Chaîne finie déclenchée par un événement, éventuellement intelligente** → délègue à `/add-workflow` (la chaîne tourne dans votre app, chaque exécution tracée étape par étape ; aucune infrastructure en plus)
+  - **Chaîne finie déclenchée par un événement, éventuellement intelligente** → **chaîne dans votre app** (elle tourne dans votre site, chaque exécution tracée étape par étape ; aucune infrastructure en plus)
   - **Worker léger / event-driven / précision sous la minute** → **Cloudflare Worker** (rapide à déployer, scale auto, gratuit jusqu’à 100k requêtes/jour)
   - **Traitement lourd, long, ou avec de l’état** → **Render**, sous deux formes selon la réponse à une seule question, « est-ce que ça peut dormir entre deux passages ? ». Si oui, c’est un service gratuit réveillé par votre horloge partagée. Si non (connexion permanente, file de messages qu’on ne peut pas rater), c’est un vrai processus d’arrière-plan, autour de 7 $/mois : Render ne propose pas ce type de service en gratuit, et Hypervibe vous le dit avant de le créer, jamais après.
-  - **IA au service des utilisateurs de votre app** → passe la main à `/add-agent` (agent de production avec plafonds de budget et traçabilité complète)
+  - **IA autonome au service des utilisateurs de votre app** → **agent de production** : son propre serveur, sa propre clé d’accès plafonnée, et chaque décision conservée pour audit
 
 5. **Conversion en monorepo si nécessaire** (workers uniquement) : pour héberger le worker à côté de votre Next.js, Hypervibe convertit votre projet en Turborepo (idempotent, pas de risque si déjà monorepo). Votre code Next.js se retrouve dans `apps/web/`, le worker dans `apps/worker/`.
 
@@ -68,14 +68,18 @@ Si votre besoin est une simple tâche périodique courte (< 60s, stateless), Hyp
 Un job qui sert **votre app** part sur l’infrastructure de l’app : il doit continuer de tourner même si vous changez d’outils ou résiliez des abonnements. Un job qui sert **vous** peut devenir une **routine** : votre propre Claude l’exécute, sans aucune infrastructure. Deux choses honnêtes sur les routines : chaque exécution consomme un peu de votre abonnement Claude, et si votre abonnement s’arrête, la routine s’arrête avec. C’est exactement pour ça que rien de ce dont votre app dépend ne va JAMAIS sur une routine. Bon à savoir aussi : cadence minimum 1 heure ; les routines cloud tournent même ordinateur éteint, les locales tournent quand l’app Claude est ouverte.
 {{/callout}}
 
-{{callout:info|4 formes, 1 commande}}
-`/add-automation` est un **orchestrateur** au-dessus des 4 formes d’automatisation : `/add-cron` (tâche planifiée), `/add-workflow` (chaîne intelligente dans l’app), `/add-agent` (agent autonome du produit), `/add-routine` (mission récurrente pour vous). Elle sait aussi scaffolder un worker dédié (Cloudflare ou Render) pour les cas lourds ou continus. Chaque forme reste invocable en direct ; vous n’avez pas à choisir vous-même : vous décrivez, Hypervibe décide et vous explique pourquoi.
+{{callout:info|Une porte, quatre formes}}
+`/add-automation` est la porte d’entrée de tout ce que votre app fait toute seule. Derrière, quatre formes : une **tâche planifiée**, une **chaîne intelligente dans l’app**, un **agent autonome** avec son propre serveur, ou un **worker dédié** pour les traitements lourds. Deux d’entre elles restent aussi accessibles en direct quand vous savez déjà ce que vous voulez : `/add-cron` et `/add-routine`. Les deux autres se choisissent pour vous, parce que se tromper entre « chaîne » et « agent » coûte cher : la première ne coûte rien à héberger, le second demande un serveur à lui.
+{{/callout}}
+
+{{callout:info|Chaîne ou agent : la différence en une phrase}}
+Une **chaîne** suit des étapes que vous connaissez d’avance (« quand un document arrive : le lire, le résumer, prévenir la bonne personne »). Elle tourne dans votre site, se termine en quelques secondes, et chaque exécution est tracée étape par étape. Un **agent** décide lui-même de ses actions, en boucle, avec des outils, et peut se souvenir d’une fois sur l’autre : il a besoin de son propre serveur (~7 $/mois), de sa propre clé d’accès plafonnée et d’un disjoncteur budgétaire. La plupart des gens qui demandent « un agent » veulent en réalité une chaîne, et Hypervibe le dit franchement plutôt que de vous vendre l’infrastructure la plus lourde.
 {{/callout}}
 
 {{callout:warning|Render = payant pour le worker}}
 Render offre un plan gratuit pour les services web simples, mais pour les **Background Workers** (process qui tournent 24h/7j), il faut le plan starter (~7$/mois). Si votre besoin ne demande pas vraiment du 24h/7j, Hypervibe préférera Cloudflare Worker (gratuit), `/add-cron` (gratuit aussi), ou une routine (aucune infrastructure du tout).
 {{/callout}}
 
-{{callout:tip|IA pour votre produit = commande dédiée}}
-Si l’IA sert **les utilisateurs de votre app** (classer LEURS tickets, personnaliser LEURS emails, traiter LEURS documents), Hypervibe vous bascule sur `/add-agent`, conçu pour ça : modèle Claude, mémoire entre exécutions, plafond budgétaire (par défaut 5 USD/jour, 50 USD/mois), persistance de chaque décision pour audit. Si l’IA travaille **pour vous** (brief, veille, analyse), une routine fait le travail sans toute cette machinerie. Le point d’entrée reste le même : `/add-automation` route automatiquement.
+{{callout:tip|L’IA de votre app passe toujours par un seul fichier}}
+Quelle que soit la forme retenue, dès qu’une étape demande de comprendre, classer, extraire ou rédiger, Hypervibe installe (ou réutilise) **la brique IA de votre projet** : un fichier unique par lequel passent tous les appels. Trois choses en découlent, et elles valent d’être dites à votre comptable comme à votre DSI. Le coût est estimé et **validé par vous avant la première ligne de code**. La clé d’accès porte un **plafond de dépense tenu par le fournisseur** : une boucle emballée tape un mur, pas votre carte bancaire. Et chaque appel refuse explicitement que vos données servent à entraîner un modèle. Vous passez par OpenRouter, donc **changer de modèle est une ligne à modifier**, pas un chantier. Si vous préférez appeler OpenAI ou Anthropic en direct avec votre propre compte, dites-le : Hypervibe le fait, le note, et ne vous repose plus la question.
 {{/callout}}
