@@ -23,6 +23,7 @@ import {
 } from "node:fs";
 import { homedir, tmpdir, platform, arch as osArch } from "node:os";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import https from "node:https";
 
 // ─── Constants ──────────────────────────────────────────────────────────
@@ -131,6 +132,17 @@ async function fetchJson(url) {
   return JSON.parse(data);
 }
 
+async function fetchText(url) {
+  const res = await httpsRequest(url);
+  if (res.statusCode !== 200) {
+    throw new Error(`HTTP ${res.statusCode} on ${url}`);
+  }
+  let data = "";
+  res.setEncoding("utf8");
+  for await (const chunk of res) data += chunk;
+  return data;
+}
+
 async function downloadFile(url, dest) {
   const res = await httpsRequest(url);
   if (res.statusCode !== 200) {
@@ -163,9 +175,37 @@ async function installGitleaks() {
     );
   }
 
+  // The release also publishes `gitleaks_<v>_checksums.txt`, in the same
+  // assets array we just parsed: no extra request, and no reason to install
+  // an archive we did not verify. Same origin serves both, so this proves the
+  // transfer was intact, not who signed the release (there is no .sig upstream);
+  // it is still the difference between "downloaded" and "downloaded unchanged".
+  const sums = release.assets.find((a) => /_checksums\.txt$/.test(a.name));
+  if (!sums) {
+    throw new Error(
+      `Release ${release.tag_name} publishes no checksums file: refusing to install an unverified binary`,
+    );
+  }
+
   mkdirSync(INSTALL_DIR, { recursive: true });
   const tmpFile = join(tmpdir(), asset.name);
   await downloadFile(asset.browser_download_url, tmpFile);
+
+  const attendu = (await fetchText(sums.browser_download_url))
+    .split(/\r?\n/)
+    .map((l) => l.trim().split(/\s+/))
+    .find((parts) => parts.length >= 2 && parts[parts.length - 1] === asset.name)?.[0];
+  if (!attendu) {
+    try { unlinkSync(tmpFile); } catch {}
+    throw new Error(`No checksum for ${asset.name} in ${sums.name}`);
+  }
+  const obtenu = createHash("sha256").update(readFileSync(tmpFile)).digest("hex");
+  if (obtenu !== attendu.toLowerCase()) {
+    try { unlinkSync(tmpFile); } catch {}
+    throw new Error(
+      `Checksum mismatch for ${asset.name}: expected ${attendu.slice(0, 12)}..., got ${obtenu.slice(0, 12)}... (download discarded)`,
+    );
+  }
 
   if (IS_WIN) {
     // PowerShell zip extract - overwrites silently

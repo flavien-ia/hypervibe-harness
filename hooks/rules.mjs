@@ -101,6 +101,19 @@ function normaliseGit(seg) {
   return `git ${rest}`;
 }
 
+/** `npx vercel --prod` is still `vercel --prod`. A one-shot runner (npx, bunx,
+ *  pnpm dlx, yarn dlx, pnpm exec) only prefixes the real command: strip it,
+ *  and its own flags, so the rules below see the tool they name. Found by an
+ *  outside reader on 2.9.5: `pnpm dlx vercel --prod` walked past rule 3, and
+ *  it is the very form the plugin recommends elsewhere. */
+function withoutLauncher(seg) {
+  const m =
+    /^(?:npx|bunx|(?:pnpm|yarn)\s+(?:dlx|exec))\s+(?:(?:-y|-q|--yes|--quiet|--silent|-p\s+\S+|--package[= ]\S+)\s+)*/.exec(
+      seg,
+    );
+  return m ? seg.slice(m[0].length) : seg;
+}
+
 const DENY = "deny";
 const ASK = "ask";
 
@@ -120,7 +133,7 @@ export function decide(command) {
 
   for (const raw of segments(command)) {
     const { env, rest } = withoutEnv(raw);
-    const seg = normaliseGit(rest);
+    const seg = normaliseGit(withoutLauncher(rest));
 
     // 1. Sweeping stage. No legitimate use in a repository where another
     //    session may be working, and the alternative is one word longer.
@@ -128,15 +141,20 @@ export function decide(command) {
     //    tree (monorepo conversion) after a `git status` proved nothing
     //    foreign is pending. The prefix makes that intent explicit and
     //    visible in the command itself.
+    //    The prefix is documented in the README and in the skills that need
+    //    it, and deliberately NOT in the reason below: that text is read by
+    //    the model, which is also who can type the prefix. A refusal that
+    //    names its own bypass is bypassed by its reader (outside review,
+    //    2.9.5). Same for the push rule.
     if (
       /^git\s+add\s+(-A\b|--all\b|-u\b|\.(\s|$))/.test(seg) ||
       /^git\s+add\s+[^|&]*\s(-A|--all|-u)(\s|$)/.test(seg) ||
-      /^git\s+commit\s+(-[a-zA-Z]*a[a-zA-Z]*)(\s|$)/.test(seg)
+      /^git\s+commit\s+(-[a-zA-Z]*a[a-zA-Z]*|--all)(\s|$)/.test(seg)
     ) {
       if (env.get("HYPERVIBE_GUARD_ALLOW_SWEEP") === "1") continue;
       keep(
         DENY,
-        "Sweeping stage refused: on 2026-08-17 it swept another session's uncommitted work into a commit. Stage nominatively instead: `git add <file> [<file>...]`, then `git commit -m ...`. Check `git status --short` first if you are unsure what is pending. An operation that legitimately restructures the whole tree may prefix the command with HYPERVIBE_GUARD_ALLOW_SWEEP=1, after checking nothing foreign is pending.",
+        "Sweeping stage refused: on 2026-08-17 it swept another session's uncommitted work into a commit. Stage nominatively instead: `git add <file> [<file>...]`, then `git commit -m ...`. Check `git status --short` first if you are unsure what is pending.",
       );
       continue;
     }
@@ -146,7 +164,7 @@ export function decide(command) {
       if (env.get("HYPERVIBE_GUARD_ALLOW_PUSH") === "1") continue;
       keep(
         ASK,
-        "A push publishes. Confirm with the user first (a standing agreement stated in chat counts). Documented automations may prefix the command with HYPERVIBE_GUARD_ALLOW_PUSH=1.",
+        "A push publishes. Confirm with the user first (a standing agreement stated in chat counts).",
       );
       continue;
     }
@@ -159,6 +177,21 @@ export function decide(command) {
       keep(
         ASK,
         "Production deploys normally go through `git push` on the main branch. A direct deploy needs the user's explicit confirmation.",
+      );
+      continue;
+    }
+
+    // 3b. Deploying a Cloudflare worker, or writing one of its secrets. The
+    //     shared clock holds account-level keys for every project (Neon,
+    //     Cloudflare, email): a deploy publishes code that runs with them, a
+    //     `secret put` rewrites one. The plugin's own scripts drive wrangler
+    //     from Node (ensure.mjs, register.mjs), which the hook does not see and
+    //     which sit behind their skills' confirmations; this covers the model
+    //     reaching for wrangler directly (outside review, 2.9.5).
+    if (/^wrangler\s+(deploy|publish|versions\s+deploy|secret\s+(put|bulk))\b/.test(seg)) {
+      keep(
+        ASK,
+        "Deploying a worker or writing one of its secrets touches code that runs with the account's keys. Confirm with the user first.",
       );
       continue;
     }
@@ -184,7 +217,11 @@ export function decide(command) {
 
     // 6. Destructive SQL. The hook only sees the command line, so run-sql.mjs
     //    carries the same check for SQL passed by file or heredoc.
-    if (/run-sql\.mjs/.test(seg)) {
+    //    Only when a runtime LAUNCHES the script: `grep "DROP" run-sql.mjs` is
+    //    a read, and it used to be refused because the segment carried the
+    //    file name and a quoted keyword (outside review, 2.9.5). Exactly the
+    //    wolf the note at the top of this file says to avoid.
+    if (/^(?:node|bun|deno|tsx)\s/.test(seg) && /run-sql\.mjs/.test(seg)) {
       const sql = quotedPayloads(seg).join(" ");
       const destructive = /\b(DROP\s+(TABLE|SCHEMA|DATABASE|COLUMN)|TRUNCATE)\b/i.test(sql) ||
         /\bALTER\s+TABLE\b[\s\S]*\bDROP\b/i.test(sql);

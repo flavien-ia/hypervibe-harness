@@ -32,6 +32,7 @@
 
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 import { readUserEnv } from "./_read-user-env.mjs";
 
@@ -97,9 +98,13 @@ function readVercelEnv() {
   if (!existsSync(resolve(".vercel/project.json"))) {
     return { ok: false, reason: ".vercel/project.json absent - projet non linké à Vercel", vars: {} };
   }
-  const tmpFile = resolve(".env.vercel.check-deps.tmp");
+  // Outside the repository, on purpose: the plugin's .gitignore maintenance only
+  // covers `.env` itself, and a production env file left behind in the working
+  // tree (a killed process skips the finally below) would sit one `git add` away
+  // from a commit. A file that never enters the tree needs no rule to protect it.
+  const tmpFile = join(tmpdir(), `hypervibe-check-deps-${process.pid}.env`);
   try {
-    // vercel env pull writes to stdout via --environment flag, using a tmp file to avoid clobbering user .env files
+    // vercel env pull writes to the given path; a tmp file avoids clobbering user .env files
     execSync(`vercel env pull "${tmpFile}" --environment=production --yes`, {
       stdio: "pipe",
       encoding: "utf8",

@@ -41,10 +41,16 @@ Installed **without asking**, because nothing works without them:
   Windows, Homebrew on macOS, itself installed from its official script if
   missing). On Windows, winget is downloaded from the `microsoft/winget-cli`
   releases when absent.
-- **gitleaks** (about 10 MB, from the project's GitHub releases), plus a global
-  git hook and a `~/.gitleaks.toml`. It scans every commit, in every repository
-  on the machine, and blocks one that carries a secret.
-- **The Bitwarden CLI**, from `vault.bitwarden.com`, for the key vault.
+- **gitleaks** (about 10 MB, from the project's GitHub releases, checked
+  against the `checksums.txt` of the same release before it is installed),
+  plus a global git hook and a `~/.gitleaks.toml`. It scans every commit, in
+  every repository on the machine, and blocks one that carries a secret.
+- **The Bitwarden CLI**, for the key vault. On macOS through Homebrew, which
+  verifies what it installs. Elsewhere `vault.bitwarden.com` only redirects to
+  the GitHub release of `bitwarden/clients`, which publishes no checksum: the
+  installer resolves that redirect itself, refuses any target outside the
+  official release, and records the version it names. That proves where the
+  file came from, not that it is intact.
 
 Those change two system settings: your user `PATH`, so the tools are findable
 (never through `setx PATH`, which corrupts it), and `git config --global
@@ -54,6 +60,16 @@ Installed **only after you agree**: the GitHub, Vercel and Cloudflare CLIs.
 `/start` shows the list and waits for an answer. Later, if you connect a
 Cloudflare account, it also provisions one shared scheduled worker on it.
 
+**What that shared worker holds.** One worker per account carries the
+scheduled jobs of every project (crons, database backups, quota watch): a
+single cron slot, one registry under version control in `~/.hypervibe-jobs/`,
+one place to rotate. To do that job it holds account-level keys, not
+project-level ones: the Neon API key, the Cloudflare token, the email key, and
+one `CRON_SECRET` per project. The blast radius of that folder leaking is
+therefore every project on the account. It lives in your home directory,
+outside any repository, and the gitleaks hook covers it like the rest; its own
+control plane answers only to a bearer token and discloses nothing without it.
+
 None of this is hidden: every command runs in front of you in the chat, and you
 can stop at any point.
 
@@ -61,8 +77,9 @@ can stop at any point.
 
 Irreversible operations are guarded mechanically, not merely discouraged in
 prose. A `PreToolUse` hook refuses a sweeping `git add -A` and destructive SQL,
-and asks for your confirmation before a push, a direct production deploy, a
-schema push, cloud deletions or a hard reset. The full table is in the README.
+and asks for your confirmation before a push, a direct production deploy (also
+when it hides behind `npx` or `pnpm dlx`), a worker deploy, a schema push,
+cloud deletions or a hard reset. The full table is in the README.
 
 Two properties matter here:
 
@@ -70,8 +87,11 @@ Two properties matter here:
   lets the command through and says so on stderr: a seatbelt, not an airlock.
 - **The scripts carry their own checks.** A hook only sees a command line, so
   `run-sql.mjs` refuses `DROP`/`TRUNCATE` without `--destructif`, and
-  `execute-deletions.mjs` requires the project name typed again. Those also
-  protect hosts that have no hooks at all, Codex included.
+  `execute-deletions.mjs` requires the project name typed again. On a host
+  without hooks (Codex included) those checks still refuse by default; but the
+  `--destructif` flag that lifts the refusal is confirmed by a human only where
+  the hook exists. Without a hook, passing the flag runs the statement: treat
+  the flag as the confirmation, because nothing else will ask.
 
 Both directions are tested (`node hooks/test-hooks.mjs`): that a forbidden
 command is refused, **and** that a legitimate one goes through. A guardrail that
@@ -94,7 +114,13 @@ out, which is precisely the combination indirect prompt injection needs. So:
 - it may only email addresses in `AGENT_MAIL_ALLOWLIST` (empty by default: it
   sends nothing until you decide who it may write to);
 - it may only POST/PUT to hosts in `AGENT_FETCH_WRITE_HOSTS` (empty by default:
-  it reads anything, writes nowhere);
+  it reads anything, writes nowhere); towards every other host the URL itself
+  is bounded in length, because a long `GET ?d=...` carries data out as well as
+  a POST does;
+- redirects are resolved one hop at a time and each target goes through the
+  same SSRF guard as the first URL (a `302` towards a private address is the
+  classic way around a check that only looked at the starting point), and a
+  redirected write is never followed;
 - fetched bodies come back wrapped in a marker drawn at random for that call, so
   the model can tell the frame from the payload, and a page written earlier
   cannot forge the frame.

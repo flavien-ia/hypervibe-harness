@@ -144,9 +144,10 @@ Les opérations irréversibles sont donc gardées, pas seulement déconseillées
 
 | Commande | Ce qui se passe | Pourquoi |
 |---|---|---|
-| `git add -A`, `git add .`, `git add -u`, `git commit -a` | **refus** | Un balayage a déjà emporté dans un commit le travail non commité d'une autre session. Indexer nommément : `git add <fichier>`. |
+| `git add -A`, `git add .`, `git add -u`, `git commit -a`, `git commit --all` | **refus** | Un balayage a déjà emporté dans un commit le travail non commité d'une autre session. Indexer nommément : `git add <fichier>`. |
 | `git push` | **confirmation** | Pousser publie. Le consentement vit dans la conversation, donc un humain confirme. |
-| `vercel --prod`, `promote`, `rollback` | **confirmation** | Les déploiements passent normalement par `git push`. |
+| `vercel --prod`, `promote`, `rollback` (aussi derrière `npx` ou `pnpm dlx`) | **confirmation** | Les déploiements passent normalement par `git push`. |
+| `wrangler deploy`, `wrangler secret put` | **confirmation** | Le worker partagé tourne avec les clés du compte ; un déploiement publie du code qui les détient. |
 | `pnpm db:push`, `drizzle-kit push` | **confirmation** | Sur cette stack, la base que vous atteignez EST la production. |
 | `execute-deletions.mjs` | **confirmation** | Suppressions cloud irréversibles. |
 | `run-sql.mjs` avec `DROP` / `TRUNCATE` | **refus** sans `--destructif` | Entre deux sauvegardes, rien ne ramène une table supprimée. |

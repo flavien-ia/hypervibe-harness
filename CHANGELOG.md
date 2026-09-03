@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.0.1 (3 septembre 2026)
+
+### Améliorations
+- **Le garde-fou voit à travers `npx` et `pnpm dlx`** : une mise en production directe (`vercel --prod`) demandait confirmation, mais passait telle quelle derrière un lanceur. Les deux formes demandent maintenant votre accord, comme `git commit --all`, oublié jusqu'ici.
+- **Déployer un worker Cloudflare ou écrire ses secrets demande confirmation** : le worker partagé tourne avec les clés du compte, et un `wrangler deploy` direct n'était couvert par rien.
+- **Fin d'un faux positif** : lire le fichier `run-sql.mjs` (par `grep` ou `cat`) était refusé dès qu'un mot-clé SQL figurait sur la ligne. Le garde-fou n'examine plus le SQL que lorsqu'un programme lance vraiment le script.
+- **Les refus ne soufflent plus leur propre contournement** : les préfixes d'exception restent documentés dans le README, ils ne figurent plus dans le message rendu au modèle.
+- **gitleaks est vérifié avant d'être installé** : l'archive téléchargée est comparée au fichier d'empreintes de la même release, et un écart annule l'installation.
+- **Le CLI Bitwarden n'est plus téléchargé à l'aveugle** : l'installateur résout lui-même la redirection, refuse toute cible hors de la release officielle, et note la version obtenue.
+- **Plus aucun fichier de secrets dans votre dépôt** : la vérification des dépendances et l'audit `/clean` écrivent les variables Vercel dans le dossier temporaire du système, jamais à côté de votre code.
+- **L'agent généré suit les redirections avec méfiance** : chaque saut repasse par la garde anti-SSRF, un envoi n'est jamais redirigé, et les URL très longues vers des hôtes inconnus sont refusées, parce qu'une fuite tient dans une adresse.
+
+### Coulisses
+- La page sécurité dit désormais ce que détient le worker partagé, et ce que vaut vraiment le refus de SQL destructeur sur un hôte sans hooks. Chacune de ces phrases est vérifiée par la recette avant publication.
+- Ces correctifs répondent à une relecture externe et détaillée de la version 2.9.5, faite sur le code publié.
+
 ## v3.0.0 (30 août 2026)
 
 ### Ce qui change pour vous

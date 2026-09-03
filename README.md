@@ -144,9 +144,10 @@ So the operations that cannot be undone are guarded, not merely discouraged:
 
 | Command | What happens | Why |
 |---|---|---|
-| `git add -A`, `git add .`, `git add -u`, `git commit -a` | **refused** | A sweeping stage once swept another session's uncommitted work into a commit. Stage nominatively: `git add <file>`. |
+| `git add -A`, `git add .`, `git add -u`, `git commit -a`, `git commit --all` | **refused** | A sweeping stage once swept another session's uncommitted work into a commit. Stage nominatively: `git add <file>`. |
 | `git push` | **confirmation** | Pushing publishes. Consent lives in the conversation, so a human confirms. |
-| `vercel --prod`, `promote`, `rollback` | **confirmation** | Deploys normally go through `git push`. |
+| `vercel --prod`, `promote`, `rollback` (also behind `npx` or `pnpm dlx`) | **confirmation** | Deploys normally go through `git push`. |
+| `wrangler deploy`, `wrangler secret put` | **confirmation** | The shared worker runs with the account's keys; a deploy publishes code that holds them. |
 | `pnpm db:push`, `drizzle-kit push` | **confirmation** | On this stack the database you reach IS production. |
 | `execute-deletions.mjs` | **confirmation** | Irreversible cloud deletions. |
 | `run-sql.mjs` with `DROP` / `TRUNCATE` | **refused** without `--destructif` | Between two backups, nothing brings a dropped table back. |

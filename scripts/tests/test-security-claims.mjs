@@ -260,6 +260,73 @@ check(
   );
 }
 
+// ── Ce que les telechargeurs verifient (revue externe, 2.9.5) ────────
+{
+  const gl = lire("scripts/setup-gitleaks-global.mjs");
+  check(
+    "gitleaks : l'archive est comparee au checksums.txt de la meme release",
+    /_checksums\\.txt/.test(gl) && /createHash\("sha256"\)/.test(gl) && /Checksum mismatch/.test(gl),
+  );
+  const bw = lire("scripts/vault/install-bw.mjs");
+  check(
+    "Bitwarden : la redirection est resolue a la main et bornee a la release officielle",
+    /redirect: "manual"/.test(bw) && /github\.com\/bitwarden\/clients\/releases\/download\//.test(bw),
+  );
+}
+
+// ── Le refus ne nomme pas son propre contournement ───────────────────
+{
+  // Les deux prefixes d'exception restent lus par le hook (deux `env.get`),
+  // mais leur nom ne figure dans aucune raison rendue au modele : un refus qui
+  // nomme son contournement est contourne par son lecteur.
+  const r = lire("hooks/rules.mjs");
+  check(
+    "rules.mjs ne cite les prefixes ALLOW_* que pour les lire, jamais dans une raison",
+    (r.match(/HYPERVIBE_GUARD_ALLOW_/g) ?? []).length === 2,
+    `${(r.match(/HYPERVIBE_GUARD_ALLOW_/g) ?? []).length} occurrence(s)`,
+  );
+}
+
+// ── Aucun fichier de secrets ecrit dans l'arbre de travail ───────────
+{
+  const cd = lire("scripts/check-deps.mjs");
+  check(
+    "check-deps ecrit l'env Vercel dans le dossier temporaire du systeme, jamais dans le depot",
+    /tmpdir\(\)/.test(cd) && !/\.env\.vercel\.check-deps\.tmp/.test(cd),
+  );
+}
+
+// ── L'agent genere : redirections et URL bornees ─────────────────────
+{
+  const hf = lire("templates/agent/tools/http-fetch.ts");
+  check(
+    "http-fetch resout les redirections a la main et rejoue la garde a chaque saut",
+    /redirect: "manual"/.test(hf) && /guardUrl\(next\)/.test(hf),
+  );
+  check(
+    "http-fetch borne l'URL vers les hotes hors allowlist (fuite par GET)",
+    /MAX_URL_LENGTH/.test(hf) && /MAX_QUERY_LENGTH/.test(hf),
+  );
+}
+
+// ── La page dit ce que le worker partage detient, et ce que vaut le
+//    refus sans hook ─────────────────────────────────────────────────
+{
+  check(
+    "SECURITY.md nomme ce que le worker partage detient",
+    /CRON_SECRET/.test(securite) && /\.hypervibe-jobs/.test(securite) && /blast radius/i.test(securite),
+  );
+  check(
+    "SECURITY.md ne pretend plus proteger les hotes sans hook sans nuance",
+    !/Those also\s+protect hosts that have no hooks/.test(securite) &&
+      /treat\s+the flag as the confirmation/i.test(securite),
+  );
+  check(
+    "SECURITY.md dit que gitleaks est verifie et que Bitwarden ne peut l'etre que par sa provenance",
+    /checksums\.txt/.test(securite) && /publishes no checksum/.test(securite),
+  );
+}
+
 // ── La page dit ce qu'elle promet (garde contre une page videe) ──────
 {
   const attendus = [

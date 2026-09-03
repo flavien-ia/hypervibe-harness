@@ -44,7 +44,7 @@ This is the most important rule of this skill. **Everything that is technically 
 
 - Run `grep` / `find` searches in the code → you have the tool.
 - Read the content of a config file (`.env`, `package.json`, `drizzle.config.ts`) → you have the tool.
-- Look up the value of a Vercel env var → run `vercel env pull .env.vercel-check --yes` (all of them into a temp file), read the values, then `rm .env.vercel-check`.
+- Look up the value of a Vercel env var → pull them into a temp file OUTSIDE the repository (a production env file left in the working tree is one `git add` away from a commit, and the maintained `.gitignore` only covers `.env`): `T="$(node -p "require('os').tmpdir()")/hypervibe-env-check-$$.env" && vercel env pull "$T" --yes`, read the values, then `rm "$T"`.
 - Check the state of a Neon DB (tables, row counts) → helper `node "${CLAUDE_SKILL_DIR}/../../scripts/neon/run-sql.mjs" "SELECT ..."` (SQL-over-HTTP, reads `DATABASE_URL` from the `.env`). List/inspect branches → Neon REST API (`GET https://console.neon.tech/api/v2/projects/{id}/branches`, key `NEON.api_key` from the vault).
 - Verify a deployment, logs, a CLI auth → you have the CLIs (`gh`, `vercel`, `wrangler`, `render`).
 - Recount a number of imports or usages - even if you already verified it in your internal scan, do not ask the user to re-type the command.

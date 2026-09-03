@@ -8,6 +8,8 @@
 //
 //   node run-sql.mjs "SELECT count(*) FROM users"          # conn from ./.env DATABASE_URL
 //   node run-sql.mjs --conn "postgres://..." "SELECT 1"    # explicit connection string
+//   (prefer the DATABASE_URL environment variable: a --conn argument is visible in the
+//   process list and in the shell history, the variable is not)
 //   node run-sql.mjs "ALTER TABLE t ADD COLUMN a int; ALTER TABLE t ADD COLUMN b int"
 //
 // MULTI-STATEMENT: a single POST is one prepared statement, so Postgres rejects
@@ -43,7 +45,12 @@ let query = null;
 let noTx = false;
 let destructifOk = false;
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--conn") conn = args[++i];
+  if (args[i] === "--conn") {
+    conn = args[++i];
+    console.error(
+      "[run-sql] --conn met l'URL de connexion dans la liste des processus et l'historique du shell : preferer la variable d'environnement DATABASE_URL.",
+    );
+  }
   else if (args[i] === "--no-tx") noTx = true;
   else if (args[i] === "--destructif" || args[i] === "--destructive") destructifOk = true;
   else if (query === null) query = args[i];
