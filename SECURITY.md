@@ -144,10 +144,35 @@ hash of what it downloaded and **refuses to install** on a mismatch.
 
 Its limit, stated plainly: a fingerprint published by the same site that serves
 the file proves the transfer was intact, not that the site is honest. The GitHub
-release is the independent channel; compare the two if it matters to you. The
-source is public at
+release is the second channel; compare the two if it matters to you. The source
+is public at
 [flavien-ia/hypervibe-harness](https://github.com/flavien-ia/hypervibe-harness)
 under Apache 2.0.
+
+**Signed releases.** A second channel is only independent if it cannot be forged
+by whoever holds the first one, so every release tag, and every commit, pushed
+to the public repository since September 2026 is signed with a dedicated SSH key
+(SSH signatures, supported by git 2.34 and later, shown as "Verified" on GitHub).
+Tags up to `v3.0.1` predate the key and carry no signature. The public key:
+
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAqVH7FUXHPiorT/puz89VLIE9MvFuYIINFqIBG+erLm hypervibe-release-signing
+```
+
+Fingerprint `SHA256:qWsAcOEF4w8wq59032/C2WI7fcd419uOrz4ZD3/Trrc`. To check a tag yourself,
+without relying on GitHub's badge:
+
+```bash
+echo 'flavien@chervet.fr namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAqVH7FUXHPiorT/puz89VLIE9MvFuYIINFqIBG+erLm' > allowed_signers
+git -c gpg.ssh.allowedSignersFile=allowed_signers verify-tag v<version>
+```
+
+A tag that fails this check, or a new tag without a signature, is not a release
+of ours, whatever the repository says. What the signature covers is the source
+tree: the archive served by hypervibe.fr is rebuilt from that tag, and its
+fingerprint lives in the release notes, which the tag does not sign. Should the
+key ever be replaced, the new one will be announced here with the old one kept
+alongside it, so that older tags stay verifiable.
 
 ## Reporting a vulnerability
 

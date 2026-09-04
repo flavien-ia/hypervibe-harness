@@ -327,6 +327,26 @@ check(
   );
 }
 
+// ── Les releases sont signees, et la page donne de quoi le verifier ──
+{
+  // Une release GitHub n'est un canal independant de l'empreinte servie par
+  // le site que si personne ne peut la forger avec le seul compte : d'ou la
+  // signature des tags (revue externe de la 2.9.5). La page doit publier la
+  // cle publique ET la commande qui permet de verifier sans le badge GitHub.
+  check(
+    "SECURITY.md publie la cle publique (ed25519) qui signe les releases",
+    /ssh-ed25519 AAAAC3NzaC1lZDI1NTE5[0-9A-Za-z+\/]{40,}/.test(securite),
+  );
+  check(
+    "SECURITY.md donne la commande de verification d'un tag et sa ligne allowed_signers",
+    /git .*verify-tag/.test(securite) && /namespaces="git"/.test(securite) && /SHA256:[0-9A-Za-z+\/]{43}/.test(securite),
+  );
+  check(
+    "SECURITY.md dit ce que la signature ne couvre pas (l'archive reconstruite par le site)",
+    /which the tag does not sign/.test(securite),
+  );
+}
+
 // ── La page dit ce qu'elle promet (garde contre une page videe) ──────
 {
   const attendus = [

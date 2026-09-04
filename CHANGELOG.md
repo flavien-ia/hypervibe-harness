@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.0.2 (4 septembre 2026)
+
+### Améliorations
+- **Releases signées** : chaque version publiée sur GitHub porte désormais une signature cryptographique (le tag et le commit), vérifiable sans faire confiance ni au site ni au badge de GitHub. La page de sécurité publie la clé et la commande pour vérifier, dit ce que la signature couvre (le code source) et ce qu'elle ne couvre pas (l'archive reconstruite par le site), et prévoit la rotation de la clé. Les versions jusqu'à la 3.0.1 sont antérieures à la clé et ne sont pas signées.
+
+### Coulisses
+- La recette de sécurité vérifie que la page publie bien la clé et la commande de vérification (trois contrôles de plus, 43 au total).
+
 ## v3.0.1 (3 septembre 2026)
 
 ### Améliorations
