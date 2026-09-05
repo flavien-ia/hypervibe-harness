@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.0.3 (5 septembre 2026)
+
+### Améliorations
+- **Comptes Vercel à plusieurs espaces de travail** : la création d'un projet ne s'interrompt plus si votre compte Vercel contient plusieurs espaces (un compte personnel et un ou plusieurs espaces d'équipe). Jusqu'ici, l'outil de Vercel refusait de choisir tout seul et s'arrêtait brutalement en plein milieu, laissant un projet à moitié construit.
+- **Le bon espace est retrouvé automatiquement** : celui que vos autres projets utilisent déjà. Et si le choix reste réellement ambigu, la question vous est posée en clair plutôt que devinée : décider entre votre compte personnel et l'espace de votre entreprise vous appartient.
+
 ## v3.0.2 (4 septembre 2026)
 
 ### Améliorations

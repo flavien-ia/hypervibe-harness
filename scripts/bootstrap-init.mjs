@@ -105,6 +105,9 @@ let description = "";
 let locale = "fr_FR";
 let visibility = "private";
 let skipDeploy = false;
+// Vercel scope (team slug). Only needed on a multi-scope account when the
+// automatic resolution in vercelLink() cannot settle it on its own.
+let scopeArg = "";
 
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -114,13 +117,14 @@ for (let i = 0; i < args.length; i++) {
   else if (a === "--private") visibility = "private";
   else if (a === "--public") visibility = "public";
   else if (a === "--skip-deploy") skipDeploy = true;
+  else if (a === "--scope" && args[i + 1]) scopeArg = args[++i];
   else fail(`Unknown arg: ${a}`);
 }
 
 if (!name || !description) {
   fail(
     'Usage: node bootstrap-init.mjs --name NAME --description "DESC" ' +
-      "[--locale fr_FR] [--private|--public] [--skip-deploy]",
+      "[--locale fr_FR] [--private|--public] [--skip-deploy] [--scope TEAM]",
   );
 }
 if (!/^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(name)) {
@@ -1135,12 +1139,171 @@ function ghRepo() {
 }
 
 // ─── Step 11: vercel link ─────────────────────────────────────────────
+// This is the ONLY scope-sensitive Vercel call in the script: every later one
+// (push-env-vars, check-deploy, pull-env-vars) reads the .vercel/project.json
+// written here, so they inherit the resolved scope for free.
+//
+// On a single-scope account the bare call works and none of the recovery below
+// runs. On a multi-scope account (personal + one or more teams) the CLI refuses
+// to pick one in non-interactive mode - a deliberate safety, not a bug - and
+// since v59 it then dies on a libuv assertion (exit 3221226505 on Windows)
+// right after printing a machine-readable diagnostic:
+//   { "status": "action_required", "reason": "missing_scope", "choices": [...] }
+// We parse that diagnostic and retry with an explicit --scope.
+//
+// The asymmetry that makes this solvable without asking: `vercel projects ls`
+// DOES resolve a scope on its own (the CLI's stored currentTeam); only the
+// write refuses to assume it. The answer is already on disk.
+//
+// Resolution order, most explicit first:
+//   1. --scope passed by the caller (the SKILL, after asking the user)
+//   2. the CLI's own currentTeam - what a read command would have used
+//   3. the orgId shared by the sibling projects sitting next to this one
+// If none of those matches a choice we do NOT guess: picking between a personal
+// account and a company team is the user's call, so we exit with a structured
+// VERCEL_SCOPE_AMBIGUOUS message the SKILL turns into a plain question.
+
+/** Same directory candidates as the auth file - CLI >= v40 dropped the Data/ level. */
+function vercelConfigCandidates() {
+  const os = platform();
+  const files = [];
+  if (os === "win32") {
+    const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
+    files.push(join(appData, "com.vercel.cli", "Data", "config.json"));
+    files.push(join(appData, "com.vercel.cli", "config.json"));
+  } else if (os === "darwin") {
+    const base = join(homedir(), "Library", "Application Support", "com.vercel.cli");
+    files.push(join(base, "Data", "config.json"));
+    files.push(join(base, "config.json"));
+  } else {
+    const xdgData = process.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
+    files.push(join(xdgData, "com.vercel.cli", "Data", "config.json"));
+    files.push(join(xdgData, "com.vercel.cli", "config.json"));
+  }
+  return files;
+}
+
+/** The team id the CLI itself defaults to, or null on a personal-only account. */
+function readVercelCurrentTeam() {
+  for (const p of vercelConfigCandidates()) {
+    if (!existsSync(p)) continue;
+    try {
+      const cfg = JSON.parse(readFileSync(p, "utf8"));
+      if (typeof cfg.currentTeam === "string" && cfg.currentTeam) return cfg.currentTeam;
+    } catch {/* try the next candidate */}
+  }
+  return null;
+}
+
+/** orgId shared by the already-linked projects sitting next to this one, if unanimous. */
+function siblingOrgId() {
+  let entries;
+  try {
+    entries = readdirSync(CWD, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  const counts = new Map();
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === name) continue;
+    const linkFile = join(CWD, entry.name, ".vercel", "project.json");
+    if (!existsSync(linkFile)) continue;
+    try {
+      const orgId = JSON.parse(readFileSync(linkFile, "utf8")).orgId;
+      if (orgId) counts.set(orgId, (counts.get(orgId) ?? 0) + 1);
+    } catch {/* an unreadable sibling proves nothing */}
+  }
+  // A dominant majority is a real signal (a user who keeps one project in a
+  // side scope has not changed where the rest of their work lives), but a split
+  // neighbourhood is exactly the ambiguity to hand back rather than settle here.
+  const total = [...counts.values()].reduce((a, b) => a + b, 0);
+  if (total < 3) return counts.size === 1 ? [...counts.keys()][0] : null;
+  const [topId, topCount] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+  return topCount / total >= 0.8 ? topId : null;
+}
+
+/** Pull the first balanced JSON object out of mixed CLI output. */
+function extractJsonObject(text) {
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') inString = true;
+    else if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function vercelLink() {
   log("Linking Vercel project");
   // --yes accepts the "link or create" prompt; --project pins the name.
-  run(`vercel link --yes --project ${name}`, PROJECT_DIR);
-  ok("Vercel linked");
+  const base = "vercel link --yes --project " + name;
+
+  // A caller-supplied scope is a decision already made: use it, no probing.
+  if (scopeArg) {
+    log("  using the scope passed by the caller: " + scopeArg);
+    run(base + " --scope " + scopeArg, PROJECT_DIR);
+    ok("Vercel linked (scope " + scopeArg + ")");
+    return;
+  }
+
+  const first = capture(base, PROJECT_DIR);
+  if (first.status === 0) {
+    ok("Vercel linked");
+    return;
+  }
+
+  const output = (first.stdout || "") + "\n" + (first.stderr || "");
+  const diagnostic = extractJsonObject(output);
+  const choices = Array.isArray(diagnostic?.choices) ? diagnostic.choices : [];
+
+  if (diagnostic?.reason !== "missing_scope" || choices.length === 0) {
+    // Not the ambiguity we know how to repair: surface the real error as before.
+    process.stderr.write(output);
+    fail("Command failed (exit " + first.status + "): " + base);
+  }
+
+  const labels = choices.map((c) => c.name).join(", ");
+  log("  several Vercel scopes available (" + labels + "), resolving");
+
+  const wanted = readVercelCurrentTeam() ?? siblingOrgId();
+  const picked = wanted ? choices.find((c) => c.id === wanted) : null;
+
+  if (!picked) {
+    fail(
+      "VERCEL_SCOPE_AMBIGUOUS: this Vercel account has several scopes (" +
+        labels +
+        ") and none of them could be resolved automatically. Re-run this script " +
+        "with --scope <name> once the user has picked one. Available: " +
+        choices.map((c) => c.name + " (" + c.id + ")").join(", "),
+    );
+  }
+
+  const source = readVercelCurrentTeam() === picked.id ? "the Vercel CLI default" : "the neighbouring projects";
+  log("  scope resolved from " + source + ": " + picked.name);
+  run(base + " --scope " + picked.name, PROJECT_DIR);
+  ok("Vercel linked (scope " + picked.name + ")");
 }
+
 
 // ─── Step 11b: vercel git connect (auto-deploy wiring) ────────────────
 // `vercel link` only binds the LOCAL FOLDER to the Vercel project - it does NOT
