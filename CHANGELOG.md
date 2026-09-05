@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.0.4 (5 septembre 2026)
+
+### Améliorations
+- **Formulaire de contact** : ajouter un formulaire n'installe plus une version de la bibliothèque de validation incompatible avec le reste du projet. Sur les projets créés par `/bootstrap`, cette incompatibilité pouvait casser la vérification des variables d'environnement, et donc le déploiement.
+- **Attente d'un déploiement Vercel** : quand le jeton d'accès a expiré, la reprise passe désormais par le geste le plus léger au lieu d'une reconnexion complète. Moins d'interruption au milieu d'un déploiement.
+
+### Coulisses
+- Version d'entretien : les deux correctifs viennent de la veille hebdomadaire des dépendances. Aucune nouvelle commande, aucun changement de comportement pour les projets existants.
+
 ## v3.0.3 (5 septembre 2026)
 
 ### Améliorations

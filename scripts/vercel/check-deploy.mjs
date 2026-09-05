@@ -176,7 +176,8 @@ if (mode === "cli" && SHA) {
       status: "not-configured",
       reason:
         "No Vercel REST token, and commit-level verification (--sha) cannot be done from the CLI table. " +
-        "Run `vercel login` to refresh the token, or drop --sha to check the latest deployment instead.",
+        "Run `vercel whoami` (that alone usually refreshes the stored token), `vercel login` only if it fails, " +
+        "or drop --sha to check the latest deployment instead.",
     },
     3,
   );
@@ -222,12 +223,13 @@ while (true) {
         {
           status: "not-configured",
           reason:
-            "Vercel REST token rejected (401/403) and --sha needs the REST API. Run `vercel login`, then retry.",
+            "Vercel REST token rejected (401/403) and --sha needs the REST API. " +
+            "Run `vercel whoami` (that alone usually refreshes the stored token), `vercel login` only if it fails, then retry.",
         },
         3,
       );
     }
-    process.stderr.write("[vercel] REST token rejected, falling back to the CLI. Run `vercel login` to restore the fast path.\n");
+    process.stderr.write("[vercel] REST token rejected, falling back to the CLI. Run `vercel whoami` to restore the fast path (`vercel login` only if that fails).\n");
     mode = "cli";
     fellBack = true;
     continue;
@@ -238,7 +240,7 @@ while (true) {
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
     const base = {
       method: mode,
-      ...(fellBack ? { note: "REST token expired; state read from the Vercel CLI. Run `vercel login` to restore the REST path." } : {}),
+      ...(fellBack ? { note: "REST token expired; state read from the Vercel CLI. Run `vercel whoami` to restore the REST path (`vercel login` only if that fails)." } : {}),
       waitedSeconds: elapsed,
       polls,
       deployment: r.deployment,

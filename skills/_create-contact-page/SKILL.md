@@ -108,8 +108,15 @@ grep -qE '"(react-hook-form|@hookform/resolvers|zod)"' "<WEB_DIR>/package.json"
 If any of the three is missing, install:
 
 ```bash
-cd <WEB_DIR> && pnpm add react-hook-form @hookform/resolvers zod
+cd <WEB_DIR> && pnpm add react-hook-form @hookform/resolvers "zod@^3"
 ```
+
+> **Why `zod@^3` and not a bare `zod`.** The create-t3-app scaffold ships
+> `zod@^3.24.2` together with `@t3-oss/env-nextjs@^0.12.x`, whose peer range is
+> `zod: ^3.24.0` - zod 4 is not supported there. A bare `pnpm add zod` resolves
+> the `latest` tag (zod 4.x), breaks that peer and the typing of `src/env.js`.
+> Lift this pin once the scaffold ships `@t3-oss/env-nextjs` >= 0.13, which
+> accepts `^3.24.0 || ^4.0.0`.
 
 ### 3.b - Required shadcn/ui components
 
