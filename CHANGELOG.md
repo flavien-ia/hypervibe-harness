@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.0.5 (7 septembre 2026)
+
+### Correctifs
+- **Installation dans Claude Desktop** : le téléversement du plugin échouait avec le message « SKILL.md description cannot contain XML tags ». La description de la commande `/add-domain` contenait des chevrons que le contrôle de Claude Desktop prend pour des balises. Elle est reformulée, sans rien changer à ce que fait la commande. L'installation par la marketplace n'était pas concernée.
+
 ## v3.0.4 (5 septembre 2026)
 
 ### Améliorations

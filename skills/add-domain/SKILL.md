@@ -1,6 +1,6 @@
 ---
 name: add-domain
-description: "Guide the user to connect a custom domain to their Vercel-deployed app. Target architecture: <Registrar> -> Cloudflare (DNS + Email Routing) -> Vercel (hosting). Supports Hostinger, Cloudflare, OVH, Namecheap, Gandi, Porkbun, Infomaniak, IONOS, Squarespace (ex-Google Domains), and GoDaddy. Branches to a `_dns-<provider>` sub-skill for the nameserver change. Optionally configures Resend for sending."
+description: "Guide the user to connect a custom domain to their Vercel-deployed app. Target architecture: the registrar, then Cloudflare (DNS + Email Routing), then Vercel (hosting). Supports Hostinger, Cloudflare, OVH, Namecheap, Gandi, Porkbun, Infomaniak, IONOS, Squarespace (ex-Google Domains), and GoDaddy. Branches to the registrar's own _dns sub-skill for the nameserver change. Optionally configures Resend for sending."
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
 
