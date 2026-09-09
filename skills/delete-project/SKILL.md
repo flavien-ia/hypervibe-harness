@@ -98,11 +98,13 @@ While it runs, relay the script's `[step] status` logs on stderr to the user (on
 
 At the end, the script writes `{status, zipPath, zipSize, ...}` to stdout. Capture it, display the recap:
 
-> ✅ **Snapshot created**: `<zipPath>` (`<zipSize>`)
+> ✅ **Snapshot created**: `<zipPath>` (`<zipSize>`) (this recap is valid only when `status` is `ok`; see the `partial` case below)
 >
 > The zip contains **secrets in plain text**: treat it as a confidential document. We can now continue with the deletion.
 
 **If the snapshot fails** (script exit 1 or `status: "error"`): **stop the `/delete-project` skill** and warn the user. We never delete without a successful backup when the user has explicitly requested one. Display the error and offer: (a) re-run `/save-project` manually to diagnose, (b) re-run `/delete-project` afterwards saying that they already have the backup, (c) abort.
+
+**If the snapshot comes back `status: "partial"`**: it succeeded, but with holes, and `incompleteSteps` names them (typically R2 objects that could not be downloaded after three retries). **Stop here too, and ask before going further.** This is the worst moment to round a hole up to a success: what the backup is missing is about to be deleted for good. Show which steps are incomplete and how many objects are missing, then offer: (a) re-run the snapshot (a fresh run, it does not resume), (b) continue the deletion anyway, knowing exactly what will be lost, (c) abort. Only an explicit answer from the user moves past this.
 
 ### 0.4 Double confirmation (Q1 via `AskUserQuestion`, Q2 as a free-text reply)
 

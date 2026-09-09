@@ -109,8 +109,10 @@ If the user says "I don't know yet" -> note `<product_context>` = "to be defined
 ## Step 3 - Install dependencies
 
 ```bash
-pnpm add stripe @stripe/stripe-js
+pnpm add stripe
 ```
+
+Only the server SDK. Hosted Checkout redirects to `session.url`, so nothing on the page ever loads Stripe.js: `@stripe/stripe-js` was an unused dependency in every project (removed 2026-09-09). Add it back only if you move to Stripe Elements or the embedded pricing table, which do run in the browser.
 
 ## Step 4 - Get API keys from the user
 

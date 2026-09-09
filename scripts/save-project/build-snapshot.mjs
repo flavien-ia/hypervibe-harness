@@ -70,6 +70,25 @@ function logStep(name, status, extra = {}) {
   process.stderr.write(`[${name}] ${status}${extra.error ? " - " + extra.error : ""}\n`);
 }
 
+// The final status is READ from the steps, never assumed. A snapshot whose
+// R2 download came back `partial`, or whose DB dump errored, still produces a
+// zip: the run did not crash, so the catch block at the bottom never fires.
+// Announcing `ok` there hands the caller a full-success flag for an archive
+// with holes, which is the one thing a backup must never do (seen in prod on
+// 2026-09-08: `[r2-download] partial` next to `"status": "ok"`).
+// `skipped` is deliberate (--skip-* or nothing to back up) and stays `ok`.
+function overallStatus() {
+  const incomplete = Object.entries(steps)
+    .filter(([, s]) => s.status === "partial" || s.status === "error")
+    .map(([step, s]) => ({
+      step,
+      status: s.status,
+      ...(s.error ? { error: s.error } : {}),
+      ...(s.missingObjects ? { missingObjects: s.missingObjects } : {}),
+    }));
+  return { status: incomplete.length > 0 ? "partial" : "ok", incomplete };
+}
+
 function run(cmd, argv, opts = {}) {
   return spawnSync(cmd, argv, { encoding: "utf8", shell: true, ...opts });
 }
@@ -507,12 +526,15 @@ try {
   // Cleanup work dir
   try { rmSync(WORK_DIR, { recursive: true, force: true }); } catch {}
 
+  const { status, incomplete } = overallStatus();
+
   console.log(JSON.stringify({
-    status: "ok",
+    status,
     project: PROJECT,
     zipPath: zipInfo.zipPath,
     zipSize: humanSize(zipInfo.size),
     timestamp: TS,
+    ...(incomplete.length > 0 ? { incompleteSteps: incomplete } : {}),
     steps,
   }, null, 2));
 } catch (e) {

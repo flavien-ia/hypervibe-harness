@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.1.2 (9 septembre 2026)
+
+### Améliorations
+- **Une sauvegarde dit maintenant quand elle est trouée.** Quand `/save-project` n'arrive pas à récupérer une partie de vos fichiers stockés en ligne, son compte rendu final l'annonce, au lieu de conclure à une réussite complète. Il nomme les étapes incomplètes et le nombre de fichiers manquants. Une archive trouée doit se découvrir le jour où on la fabrique, pas le jour où on en a besoin.
+- **Plus de suppression sur une sauvegarde incomplète.** `/delete-project` propose une sauvegarde avant d'effacer un projet. Si celle-ci revient incomplète, la commande s'arrête désormais et vous demande quoi faire, en montrant ce qui manque. Auparavant elle continuait : ce qui manquait à la sauvegarde était supprimé pour de bon.
+- **Une dépendance inutile en moins dans vos projets Stripe.** `/add-stripe` n'installe plus la bibliothèque Stripe destinée au navigateur. Vos paiements passent par une page hébergée par Stripe, qui ne s'en sert jamais. Un paquet de moins à embarquer, et une source de moins de ruptures au fil de ses versions.
+
 ## v3.1.1 (9 septembre 2026)
 
 ### Améliorations

@@ -116,7 +116,9 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/save-project/build-snapshot.mjs" \
 
 During execution, the script logs each step to stderr with a `[step] status` prefix. You can relay these logs to the user in real time via `↳ ...` (one per step that completes).
 
-At the end, the script writes a JSON `{status, zipPath, zipSize, timestamp, steps}` to stdout. Capture it.
+At the end, the script writes a JSON `{status, zipPath, zipSize, timestamp, incompleteSteps?, steps}` to stdout. Capture it.
+
+The top-level `status` is computed from the steps, so it can be trusted on its own: `ok` when every step completed or was deliberately skipped, `partial` when at least one step came back `partial` or `error` (the zip exists, it has holes), and `error` only when the run crashed and produced no zip at all. When it is `partial`, `incompleteSteps` names exactly which steps and why: report them, never round `partial` up to a success.
 
 ### Partial errors
 

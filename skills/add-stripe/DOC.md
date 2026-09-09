@@ -18,7 +18,7 @@ Adds **online payments** to your app via Stripe Checkout. To sell products, acce
   - A mix of both
   - You don't know yet (the infrastructure is set up anyway, you can define the products later)
 
-3. **Installation**: Hypervibe installs the Stripe SDK (`stripe` + `@stripe/stripe-js`) and the Stripe CLI if needed.
+3. **Installation**: Hypervibe installs the Stripe SDK (`stripe`) and the Stripe CLI if needed.
 
 4. **Getting the test keys**: Hypervibe explains the difference between **test mode** (fake cards, no real payment) and **live mode** (real payments). You stay in test to start. You get two keys from dashboard.stripe.com/test/apikeys and paste them: `Publishable key` (`pk_test_...`) and `Secret key` (`sk_test_...`).
 
