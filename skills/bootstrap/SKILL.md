@@ -915,6 +915,11 @@ For the actions that remain (genuinely manual), give **step-by-step** instructio
 > **6. Enable the GitHub-to-Vercel auto-deploy**
 > Your future `git push`es will not deploy automatically. Go to https://vercel.com/integrations/github, authorize Vercel to access your repositories, then confirm. Once done, any `git push` will trigger a deploy.
 
+**Always include, just before the last item:**
+
+> **Next - Tests and cahier de recette**
+> Your project has no tests yet. When you want it to stay verifiable after every change (and a document that says what it does, for whoever validates it), tell me **"add the tests"** and I will run `/add-test`: automated tests for every feature, a cahier de recette anyone can read, and a guard that refuses to publish an unverified feature.
+
 **Always include as the last item:**
 
 > **Last step - See the result**

@@ -83,6 +83,7 @@ Chaque addon peut être activé pendant `/bootstrap` ou utilisé seul sur un pro
 | `/add-analytics` | Google Analytics (GA4) avec bannière cookies RGPD |
 | `/add-map` | Carte interactive vectorielle (MapLibre + OpenFreeMap, gratuit sans clé API, EU). Single pin, multi-pin, itinéraire ou map-first |
 | `/add-dark-mode` | Mode sombre (clair / sombre / système) avec sélecteur prêt à l'emploi |
+| `/add-test` | Tests automatisés (vitest) + cahier de recette lisible par tous, avec un hook avant publication et une CI qui refusent de publier une fonctionnalité sans sa vérification |
 | `/add-domain` | Connecter un nom de domaine personnalisé (guidé) |
 | `/new-email-address` | Crée une adresse de réception (`contact@monsite.fr`) redirigée vers votre boîte mail (Cloudflare Email Routing) |
 | `/add-cron` | Tâche planifiée - Cloudflare Worker (précis) ou GitHub Action (best-effort), choisi selon ce que fait la tâche |

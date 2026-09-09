@@ -66,6 +66,10 @@ expect("git --no-pager -c user.name=x add -A", "deny");
 expect('node scripts/neon/run-sql.mjs "DROP TABLE clients"', "deny");
 expect('node run-sql.mjs "TRUNCATE hypervibe_order"', "deny");
 expect('node run-sql.mjs "ALTER TABLE t DROP COLUMN email"', "deny");
+expect("git push --no-verify", "deny");
+expect("git push origin main --no-verify", "deny");
+expect("git push --no-verify -u origin feat/x", "deny");
+expect('git -C "C:/DEV/x" push --no-verify', "deny");
 
 console.log("\n── Confirmation humaine (legitime, mais irreversible ou public) ──");
 expect("git push", "ask");

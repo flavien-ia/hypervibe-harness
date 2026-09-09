@@ -1,0 +1,38 @@
+#!/usr/bin/env sh
+# .hooks/pre-push - La recette avant de publier (installé par /add-test, Hypervibe).
+#
+# Versionné dans le dépôt pour que chaque personne qui y travaille l'ait. Il est
+# appelé par le hook global de la machine (~/.git-hooks/pre-push, posé par
+# Hypervibe), parce que core.hooksPath est global et rend .git/hooks inopérant.
+#
+# Deux vérifications, dans cet ordre : les tests passent, puis chaque
+# fonctionnalité a bien sa vérification (scripts/check-recette.mjs). Un push est
+# refusé tant que l'une des deux est rouge. Pour corriger : ouvrir Claude Code
+# et demander « fais passer les tests » ou « complète la recette ».
+
+TOP=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+cd "$TOP/{{WEB_DIR}}" 2>/dev/null || exit 0
+
+# Un projet pas encore équipé n'est pas bloqué : la recette commence avec le cahier.
+[ -f docs/recette.md ] || exit 0
+
+echo "[recette] Tests avant publication..."
+if command -v pnpm >/dev/null 2>&1; then
+  pnpm -s test
+else
+  node node_modules/vitest/vitest.mjs run
+fi
+if [ $? -ne 0 ]; then
+  echo "" 1>&2
+  echo "[recette] Push refusé : des tests échouent. Corrigez-les avant de publier." 1>&2
+  exit 1
+fi
+
+node scripts/check-recette.mjs
+RC=$?
+if [ $RC -eq 1 ]; then
+  echo "" 1>&2
+  echo "[recette] Push refusé : le cahier de recette n'est pas complet (détail ci-dessus)." 1>&2
+  exit 1
+fi
+exit 0

@@ -25,6 +25,7 @@ import { homedir, tmpdir, platform, arch as osArch } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import https from "node:https";
+import { chainBlock, ensureHooksChain } from "./ensure-hooks-chain.mjs";
 
 // ─── Constants ──────────────────────────────────────────────────────────
 
@@ -313,6 +314,7 @@ ${HOOK_MARKER}
 # Allowlist false positives in ~/.gitleaks.toml
 # Uninstall: git config --global --unset core.hooksPath && rm "$0"
 
+${chainBlock("pre-commit")}
 GITLEAKS="${binPosix}"
 if [ ! -x "$GITLEAKS" ]; then
   ALT=$(command -v gitleaks 2>/dev/null)
@@ -487,6 +489,17 @@ async function main() {
     );
   }
 
+  // 6b) The pre-push chain hook: hands over to each repository's own
+  //     .hooks/pre-push (the recette installed by /add-test). Written here so
+  //     that every /start equips the machine for it, alongside the scan.
+  //     A foreign pre-push is left alone: it must not fail the gitleaks setup.
+  let chainState = "OK";
+  try {
+    chainState = ensureHooksChain();
+  } catch {
+    chainState = "ERROR";
+  }
+
   // 7) Decide OK vs INSTALLED
   //    OK = nothing changed (full idempotent re-run)
   //    INSTALLED = at least one thing was set up this run
@@ -496,7 +509,8 @@ async function main() {
     !hookIsOurs ||
     cfgState === "CREATED" ||
     hp.state === "SET" ||
-    pathState === "ADDED";
+    pathState === "ADDED" ||
+    chainState === "INSTALLED";
   console.log(changed ? "INSTALLED" : "OK");
 }
 

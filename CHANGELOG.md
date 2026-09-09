@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.1.0 (9 septembre 2026)
+
+### Nouveautés
+- **Skill `/add-test`** : donne à un projet des tests automatisés (vitest) et un cahier de recette lisible par n'importe qui (`docs/recette.md`, une ligne par fonctionnalité : ce qu'elle fait, comment on le vérifie, qui valide). Chaque procédure de l'API a son test, chaque page son scénario, et un garde-fou refuse de publier tant qu'une fonctionnalité n'a pas sa vérification : avant chaque envoi depuis votre ordinateur, et sur GitHub pour tout le monde.
+
+### Améliorations
+- **Le garde-fou de publication ne se contourne plus** : pousser avec `--no-verify` est refusé par le plugin, avec la marche à suivre (compléter la recette plutôt que la sauter).
+- **`/bootstrap` propose les tests** en fin de parcours : une phrase suffit pour équiper le projet.
+- **`/start` prépare la machine** pour que les vérifications propres à chaque dépôt (`.hooks/pre-commit`, `.hooks/pre-push`) s'exécutent, en plus du scan des secrets.
+
+### Coulisses
+- Les hooks git globaux enchaînent désormais vers ceux du dépôt ; nouveau contrôle `tests` dans la détection des dépendances ; gabarits de tests (configuration vitest, appelant tRPC, contrôle de recette, action GitHub).
+
 ## v3.0.5 (7 septembre 2026)
 
 ### Correctifs

@@ -159,6 +159,20 @@ export function decide(command) {
       continue;
     }
 
+    // 2a. Pushing past the pre-push hook. Since /add-test, that hook is the
+    //     project's recette (tests + every feature verified): skipping it is
+    //     exactly what the guard exists to prevent, and the alternative is
+    //     always the same, complete the recette. No env escape here: the
+    //     push rule below already has one for the cases where a push is
+    //     legitimately automated, and none of them needs to skip the hook.
+    if (/^git\s+(-\S+\s+)*push\b/.test(seg) && /--no-verify\b/.test(seg)) {
+      keep(
+        DENY,
+        "Pushing with --no-verify skips the project's pre-push recette (tests and cahier de recette). Run `pnpm test` and `node scripts/check-recette.mjs`, complete what they report, then push normally.",
+      );
+      continue;
+    }
+
     // 2. Pushing publishes. The user's consent lives in the conversation.
     if (/^git\s+(-\S+\s+)*push\b/.test(seg) && !/--dry-run\b/.test(seg)) {
       if (env.get("HYPERVIBE_GUARD_ALLOW_PUSH") === "1") continue;

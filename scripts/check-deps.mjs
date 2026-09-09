@@ -23,6 +23,7 @@
 //   stripe       - is Stripe configured? (STRIPE_SECRET_KEY non-placeholder)
 //   storage      - is Cloudflare R2 configured? (R2_ACCOUNT_ID + R2_ACCESS_KEY_ID)
 //   analytics    - is Google Analytics (GA4) configured? (NEXT_PUBLIC_GA_ID)
+//   tests        - is the project equipped by /add-test? (vitest + docs/recette.md + checker)
 //   cloudflare   - is the Cloudflare API token set and valid? (env var + live API verify)
 //   dark-mode    - is next-themes installed AND ThemeProvider mounted in the root layout?
 //
@@ -709,6 +710,42 @@ function checkDarkMode() {
 }
 
 // -----------------------------------------------------------------------------
+// tests check - is the project equipped by /add-test? Three things must exist
+// together: vitest in the dev dependencies, the cahier de recette, and the
+// checker script. One without the others is a half-installation, reported as
+// such so the skill knows what to complete.
+// -----------------------------------------------------------------------------
+function checkTests() {
+  const webDirs = [".", "apps/web"];
+  for (const dir of webDirs) {
+    const pkgPath = resolve(dir, "package.json");
+    if (!existsSync(pkgPath)) continue;
+    let vitest = false;
+    try {
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
+      vitest = Boolean({ ...pkg.dependencies, ...pkg.devDependencies }.vitest);
+    } catch {
+      // ignore malformed package.json
+    }
+    const recette = existsSync(resolve(dir, "docs/recette.md"));
+    const checker = existsSync(resolve(dir, "scripts/check-recette.mjs"));
+    const hook = existsSync(resolve(".hooks/pre-push"));
+    if (!vitest && !recette && !checker) continue;
+    const manque = [
+      !vitest && "vitest",
+      !recette && "docs/recette.md",
+      !checker && "scripts/check-recette.mjs",
+      !hook && ".hooks/pre-push",
+    ].filter(Boolean);
+    if (manque.length > 0) {
+      return { ok: false, reason: `installation incomplète (manque : ${manque.join(", ")})`, webDir: dir, manque };
+    }
+    return { ok: true, reason: `tests et cahier de recette en place (${dir})`, webDir: dir };
+  }
+  return { ok: false, reason: "pas de tests (vitest absent, pas de docs/recette.md)" };
+}
+
+// -----------------------------------------------------------------------------
 // dispatch
 // -----------------------------------------------------------------------------
 const dispatchers = {
@@ -723,6 +760,7 @@ const dispatchers = {
   analytics: checkAnalytics,
   cloudflare: checkCloudflare,
   "dark-mode": checkDarkMode,
+  tests: checkTests,
 };
 
 const result = {};

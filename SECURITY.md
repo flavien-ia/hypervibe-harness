@@ -134,7 +134,10 @@ Global keys live in a Bitwarden vault, and are typed into an OS window that the
 assistant never sees. They are never printed in the chat, never committed, never
 written to a file. Project secrets stay in the project's `.env` and in Vercel.
 A global git hook (gitleaks, installed by `/start`) blocks any commit containing
-a detected secret.
+a detected secret. The same global hooks hand over to a repository's own
+`.hooks/pre-commit` and `.hooks/pre-push` when it commits them: that is how the
+recette installed by `/add-test` (tests and cahier de recette) runs before every
+push, on every machine set up by `/start`.
 
 ## Verifying what you installed
 
