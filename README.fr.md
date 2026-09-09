@@ -202,6 +202,8 @@ Le plugin inclut [Context7](https://github.com/upstash/context7-mcp), qui donne 
 
 ## Licence
 
+Écrit par Flavien Chervet. Copyright 2026 Hyper Wisdom.
+
 Sous [licence Apache 2.0](LICENSE). Le code source est libre d'utilisation, de modification et de redistribution selon les termes de cette licence.
 
 ### Marque
