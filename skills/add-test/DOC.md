@@ -2,6 +2,8 @@
 
 Gives your project **automated tests** and a **cahier de recette** (an acceptance book anyone can read), plus the guard that keeps both alive: nothing gets published while a feature has no verification.
 
+> **"Recette"** comes from *recevoir*, to receive: in professional practice it is the moment the person who ordered the software accepts it, with or without reservations. A cahier de recette lists what the application must do and how each point is checked.
+
 ## When to use it
 
 - You want to know that the application **still works after each change**, without clicking through it by hand every time
@@ -58,4 +60,6 @@ Browser journey tests (Playwright) are not part of this version. A page has a ma
 
 {{callout:info|The cahier is the document to hand over}}
 If someone validates your application, give them `docs/recette.md`. The manual lines are their checklist, the sign-off table at the bottom is where they record their decision, with or without reservations. It is the same logic as a supplier's acceptance file, applied to what you build yourself.
+
+If nobody has to validate your application, the sign-off table serves no purpose and Hypervibe leaves it out. The cahier itself still earns its keep: it is your own memory of what the app must do, six months from now, and it is already written the day someone asks for it.
 {{/callout}}

@@ -211,7 +211,14 @@ export function decide(command) {
     }
 
     // 4. Schema push. On this stack the local database IS production.
+    //    Escape hatch, same shape as the push and sweep ones: a throwaway
+    //    database nobody depends on (a demo built live on stage, a scratch
+    //    project) has nothing to lose to a schema push, and the confirmation
+    //    is the one interruption you cannot afford in front of an audience.
+    //    Documented in the README and in the skills that need it, never in
+    //    the reason below, which the model reads.
     if (/(^|\s)(pnpm|npm|yarn)\s+(run\s+)?db:push\b/.test(seg) || /drizzle-kit\s+push\b/.test(seg)) {
+      if (env.get("HYPERVIBE_GUARD_ALLOW_DB_PUSH") === "1") continue;
       keep(
         ASK,
         "A schema push writes to the live database (on this stack the local one IS production). Confirm with the user, and make sure the change is additive or migrated.",

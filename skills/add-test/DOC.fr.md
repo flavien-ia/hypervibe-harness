@@ -2,6 +2,8 @@
 
 Donne à votre projet des **tests automatisés** et un **cahier de recette** lisible par n'importe qui, plus le garde-fou qui maintient les deux en vie : rien n'est publié tant qu'une fonctionnalité n'a pas sa vérification.
 
+> **« Recette »** vient de *recevoir* : dans le monde professionnel, c'est le moment où celui qui a commandé un logiciel le reçoit et dit « oui, c'est conforme » ou « non, voici mes réserves ». Un cahier de recette est la liste de ce que l'application doit faire et de la façon dont on vérifie chaque point.
+
 ## Quand l'utiliser
 
 - Vous voulez savoir que l'application **marche encore après chaque changement**, sans la re-cliquer à la main à chaque fois
@@ -58,4 +60,6 @@ Les tests de parcours dans un navigateur (Playwright) ne font pas partie de cett
 
 {{callout:info|Le cahier est le document à remettre}}
 Si quelqu'un valide votre application, donnez-lui `docs/recette.md`. Les lignes manuelles sont sa liste de contrôle, la table de signature en bas est l'endroit où il consigne sa décision, avec ou sans réserve. C'est la logique du dossier de recette d'un prestataire, appliquée à ce que vous construisez vous-même.
+
+Si personne n'a à valider votre application, la table de signature ne sert à rien et Hypervibe la retire. Le cahier, lui, reste utile : c'est votre mémoire de ce que l'app doit faire, six mois plus tard, et il est déjà écrit le jour où quelqu'un vous le demande.
 {{/callout}}

@@ -123,13 +123,15 @@ You get, as JSON: the routers with their procedures, the pages with their routes
 
 ## Step 6 - Write the cahier de recette
 
-Write `<WEB_DIR>/docs/recette.md` from the `recette.md` template: keep its header (it explains the columns to a human), keep the R-01 line only if the healthcheck test exists, and generate the lines:
+Write `<WEB_DIR>/docs/recette.md` from the `recette.md` template: keep its header (it teaches the word "recette" and explains the columns to a human), keep the R-01 line only if the healthcheck test exists, and generate the lines:
 
 - **One line per tRPC procedure** (`Vérifiée par: test`). Describe the feature in business terms, not the procedure name: "Envoi du formulaire de contact", not `contact.send`. Put the procedure name in the "Comment on vérifie" column, so the reader can find the test.
 - **One line per page** (`Vérifiée par: manuel`), with a scenario a person can follow in a browser and an expected result they can observe. The route (`/contact`) MUST appear in the line: that is how the checker matches a page to the cahier.
 - **One line per business rule** from the spec that is not obviously a procedure or a page (a pricing rule, a deadline, a quota). Mark it `test` if it lives in code you can call, `manuel` otherwise.
 
 Identifiers `R-01`, `R-02`... in order, never reused. Write the lines in the user's language. Statut: `ok` for lines you will cover with a passing test in Step 7, `à faire` for manual scenarios nobody has run yet.
+
+**The "Procès-verbal" section is the enterprise half of this document, and it is not for everyone.** Keep it when the project is delivered to someone (a client, an employer, an IT department) - the template already says it can be removed otherwise. **Drop the section entirely** when the context makes it plainly useless: a personal project, a portfolio, a tool the user built for themselves alone. A signature table nobody will ever sign makes the whole document look like paperwork, and the rest of the cahier is what earns its keep.
 
 In maintenance mode (Step 0, choice 1): append the missing lines with the next free identifiers, do not renumber.
 
@@ -224,5 +226,5 @@ Tell the user, in plain words:
 
 - What now exists: the cahier (`docs/recette.md`, N lines, so many by test, so many manual), the tests (N files, all green), the guard (before every publication on this machine, and on GitHub for everyone).
 - **How it works from now on**: adding a feature adds its line and its test; that is written in `CLAUDE.md`, so Claude Code does it on its own. If a publication is refused, the message says exactly what is missing, and "complète la recette et les tests manquants" fixes it.
-- **What the cahier is for**: it is the document to hand to whoever validates the application (a manager, a client, an IT department). The manual lines are a checklist for them; the "Procès-verbal" table at the bottom is where they sign off.
+- **What the cahier is for**: explain the word in one sentence (it comes from *recevoir*: the moment the person who ordered the software accepts it), then say what it does for them. If someone validates the application, it is the document to hand over: the manual lines are their checklist, the "Procès-verbal" table is where they sign off. If nobody does, it is their own memory of what the app must do, six months from now, and it is already written the day someone asks.
 - What is not covered yet: browser journeys (a page is checked by a person following the scenario), and anything the fakes do not reproduce (a real database constraint, a third-party service). Say it plainly: a green suite means "the logic we wrote behaves as written", not "nothing can go wrong".

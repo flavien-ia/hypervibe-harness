@@ -125,8 +125,13 @@ expect('HYPERVIBE_GUARD_ALLOW_PUSH=1 git -C "C:/DEV/x" push origin main --follow
 expect('git -C "C:/DEV/x" status --porcelain', "pass");
 expect("git -C x add CHANGELOG.md .claude-plugin/plugin.json", "pass");
 expect("git -C x ls-remote --tags origin v1", "pass");
+expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=1 pnpm db:push", "pass");
+expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=1 npx drizzle-kit push", "pass");
 expect("HYPERVIBE_GUARD_ALLOW_SWEEP=0 git add -A", "deny");
 expect("HYPERVIBE_GUARD_ALLOW_PUSH=1 git add -A", "deny");
+expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=0 pnpm db:push", "ask");
+expect("HYPERVIBE_GUARD_ALLOW_PUSH=1 pnpm db:push", "ask");
+expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=1 git push origin main", "ask");
 expect("vercel ls", "pass");
 expect("vercel env pull .env.check --environment=production", "pass");
 expect("npx vercel env pull .env.check --environment=production", "pass");

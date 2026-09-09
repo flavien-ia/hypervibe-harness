@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.1.1 (9 septembre 2026)
+
+### Améliorations
+- **Le cahier de recette explique son propre nom.** Le document produit par `/add-test` s'ouvre désormais sur une définition du mot « recette » (il vient de *recevoir* : le moment où celui qui a commandé un logiciel l'accepte, avec ou sans réserves). Le terme est celui que votre client ou votre service informatique emploiera ; autant le connaître avant qu'on vous le demande.
+- **La table de signature ne s'impose plus.** Elle n'a de sens que si quelqu'un doit valider votre application. Pour un projet personnel ou un portfolio, Hypervibe la laisse de côté : une table que personne ne signera fait passer tout le document pour de la paperasse.
+- **Mise à jour de schéma sans interruption en démonstration.** Une base jetable dont personne ne dépend (un projet construit en direct devant un public, un bac à sable) peut préfixer sa commande par `HYPERVIBE_GUARD_ALLOW_DB_PUSH=1` et éviter la demande de confirmation. Comme les deux autres exceptions, le préfixe reste visible dans la commande : l'exception est dite, jamais silencieuse.
+
+### Coulisses
+- Le contrôle de sécurité des garde-fous vérifie désormais l'emplacement des préfixes d'exception plutôt que leur nombre : ajouter une exception légitime ne fait plus échouer la vérification.
+
 ## v3.1.0 (9 septembre 2026)
 
 ### Nouveautés

@@ -276,14 +276,22 @@ check(
 
 // ── Le refus ne nomme pas son propre contournement ───────────────────
 {
-  // Les deux prefixes d'exception restent lus par le hook (deux `env.get`),
+  // Les prefixes d'exception restent lus par le hook (un `env.get` chacun),
   // mais leur nom ne figure dans aucune raison rendue au modele : un refus qui
   // nomme son contournement est contourne par son lecteur.
+  //
+  // Le controle porte sur l'EMPLACEMENT, pas sur le nombre : compter les
+  // occurrences etait un proxy qui tenait tant qu'il y avait exactement deux
+  // echappatoires, et qui a casse le jour ou une troisieme, legitime et testee,
+  // est arrivee (ALLOW_DB_PUSH, 9 septembre 2026). Un garde-fou qui refuse une
+  // extension legitime de ce qu'il protege finit par etre desactive.
   const r = lire("hooks/rules.mjs");
+  const mentions = r.match(/HYPERVIBE_GUARD_ALLOW_[A-Z_]+/g) ?? [];
+  const lectures = r.match(/env\.get\("HYPERVIBE_GUARD_ALLOW_[A-Z_]+"\)/g) ?? [];
   check(
     "rules.mjs ne cite les prefixes ALLOW_* que pour les lire, jamais dans une raison",
-    (r.match(/HYPERVIBE_GUARD_ALLOW_/g) ?? []).length === 2,
-    `${(r.match(/HYPERVIBE_GUARD_ALLOW_/g) ?? []).length} occurrence(s)`,
+    mentions.length > 0 && mentions.length === lectures.length,
+    `${mentions.length} mention(s) pour ${lectures.length} lecture(s)`,
   );
 }
 
