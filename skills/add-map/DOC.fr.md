@@ -22,6 +22,7 @@ Ajoute une **carte interactive** à votre site (page contact, liste d'agences, �
 
 - Un **composant carte** (`src/components/site/map.tsx`) déjà stylisé, prêt à recevoir des points
 - Un **wrapper sécurisé** (`map-loader.tsx`) qui empêche les bugs de rendu côté serveur
+- Une **petite étape au lancement** qui sert le « worker » du moteur de carte depuis votre propre site (automatique à chaque démarrage, rien à faire)
 - **Vos points** soit en dur dans le code (1-3 lieux), soit dans un fichier de données (`src/lib/locations.ts`, 4-30 lieux), soit dans une table de base de données (plus de 30 lieux ou besoin d'un admin pour les modifier)
 - La **carte affichée sur la page choisie** avec popup au clic d'un point
 - Le **fallback HTML** sous la carte pour le SEO et l'accessibilité
@@ -41,6 +42,10 @@ Google Maps demande une carte bancaire (même si le free tier couvre la plupart 
 
 {{callout:info|Cinq styles disponibles}}
 Liberty (défaut, équilibré), Positron (clair et minimaliste), Bright (couleurs vives), Dark (mode sombre), Fiord 3D (relief 3D). Pour changer : éditez la constante `TILE_STYLE_URL` en haut de `src/components/site/map.tsx`. Aucune autre modification nécessaire.
+{{/callout}}
+
+{{callout:warning|Carte installée avant septembre 2026 ?}}
+Relancez `/add-map` et choisissez **Mettre à jour le moteur de carte** : votre carte passe à MapLibre version 6, qui corrige une faille de sécurité de la version 5. Vos points, vos pages et votre style ne bougent pas.
 {{/callout}}
 
 {{callout:tip|Plusieurs centaines de points ?}}

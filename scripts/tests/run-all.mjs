@@ -22,6 +22,9 @@ const SUITES = [
   ["skill descriptions", join(ROOT, "scripts", "tests", "test-skill-descriptions.mjs")],
   ["AI model selection", join(ROOT, "scripts", "tests", "test-ai-models.mjs")],
   ["AI secret containment", join(ROOT, "scripts", "tests", "test-ai-secret.mjs")],
+  ["vercel deploy URL parsing", join(ROOT, "scripts", "tests", "test-vercel-deploy-output.mjs")],
+  ["pnpm workspace overrides", join(ROOT, "scripts", "tests", "test-pnpm-workspace.mjs")],
+  ["map versions and worker", join(ROOT, "scripts", "tests", "test-map-pins.mjs")],
 ];
 
 let failed = 0;

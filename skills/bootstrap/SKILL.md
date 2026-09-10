@@ -750,6 +750,7 @@ Analyze the JSON output (npm-audit-compatible shape: `advisories` / `metadata.vu
 > ℹ️ If `pnpm audit` itself errors (e.g. an older pnpm slipped through and hit the 410 endpoint, or offline), don't block the bootstrap - note it and move on. The deploy in 8b is the real gate.
 
 - **Production vulnerability, critical or high**: parse the JSON output to identify the offending packages + their `fixAvailable.version`, then run `pnpm update <package>@<safe-version>` for each. Do not ask the user - just fix it.
+  - If the package is a **transitive dependency pinned to an exact version by its parent**, `pnpm update` changes nothing (`postcss@8.4.31` inside Next 15 was the case; the bootstrap now covers it). Add a floor to the `overrides:` block of `pnpm-workspace.yaml` (`<package>: "^<fixed-version>"`) and run `pnpm install --config.optimistic-repeat-install=false`: a plain `pnpm install` answers "Already up to date" after a change to that block alone and never writes it into the lockfile. Check that `pnpm-lock.yaml` now contains an `overrides:` block before committing. **Never** in the `pnpm` field of `package.json`: pnpm 11+ ignores it locally while Vercel's pnpm 10 reads it, and the deploy then fails with `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`.
 - **Moderate or low severity**: ignore silently.
 - **If nothing needs fixing**: move on without saying anything.
 

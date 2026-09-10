@@ -34,7 +34,7 @@ This skill pulls content in from outside (documentation, an API response, a web 
 
 ## Step 0 - Preflight: is the map already installed?
 
-Check whether `src/components/site/map.tsx` already exists. If it does: you do NOT need to re-scaffold. Ask the user what they want to do:
+Check whether `src/components/site/map.tsx` already exists. If it does: you do NOT need to re-scaffold. First read the `maplibre-gl` version in `<WEB_DIR>/package.json`: a `5.x` version (every map installed before September 2026) means the map engine still carries a critical security flaw that only version 6 fixes (see the versions section of Step 3). In that case, say so in one plain sentence and recommend option 5 before anything else. Then ask the user what they want to do:
 
 > You already have a map installed (`src/components/site/map.tsx`). What do you want to do?
 >
@@ -42,8 +42,9 @@ Check whether `src/components/site/map.tsx` already exists. If it does: you do N
 > 2. **Change the points displayed** on the existing map - tell me what
 > 3. **Change the map style** (Liberty / Positron / Bright / Dark / Fiord 3D - see the `TILE_STYLE_URL` line in map.tsx)
 > 4. **Re-scaffold from scratch** (first delete `src/components/site/map.tsx` and `map-loader.tsx`)
+> 5. **Update the map engine** (recommended while it is on version 5) - I move it to the version that fixes the security flaw, without touching your points, pages or style
 
-Depending on the answer, jump to the relevant step. The rest of this skill describes the initial install flow.
+Depending on the answer, jump to the relevant step (option 5: Step 3b). The rest of this skill describes the initial install flow.
 
 ---
 
@@ -149,35 +150,46 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/setup-map.mjs" --web-dir "<WEB_DIR>" --l
 With `<layout>` ∈ `embedded` (default) | `mapfirst`.
 
 The script:
-1. Installs `maplibre-gl@^5.24.0` + `react-map-gl` in `<WEB_DIR>` (the MapLibre major is pinned on purpose - see the version-pin warning below)
+1. Installs `maplibre-gl@^6.9.0` + `react-map-gl@^8.1.3` in `<WEB_DIR>` (both pinned on their tested major, above a security floor and a compatibility floor - see the versions section below)
 2. Always copies `src/components/site/map.tsx` (the client MapView, with ResizeObserver + fitBounds + onLoad resize **baked in**) and `src/components/site/map-loader.tsx` (the SSR-safe wrapper)
 3. If `--layout=mapfirst`, also copies `src/components/site/map-shell.tsx` (generic chassis with viewport lock + sidebar slot + mobile Sheet)
 4. **Automatically detects i18n**: if `next-intl` is in place in the project, the script writes the i18n variant of `map-loader.tsx` (which uses `useTranslations("map")` for the "Loading map…" text) and merges the `map.*` keys into each `messages/<locale>.json`. Otherwise, it writes the plain variant with hardcoded FR strings.
-5. Prints a JSON `{ success, layout, mapFile, loaderFile, shellFile, actions, warnings }` parseable on the last line. If `warnings` contains `SHEET_MISSING` (the project does not have the shadcn/ui Sheet component while we are in mapfirst), invoke `npx shadcn@latest add sheet` before continuing to Step 5.
+5. **Wires the MapLibre web worker** (mandatory since MapLibre v6, see below): writes `src/components/site/maplibre-worker.ts` (imported by `map.tsx`) and `scripts/copy-maplibre-worker.mjs`, adds `predev` / `prebuild` / `prepreview` hooks to `package.json` (chained with `&&` when the project already has one), adds `/public/maplibre/` to `.gitignore`, and runs the copy once.
+6. Prints a JSON `{ success, mode, layout, mapFile, loaderFile, shellFile, workerModule, workerScript, hooks, upgraded, actions, warnings }` parseable on the last line. If `warnings` contains `SHEET_MISSING` (the project does not have the shadcn/ui Sheet component while we are in mapfirst), invoke `npx shadcn@latest add sheet` before continuing to Step 5. `WORKER_COPY_FAILED` means the map would render without data: read the message (usually maplibre-gl did not install) and fix it before going on. `KEPT_EXISTING` means the project already held a different version of a helper file: compare it with the template and keep the right one.
 
-If the script fails (non-zero exit): read the error message, fix it, retry. Typical case: `pnpm add` fails (pnpm not in the PATH) -> run `node "${CLAUDE_SKILL_DIR}/../../scripts/_ensure-tools-path.mjs"` first (it adds pnpm's global bin to the PATH).
+If the script fails (non-zero exit): read the error message, fix it, retry. Typical case: `pnpm install` fails (pnpm not in the PATH) -> run `node "${CLAUDE_SKILL_DIR}/../../scripts/_ensure-tools-path.mjs"` first (it adds pnpm's global bin to the PATH).
 
-### ⚠️ `maplibre-gl` is pinned to `^5.24.0` - do NOT let it drift to v6
+### ⚠️ MapLibre v6: pinned versions and the web worker
 
-**Symptom if the pin is lost**: the page dies on a white screen with `Application error: a client-side exception has occurred`, and the console shows:
+**Versions** (constants at the top of `scripts/setup-map.mjs`):
 
-```
-TypeError: Cannot read properties of undefined (reading 'center')
-    at transformToViewState (...)
-    at Maplibre._onCameraEvent (...)
-```
+- `maplibre-gl@^6.9.0`, never below **6.4.1**. Every release up to 6.4.0, the whole v5 line included (never patched), carries [GHSA-jrc7-96c5-q579](https://github.com/advisories/GHSA-jrc7-96c5-q579), a critical XSS: the sanitizer that renders attribution strings skips the attribute right after each one it removes, so a crafted attribution runs script with zero click. Practical exposure: only untrusted HTML that reaches MapLibre's sanitizer, i.e. attribution strings from a third-party style or tile source (OpenFreeMap in the template: trusted, but outside our control), a custom attribution built from user input, or `Popup.setHTML` with user content. The template's popups are React children (DOM content, never `setHTML`). Projects mapped before September 2026 sit on 5.24.0: move them with Step 3b.
+- `react-map-gl@^8.1.3`, never below **8.1.2**, the first release that supports MapLibre v6. 8.1.1 and older read `map.transform`, removed in v6: every camera event (initial resize, pan, zoom, `fitBounds`) throws `TypeError: Cannot read properties of undefined (reading 'center')` in `_onCameraEvent`, and the page dies on a white screen. pnpm will not warn you: `react-map-gl` declares `maplibre-gl` as an open-ended optional peer.
 
-**Cause**: MapLibre GL JS v6 (released 2026-07-22) stopped having `Map extend Camera`, which removed the public `map.transform` property. `react-map-gl` 8.x still reads `this._map.transform` inside `_onCameraEvent`, so **every** camera event (initial resize, pan, zoom, `fitBounds`) throws and takes the page down. It is not a timing bug - do not try to fix it with a `try/catch` around `resize()`, that only hides the first symptom while pan/zoom keep failing.
+**The web worker** (the part that breaks silently): MapLibre v6 decodes tiles in a web worker and, behind a bundler, must be told where that file lives. Under Next.js (Turbopack in dev as well as the webpack build), the address it guesses on its own is the page itself, so the worker dies at startup. **Symptom**: the map shows its background and relief but no streets, no labels and no GeoJSON layer, `onLoad` never fires (so `fitToMarkers` never frames the points), and the console says nothing explicit. The wiring written by the script:
 
-**Why nothing warns you**: `react-map-gl` declares `"maplibre-gl": ">=1.13.0"` as an optional peer dependency, so pnpm happily installs v6 and stays silent.
+- `src/components/site/maplibre-worker.ts` calls `setWorkerUrl("/maplibre/maplibre-gl-worker.mjs")`. **Any other component that renders a map must start with `import "~/components/site/maplibre-worker";`**: MapLibre starts its workers once per page, with the address known at that moment.
+- `scripts/copy-maplibre-worker.mjs` copies `maplibre-gl-worker.mjs` and its sibling `maplibre-gl-shared.mjs` from `node_modules` into `public/maplibre/` (both files: the worker imports the sibling by relative path). It runs from the `predev`, `prebuild` and `prepreview` hooks, so it always matches the installed version, on Vercel too (`pnpm run build` runs `prebuild`). A new script that starts Next (e.g. `build:staging`) needs its own `pre` hook.
+- `/public/maplibre/` is ignored by git (regenerated at every start).
 
-**When to lift the pin**: only once `react-map-gl` (or `@vis.gl/react-maplibre`) ships a release that declares MapLibre v6 support. As of 2026-07-30 the latest is 8.1.1 and it does **not**. Check with:
+What does NOT work, do not retry it: the bundler pattern `new URL("maplibre-gl/dist/maplibre-gl-worker.mjs", import.meta.url)` (under Next.js neither Turbopack nor webpack emits the shared sibling next to the worker, per the MapLibre installation docs, Turbopack tab), and a `postinstall` hook (skipped when an install has nothing to do). Also: v6 is ESM-only, so write named imports (`import { setWorkerUrl } from "maplibre-gl"`) or `import * as maplibregl`, never a default import. CSP: the worker is same-origin, `worker-src 'self'` is enough.
+
+If a project breaks right after a dependency update, clear the build cache (`rm -rf .next`) and restart the dev server: Turbopack caches the old module resolution and keeps reporting phantom `Module not found` errors otherwise.
+
+## Step 3b - Upgrade an existing map to MapLibre v6
+
+For a project whose map was installed before September 2026 (`maplibre-gl` 5.x in `package.json`, often as an exact `5.24.0`: on Windows the old install lost its `^`). Invoke `_detect-project-root` to get `WEB_DIR`, then run:
 
 ```bash
-npm view @vis.gl/react-maplibre version peerDependencies --json
+node "${CLAUDE_SKILL_DIR}/../../scripts/setup-map.mjs" --web-dir "<WEB_DIR>" --upgrade
 ```
 
-If a maintained project already sits on a broken v6, fix it with `pnpm add "maplibre-gl@^5.24.0"`, then clear the build cache (`rm -rf .next`) and restart the dev server - Turbopack caches the old module resolution and will keep reporting phantom `Module not found` errors otherwise.
+The script moves both packages to the pinned versions, writes the worker wiring (item 5 of Step 3), adds `import "~/components/site/maplibre-worker";` to **every** file under `src/` that imports `react-map-gl` or `maplibre-gl` (listed in `upgraded`), and removes the old v5 pin comment from `map.tsx`. It never touches markers, pages or styles, and can be re-run safely.
+
+Then:
+1. For each file listed under `REVIEW_MAP_COMMENTS` in `warnings`: reword the comments that still talk about the v5 pin or `map.transform` (a script does not rewrite prose).
+2. `cd <WEB_DIR> && pnpm tsc --noEmit && pnpm lint`.
+3. Clear `.next`, restart the dev server, open the page with the map and **ask the user to look**: streets and place names must appear, and the map must frame all the points. That is precisely what the worker fix is about.
 
 ### What the `map.tsx` template does for you (do not reimplement)
 
@@ -187,6 +199,7 @@ The template delivered by the script already contains:
 - **`fitToMarkers`** (default prop `true`): auto-`fitBounds` on all markers at load and on each change of `markers` (filters applied). With an "expand 0.005°" fallback when there is only a single point.
 - **`computeBounds(items)`** exported as a utility if you want to reuse it elsewhere.
 - **`scrollZoom`** prop, default `false` (does not steal the page scroll in embedded usage). Always pass `scrollZoom={true}` in map-first where the map IS the page.
+- **The worker import** (`import "./maplibre-worker"`): sets the MapLibre v6 worker address before the map exists. Never remove it, and start every new map component with the same import (see the versions section above).
 
 So you no **longer** have to code a ResizeObserver, nor a manual fitBounds, nor an initial center/zoom computation for multi-marker cases - it is in the template.
 
@@ -436,6 +449,14 @@ Invoke `_update-claude-md`:
   **SEO + a11y** : chaque page qui rend une carte DOIT avoir un `<noscript>`
   avec la liste textuelle des markers + lien `google.com/maps/search/?api=1&query=lat,lng`
   pour que Google et les screen readers aient le contenu.
+
+  **Worker MapLibre (v6)** : `public/maplibre/` est recopié depuis node_modules
+  par `scripts/copy-maplibre-worker.mjs` (hooks predev, prebuild, prepreview)
+  et ignoré par git. Toute nouvelle carte commence par
+  `import "~/components/site/maplibre-worker";`, sinon elle s'affiche sans
+  données. Tout nouveau script qui lance Next (ex. `build:staging`) reçoit son
+  propre hook `pre`. Ne jamais redescendre maplibre-gl sous 6.4.1 (faille XSS)
+  ni react-map-gl sous 8.1.2 (plantage à chaque mouvement de caméra).
   ```
 
 ---
@@ -506,6 +527,7 @@ Show the recap:
 > **Components created**:
 > - `src/components/site/map.tsx` (MapLibre client render, with ResizeObserver + auto-fitBounds baked in)
 > - `src/components/site/map-loader.tsx` (SSR-safe wrapper)
+> - the map engine's background worker, served from `public/maplibre/` and refreshed automatically at every start (nothing to do)
 > - (if mapfirst layout) `src/components/site/map-shell.tsx` (layout chassis: viewport lock + sidebar slot + mobile Sheet)
 > - (if applicable) `src/lib/locations.ts` with your points
 > - (if applicable) `locations` table in Drizzle + tRPC procedure

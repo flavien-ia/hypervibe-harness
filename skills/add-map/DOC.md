@@ -22,6 +22,7 @@ Adds an **interactive map** to your site (contact page, list of branches, events
 
 - A **map component** (`src/components/site/map.tsx`) already styled, ready to receive points
 - A **safe wrapper** (`map-loader.tsx`) that prevents server-side rendering bugs
+- A **small launch step** that serves the map engine's background worker from your own site (automatic at every start, nothing to do)
 - **Your points** either hardcoded in the code (1-3 locations), or in a data file (`src/lib/locations.ts`, 4-30 locations), or in a database table (more than 30 locations or a need for an admin to edit them)
 - The **map displayed on the chosen page** with a popup on point click
 - The **HTML fallback** under the map for SEO and accessibility
@@ -41,6 +42,10 @@ Google Maps requires a credit card (even if the free tier covers most cases), an
 
 {{callout:info|Five styles available}}
 Liberty (default, balanced), Positron (light and minimalist), Bright (vivid colors), Dark (dark mode), Fiord 3D (3D relief). To change: edit the `TILE_STYLE_URL` constant at the top of `src/components/site/map.tsx`. No other modification needed.
+{{/callout}}
+
+{{callout:warning|Map installed before September 2026?}}
+Run `/add-map` again and choose **Update the map engine**: it moves your map to MapLibre version 6, which fixes a security flaw of version 5. Your points, pages and style stay as they are.
 {{/callout}}
 
 {{callout:tip|Several hundred points?}}

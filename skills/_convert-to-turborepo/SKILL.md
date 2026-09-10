@@ -114,6 +114,8 @@ packages:
   - "packages/*"
 ```
 
+Step 4 moved the app's own `pnpm-workspace.yaml` into `apps/web/`. pnpm only honours the file at the workspace root, and a nested one makes pnpm treat `apps/web` as a separate workspace whenever a command runs from there. So if `apps/web/pnpm-workspace.yaml` exists: copy its other top-level blocks (`allowBuilds:`, `overrides:`) below `packages:` in the root file, then `git rm apps/web/pnpm-workspace.yaml`. Keep `overrides:` exactly as it is: it holds the security floors written by `/bootstrap`, and the lockfile must keep recording them. Never move them into a `package.json` (`pnpm.overrides`): pnpm 11+ ignores that field while Vercel's pnpm 10 reads it, and the deploy fails with `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`.
+
 ## Step 7 - Create turbo.json
 
 ```json

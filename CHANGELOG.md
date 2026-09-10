@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.1.3 (10 septembre 2026)
+
+### Améliorations
+- **Cartes (/add-map)** : les cartes passent à MapLibre version 6, qui corrige une faille de sécurité critique présente dans toute la version 5. Une petite étape au lancement sert désormais le moteur de carte depuis votre propre site, indispensable pour que les rues, les noms de lieux et vos tracés s'affichent.
+- **Mettre à jour une carte existante** : relancez `/add-map` sur un projet qui a déjà une carte et choisissez « Mettre à jour le moteur de carte ». Vos points, vos pages et votre style ne bougent pas.
+- **Nouveau projet (/bootstrap)** : chaque projet neuf part avec un plancher de sécurité sur un composant interne de Next.js, ce qui fait disparaître des alertes d'audit sans effet sur votre site. Le déploiement sur Vercel reste compatible.
+- **Fin du bootstrap** : l'adresse de votre site en ligne est de nouveau correctement repérée après le premier déploiement.
+
+### Coulisses
+- Sous Windows, une version de bibliothèque pouvait se retrouver figée par erreur et ne plus recevoir de correctifs : c'est corrigé.
+- Trois nouvelles recettes vérifient ces points à chaque version.
+
 ## v3.1.2 (9 septembre 2026)
 
 ### Améliorations

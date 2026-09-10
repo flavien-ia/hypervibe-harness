@@ -8,6 +8,9 @@
 //   1. Preflight: required CLIs present + authenticated, cwd not inside a git repo.
 //   2. npx create-t3-app@latest <name> --CI --noInstall --noGit ... then
 //      pnpm install (we control the package manager and git entirely).
+//      Right before that install, pnpm-workspace.yaml receives the security
+//      overrides (PNPM_OVERRIDES in _pnpm-workspace.mjs), so the very first
+//      lockfile already records them.
 //   3. Bump drizzle-orm + drizzle-kit to latest (CVE-2025-XXXX, fixed in 0.45.2).
 //   4. Cleanup T3 demo: delete src/server/api/routers/post.ts, strip postRouter
 //      from root.ts, replace src/app/page.tsx with a minimal placeholder.
@@ -89,6 +92,8 @@ import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
 import { buildRuleSets } from "./rules/rules.mjs";
 import { PROJECT_BLOCK } from "./rules/blocks.mjs";
 import { syncManagedBlock } from "./rules/managed-block.mjs";
+import { PNPM_OVERRIDES, setWorkspaceBlock } from "./_pnpm-workspace.mjs";
+import { parseDeployOutput } from "./vercel/parse-deploy-output.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -105,6 +110,11 @@ let description = "";
 let locale = "fr_FR";
 let visibility = "private";
 let skipDeploy = false;
+// Stage/demo mode: skip the local `pnpm build` gate. The first deploy builds on
+// Vercel's own servers anyway, and the local build is the only step that fetches
+// the Google font (next/font) over the user's network: on a flaky venue or train
+// connection it was measured at 17 minutes of retries (2026-09-10).
+let skipLocalBuild = false;
 // Vercel scope (team slug). Only needed on a multi-scope account when the
 // automatic resolution in vercelLink() cannot settle it on its own.
 let scopeArg = "";
@@ -117,6 +127,7 @@ for (let i = 0; i < args.length; i++) {
   else if (a === "--private") visibility = "private";
   else if (a === "--public") visibility = "public";
   else if (a === "--skip-deploy") skipDeploy = true;
+  else if (a === "--skip-local-build") skipLocalBuild = true;
   else if (a === "--scope" && args[i + 1]) scopeArg = args[++i];
   else fail(`Unknown arg: ${a}`);
 }
@@ -124,7 +135,7 @@ for (let i = 0; i < args.length; i++) {
 if (!name || !description) {
   fail(
     'Usage: node bootstrap-init.mjs --name NAME --description "DESC" ' +
-      "[--locale fr_FR] [--private|--public] [--skip-deploy] [--scope TEAM]",
+      "[--locale fr_FR] [--private|--public] [--skip-deploy] [--skip-local-build] [--scope TEAM]",
   );
 }
 if (!/^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/.test(name)) {
@@ -460,6 +471,11 @@ function scaffoldT3() {
   // pnpm ≥11: CLI flags needed (onlyBuiltDependencies ignored). pnpm ≤10: empty
   // (onlyBuiltDependencies in package.json is sufficient; the CLI flags would
   // conflict with it and cause ERR_PNPM_CONFIG_CONFLICT_BUILT_DEPENDENCIES).
+  // Security overrides go into pnpm-workspace.yaml BEFORE the first install,
+  // so the very first lockfile records them. Never into package.json: Vercel's
+  // pnpm 10 would then stop on ERR_PNPM_LOCKFILE_CONFIG_MISMATCH (see
+  // PNPM_OVERRIDES in _pnpm-workspace.mjs).
+  setWorkspaceBlock(join(PROJECT_DIR, "pnpm-workspace.yaml"), "overrides", PNPM_OVERRIDES);
   const installLabel = PNPM_BUILD_FLAGS ? `with flags: ${PNPM_BUILD_FLAGS}` : "no extra flags (pnpm ≤10, onlyBuiltDependencies in package.json)";
   log(`Installing with pnpm (${installLabel})`);
   run(`pnpm install${PNPM_BUILD_FLAGS ? ` ${PNPM_BUILD_FLAGS}` : ""}`, PROJECT_DIR);
@@ -793,15 +809,15 @@ function shadcn() {
   // components.json already existing as a "do you want to overwrite?" prompt
   // that --yes does not auto-accept).
   const wsPath = join(PROJECT_DIR, "pnpm-workspace.yaml");
-  const existingWs = existsSync(wsPath) ? readFileSync(wsPath, "utf8") : "";
   // unrs-resolver is a transitive native dep of eslint-config-next (via
   // eslint-plugin-import-x → @rspack/binding-resolver). It MUST be approved or
   // any future `pnpm install` (e.g. when the user adds a package) exits with
   // ERR_PNPM_IGNORED_BUILDS even when `strict-dep-builds=false` is in .npmrc.
   const knownBuildPkgs = ["msw", "sharp", "esbuild", "@tailwindcss/oxide", "@swc/core", "@parcel/watcher", "unrs-resolver"];
-  const newWs = "allowBuilds:\n" + knownBuildPkgs.map((p) => `  ${p.includes("/") ? `"${p}"` : p}: true`).join("\n") + "\n";
-  if (existingWs !== newWs) {
-    writeFileSync(wsPath, newWs);
+  // Only the allowBuilds block is rewritten. The overrides block written
+  // before the first install must survive: dropping it here would make the
+  // next `pnpm add` quietly write a lockfile without the security floors.
+  if (setWorkspaceBlock(wsPath, "allowBuilds", Object.fromEntries(knownBuildPkgs.map((p) => [p, true])))) {
     console.log("  → Pre-wrote pnpm-workspace.yaml with known build-script packages approved");
   }
 
@@ -1381,6 +1397,10 @@ function pushEnvVars() {
 
 // ─── Step 13: local build (gate) ──────────────────────────────────────
 function localBuild() {
+  if (skipLocalBuild) {
+    log("Local build skipped (--skip-local-build): Vercel builds the first deploy remotely");
+    return;
+  }
   log("Local build (pnpm build) - gate before deploy");
   const res = run("pnpm build", PROJECT_DIR, { allowFail: true });
   if (res.status !== 0) {
@@ -1419,10 +1439,11 @@ function deploy() {
     fail(`vercel --prod failed (exit ${res.status})`);
   }
 
-  const combined = (res.stdout || "") + (res.stderr || "");
-  const aliasMatch = combined.match(/Aliased:\s+(https:\/\/\S+\.vercel\.app)/);
-  const prodMatch = combined.match(/Production:\s+(https:\/\/\S+\.vercel\.app)/);
-  deployedUrl = aliasMatch?.[1] ?? prodMatch?.[1] ?? null;
+  // Alias first: it is the stable production URL, while the unique deployment
+  // URL may sit behind Vercel's deployment protection. CLI 59 prints both
+  // without a colon and after ANSI codes; parseDeployOutput reads every form.
+  const { aliasUrl, productionUrl } = parseDeployOutput((res.stdout || "") + (res.stderr || ""));
+  deployedUrl = aliasUrl ?? productionUrl ?? null;
 
   if (deployedUrl) {
     ok(`Deployed to production: ${deployedUrl}`);
