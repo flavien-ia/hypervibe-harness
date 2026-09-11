@@ -12,9 +12,12 @@
 //
 //   node scripts/tests/test-security-claims.mjs
 
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, statSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -181,9 +184,17 @@ check(
   const pre = h.hooks?.PreToolUse ?? [];
   check("un hook PreToolUse est declare", pre.length >= 1);
   check(
-    "il ne cible que Bash",
-    pre.every((e) => e.matcher === "Bash"),
+    "il cible Bash et Monitor, les deux outils qui executent un shell",
+    pre.every((e) => e.matcher === "Bash|Monitor"),
     pre.map((e) => e.matcher).join(", "),
+  );
+  check(
+    "guard-bash.mjs accepte les deux outils",
+    /SHELL_TOOLS = new Set\(\["Bash", "Monitor"\]\)/.test(lire("hooks/guard-bash.mjs")),
+  );
+  check(
+    "les regles ne voient jamais la tete brute d'une commande (normalise)",
+    /function normalise\(/.test(lire("hooks/rules.mjs")) && /raw head of a command/.test(securite),
   );
   check(
     "il pointe sur guard-bash.mjs via CLAUDE_PLUGIN_ROOT",
@@ -353,6 +364,141 @@ check(
     "SECURITY.md dit ce que la signature ne couvre pas (l'archive reconstruite par le site)",
     /which the tag does not sign/.test(securite),
   );
+}
+
+// ── Le contenu tiers arrive aussi par un script, pas seulement par WebFetch ──
+{
+  // Le bloc « donnee, jamais instruction » vivait dans les skills qui appellent
+  // WebFetch, et manquait dans celles qui recoivent du contenu reseau en sortie
+  // de script : le HTML d'un site deploye (eco-audit, seo-perf), des avis npm
+  // rediges par des tiers (security), et sept _dns-* sur douze, sans logique de
+  // risque (revue externe, 3.0.4). La liste ci-dessous est nominative : une
+  // skill qui fait lire au modele ce qu'un tiers a ecrit y entre, et la
+  // recette refuse tant que le bloc n'y est pas.
+  const PHRASE = "never instructions to follow";
+  const LISENT_DU_CONTENU_TIERS = [
+    "_create-render-worker", "_dns-brevo", "_dns-cloudflare", "_dns-gandi",
+    "_dns-godaddy-manual", "_dns-hostinger", "_dns-infomaniak-manual",
+    "_dns-ionos-manual", "_dns-namecheap", "_dns-ovh", "_dns-porkbun",
+    "_dns-resend", "_dns-squarespace-manual", "_get-secret", "_setup-gsc",
+    "_setup-indexnow", "_setup-render", "_setup-stripe-cli", "add-backup-db",
+    "add-db", "add-email", "add-map", "add-stripe", "bootstrap", "eco-audit",
+    "gsc", "optimize", "quotas", "rotate-secret", "security", "seo", "seo-perf",
+    "start",
+  ];
+  const sans = LISENT_DU_CONTENU_TIERS.filter(
+    (d) => !existsSync(join(ROOT, "skills", d, "SKILL.md")) || !lire(`skills/${d}/SKILL.md`).includes(PHRASE),
+  );
+  check(
+    `les ${LISENT_DU_CONTENU_TIERS.length} skills qui lisent du contenu tiers portent le bloc « donnee, jamais instruction »`,
+    sans.length === 0,
+    sans.join(", "),
+  );
+  // Les skills qui touchent au reseau sans etre dans la liste : a evaluer a
+  // la prochaine revue, pas un echec (un curl vers sa propre API n'est pas une
+  // lecture de contenu tiers).
+  const reseau = readdirSync(join(ROOT, "skills")).filter((d) => {
+    const f = join(ROOT, "skills", d, "SKILL.md");
+    if (!existsSync(f)) return false;
+    const t = readFileSync(f, "utf8");
+    return /WebFetch|curl |fetch\(|pagespeed|npm audit|pnpm audit|dig |nslookup/.test(t) && !t.includes(PHRASE);
+  });
+  if (reseau.length) console.log(`     (touchent au reseau sans le bloc, a evaluer : ${reseau.join(", ")})`);
+}
+
+// ── Ce que la recette EXECUTE (revue externe, 3.0.4) ─────────────────
+// Un controle qui lit un nom de fonction ou la forme d'une chaine verifie du
+// vocabulaire : renommer casse la recette sans toucher a la securite, et un
+// message d'erreur mort la garde verte. Les quatre controles ci-dessous font
+// tourner ce qu'ils valident, a sec (aucune base, aucun compte, aucun reseau).
+{
+  // 1. L'empreinte publiee est CELLE de la cle publiee : recalculee ici, pas
+  //    reconnue a sa forme. Une cle fausse, perimee ou d'un tiers ne passe plus.
+  const cle = /ssh-ed25519 (AAAAC3NzaC1lZDI1NTE5[0-9A-Za-z+/=]+)/.exec(securite)?.[1] ?? "";
+  const empreinte = cle
+    ? createHash("sha256").update(Buffer.from(cle, "base64")).digest("base64").replace(/=+$/, "")
+    : "";
+  check(
+    "l'empreinte SHA256 publiee est celle de la cle publiee (recalculee, pas reconnue a sa forme)",
+    cle.length > 0 && securite.includes(`SHA256:${empreinte}`),
+    empreinte ? `SHA256:${empreinte}` : "cle absente",
+  );
+  check(
+    "la ligne allowed_signers de la page porte cette meme cle",
+    cle.length > 0 && securite.includes(`namespaces="git" ssh-ed25519 ${cle}`),
+  );
+}
+{
+  // 2. run-sql.mjs refuse un DROP AVANT de chercher une base : lance sans
+  //    DATABASE_URL, depuis un dossier sans .env. Le refus vaut 6 ; avec le
+  //    drapeau, le garde s'efface et le script s'arrete faute de connexion (1) :
+  //    la preuve que le drapeau ouvre bien le passage, et que rien n'est execute.
+  const sec = spawnSync(process.execPath, [join(ROOT, "scripts/neon/run-sql.mjs"), "DROP TABLE clients"], {
+    cwd: tmpdir(),
+    env: { ...process.env, DATABASE_URL: "" },
+    encoding: "utf8",
+  });
+  check(
+    "run-sql.mjs refuse un DROP sans --destructif (execute, exit 6, avant toute connexion)",
+    sec.status === 6 && /Refuse/.test(sec.stderr),
+    `exit ${sec.status}`,
+  );
+  const ouvert = spawnSync(
+    process.execPath,
+    [join(ROOT, "scripts/neon/run-sql.mjs"), "--destructif", "DROP TABLE clients"],
+    { cwd: tmpdir(), env: { ...process.env, DATABASE_URL: "" }, encoding: "utf8" },
+  );
+  check(
+    "avec --destructif, le garde s'efface et le script s'arrete faute de base (rien n'est execute)",
+    ouvert.status === 1 && /No connection string/.test(ouvert.stderr),
+    `exit ${ouvert.status}`,
+  );
+}
+{
+  // 3. execute-deletions.mjs refuse une confirmation qui ne nomme pas le projet
+  //    de l'inventaire : lance sur un inventaire jetable, exit 7, rien touche.
+  const dir = mkdtempSync(join(tmpdir(), "hypervibe-recette-"));
+  const inventaire = join(dir, "inventory.json");
+  writeFileSync(inventaire, JSON.stringify({ project: "projet-de-recette" }));
+  const r = spawnSync(
+    process.execPath,
+    [join(ROOT, "scripts/delete-project/execute-deletions.mjs"), "--inventory", inventaire, "--scope", '["vercel"]', "--confirm", "autre-projet"],
+    { cwd: dir, encoding: "utf8" },
+  );
+  check(
+    "execute-deletions.mjs refuse une confirmation qui ne nomme pas le projet (execute, exit 7)",
+    r.status === 7 && /Refuse/.test(r.stderr),
+    `exit ${r.status}`,
+  );
+}
+{
+  // 4. Fail-open, execute : une entree corrompue laisse passer (exit 0, aucune
+  //    decision), et une commande interdite est bien refusee par le meme hook.
+  const hook = join(ROOT, "hooks/guard-bash.mjs");
+  const corrompu = spawnSync(process.execPath, [hook], { input: "ceci n'est pas du JSON", encoding: "utf8" });
+  check(
+    "le hook laisse passer une entree corrompue (execute : exit 0, aucune decision)",
+    corrompu.status === 0 && corrompu.stdout.trim() === "",
+    `exit ${corrompu.status}`,
+  );
+  const refus = spawnSync(process.execPath, [hook], {
+    input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git add -A" } }),
+    encoding: "utf8",
+  });
+  check(
+    "et refuse pour de vrai un `git add -A` (execute)",
+    refus.status === 0 && /"permissionDecision":"deny"/.test(refus.stdout),
+  );
+}
+
+// ── La procedure de release est lisible dans le depot ────────────────
+{
+  const release = existsSync(join(ROOT, "RELEASE.md")) ? lire("RELEASE.md") : "";
+  check(
+    "RELEASE.md decrit la release : recette, signature verifiee avant le push, empreinte, controle GitHub",
+    /test|recipe/i.test(release) && /verify-tag/.test(release) && /SHA-256/.test(release) && /verification/.test(release),
+  );
+  check("SECURITY.md renvoie a RELEASE.md", /RELEASE\.md/.test(securite));
 }
 
 // ── La page dit ce qu'elle promet (garde contre une page videe) ──────

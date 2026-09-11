@@ -1,10 +1,15 @@
 #!/usr/bin/env node
-// guard-bash.mjs - PreToolUse hook: reads the Bash call Claude is about to make
-// and either lets it through, asks the user, or refuses it with the correct
-// alternative.
+// guard-bash.mjs - PreToolUse hook: reads the shell command Claude is about to
+// run and either lets it through, asks the user, or refuses it with the
+// correct alternative.
+//
+// Two tools run a shell: Bash, and Monitor (a background watcher whose
+// `command` is a shell script too). A guard that only watched Bash left the
+// other door open (outside review, 3.0.4): hooks.json matches both, and this
+// file accepts both. Same input field, same decision.
 //
 // Contract (Claude Code):
-//   stdin  {"tool_name":"Bash","tool_input":{"command":"..."},...}
+//   stdin  {"tool_name":"Bash"|"Monitor","tool_input":{"command":"..."},...}
 //   stdout {"hookSpecificOutput":{"hookEventName":"PreToolUse",
 //           "permissionDecision":"deny"|"ask","permissionDecisionReason":"..."}}
 //   exit 0 with no output = no decision, the normal permission flow applies.
@@ -17,6 +22,9 @@
 // at all, Codex included.
 
 import { decide } from "./rules.mjs";
+
+/** The tools whose `command` is executed by a shell. */
+const SHELL_TOOLS = new Set(["Bash", "Monitor"]);
 
 function read() {
   return new Promise((resolve) => {
@@ -40,7 +48,7 @@ function read() {
 try {
   const raw = await read();
   const payload = JSON.parse(raw);
-  if (payload?.tool_name !== "Bash") process.exit(0);
+  if (!SHELL_TOOLS.has(payload?.tool_name)) process.exit(0);
 
   const verdict = decide(payload?.tool_input?.command ?? "");
   if (!verdict) process.exit(0);

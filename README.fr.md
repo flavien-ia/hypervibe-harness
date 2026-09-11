@@ -147,13 +147,15 @@ Les opérations irréversibles sont donc gardées, pas seulement déconseillées
 |---|---|---|
 | `git add -A`, `git add .`, `git add -u`, `git commit -a`, `git commit --all` | **refus** | Un balayage a déjà emporté dans un commit le travail non commité d'une autre session. Indexer nommément : `git add <fichier>`. |
 | `git push` | **confirmation** | Pousser publie. Le consentement vit dans la conversation, donc un humain confirme. |
-| `vercel --prod`, `promote`, `rollback` (aussi derrière `npx` ou `pnpm dlx`) | **confirmation** | Les déploiements passent normalement par `git push`. |
-| `wrangler deploy`, `wrangler secret put` | **confirmation** | Le worker partagé tourne avec les clés du compte ; un déploiement publie du code qui les détient. |
-| `pnpm db:push`, `drizzle-kit push` | **confirmation** | Sur cette stack, la base que vous atteignez EST la production. |
-| `execute-deletions.mjs` | **confirmation** | Suppressions cloud irréversibles. |
+| `vercel --prod`, `--target production`, `promote`, `rollback` | **confirmation** | Les déploiements passent normalement par `git push`. `vercel build --prod` ne déploie rien et n'est pas demandé. |
+| `wrangler deploy`, `wrangler secret put` (pas `--dry-run`) | **confirmation** | Le worker partagé tourne avec les clés du compte ; un déploiement publie du code qui les détient. |
+| `pnpm db:push`, `pnpm --filter web db:push`, `drizzle-kit push` | **confirmation** | Sur cette stack, la base que vous atteignez EST la production. |
+| `node execute-deletions.mjs` | **confirmation** | Suppressions cloud irréversibles. Lire le fichier n'en est pas une. |
 | `run-sql.mjs` avec `DROP` / `TRUNCATE` | **refus** sans `--destructif` | Entre deux sauvegardes, rien ne ramène une table supprimée. |
 | `run-sql.mjs` avec `DELETE`/`UPDATE` sans `WHERE` | **confirmation** | Réécrit toutes les lignes. |
-| `git reset --hard`, `git checkout -- .`, `git clean -f` | **confirmation** | Jette du travail non commité, peut-être celui d'un autre. |
+| `git reset --hard`, `git checkout .`, `git clean -f` | **confirmation** | Jette du travail non commité, peut-être celui d'un autre. |
+
+Les règles regardent la commande, pas son costume. `sudo`, `command`, `env`, `time`, un lanceur (`npx`, `pnpm dlx`), une version épinglée (`wrangler@latest`), un chemin absolu (`/usr/bin/git`), un sous-shell ou un bloc (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), une tête entre guillemets, et la charge d'un `sh -c` ou d'un `eval` sont retirés ou dépliés avant qu'une règle s'applique. Cinq formes de ce genre passaient devant toutes les règles en 3.0.4 ; fermer la famille plutôt que les cinq, c'est ce qu'une relecture extérieure a demandé.
 
 Tout le reste passe sans encombre, et cette moitié-là est testée avec autant de soin que l'autre : `git add src/a.ts`, `git push --dry-run`, `git add -p`, un `DELETE ... WHERE`, et même un message de commit qui mentionne `git add -A` (`node hooks/test-hooks.mjs`).
 

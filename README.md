@@ -147,13 +147,15 @@ So the operations that cannot be undone are guarded, not merely discouraged:
 |---|---|---|
 | `git add -A`, `git add .`, `git add -u`, `git commit -a`, `git commit --all` | **refused** | A sweeping stage once swept another session's uncommitted work into a commit. Stage nominatively: `git add <file>`. |
 | `git push` | **confirmation** | Pushing publishes. Consent lives in the conversation, so a human confirms. |
-| `vercel --prod`, `promote`, `rollback` (also behind `npx` or `pnpm dlx`) | **confirmation** | Deploys normally go through `git push`. |
-| `wrangler deploy`, `wrangler secret put` | **confirmation** | The shared worker runs with the account's keys; a deploy publishes code that holds them. |
-| `pnpm db:push`, `drizzle-kit push` | **confirmation** | On this stack the database you reach IS production. |
-| `execute-deletions.mjs` | **confirmation** | Irreversible cloud deletions. |
+| `vercel --prod`, `--target production`, `promote`, `rollback` | **confirmation** | Deploys normally go through `git push`. `vercel build --prod` deploys nothing and is not asked. |
+| `wrangler deploy`, `wrangler secret put` (not `--dry-run`) | **confirmation** | The shared worker runs with the account's keys; a deploy publishes code that holds them. |
+| `pnpm db:push`, `pnpm --filter web db:push`, `drizzle-kit push` | **confirmation** | On this stack the database you reach IS production. |
+| `node execute-deletions.mjs` | **confirmation** | Irreversible cloud deletions. Reading the file is not one. |
 | `run-sql.mjs` with `DROP` / `TRUNCATE` | **refused** without `--destructif` | Between two backups, nothing brings a dropped table back. |
 | `run-sql.mjs` with `DELETE`/`UPDATE` and no `WHERE` | **confirmation** | Rewrites every row. |
-| `git reset --hard`, `git checkout -- .`, `git clean -f` | **confirmation** | Discards uncommitted work, possibly someone else's. |
+| `git reset --hard`, `git checkout .`, `git clean -f` | **confirmation** | Discards uncommitted work, possibly someone else's. |
+
+The rules look at the command, not at its costume. `sudo`, `command`, `env`, `time`, a launcher (`npx`, `pnpm dlx`), a version pin (`wrangler@latest`), an absolute path (`/usr/bin/git`), a subshell or a block (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), a quoted head, and the payload of `sh -c` or `eval` are stripped or unfolded before any rule runs. Five such shapes walked past every rule on 3.0.4; closing the family, rather than the five, is what an outside review asked for.
 
 Everything else passes untouched, and that half is tested as carefully as the other: `git add src/a.ts`, `git push --dry-run`, `git add -p`, a `DELETE ... WHERE`, even a commit message that merely mentions `git add -A` all go through (`node hooks/test-hooks.mjs`).
 

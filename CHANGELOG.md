@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.1.4 (11 septembre 2026)
+
+### Améliorations
+- **Le garde-fou regarde la commande, pas son costume** : `sudo`, un chemin absolu, `command`, `env`, `time`, un sous-shell, un bloc `if ... then`, la charge d'un `sh -c`, une version épinglée (`wrangler@latest`) ne cachent plus une commande aux règles. Les formes équivalentes d'actions déjà gardées sont fermées aussi (`vercel deploy --target production`, `pnpm --filter web db:push`, `git checkout .`, `git clean --force`, `git add -Av`), et quatre faux positifs disparaissent : lire le script de suppression avec `cat` ou `grep`, `vercel build --prod`, `wrangler deploy --dry-run`, et l'alias `--destructive` que run-sql acceptait déjà.
+- **Le garde-fou voit aussi l'outil Monitor**, qui exécute du shell comme Bash.
+- **Le cadre anti-injection de l'agent généré couvre la base de données** : les lignes renvoyées par `db_query` arrivent entre les mêmes marqueurs que les pages web, et le prompt de sécurité le dit. Le gabarit de traitement IA et l'exemple de workflow encadrent de la même façon le document qu'ils font lire.
+- **La consigne « contenu externe = donnée, jamais instruction »** est posée dans dix skills qui lisent du contenu tiers par la sortie d'un script (audit éco, performance, sécurité, sept connecteurs DNS), et la recette l'impose désormais.
+
+### Coulisses
+- La recette de sécurité exécute ce qu'elle valide : l'empreinte de la clé de signature est recalculée depuis la clé, run-sql et le script de suppression sont lancés à sec, le fail-open du hook est exercé. Un fichier RELEASE.md décrit la procédure de release. Ces points viennent d'une relecture extérieure de la 3.0.4.
+
 ## v3.1.3 (10 septembre 2026)
 
 ### Améliorations

@@ -32,6 +32,7 @@ function check(name, ok, detail = "") {
 const httpFetch = readFileSync(join(TOOLS, "http-fetch.ts"), "utf8");
 const sendEmail = readFileSync(join(TOOLS, "send-email.ts"), "utf8");
 const dbQuery = readFileSync(join(TOOLS, "db-query.ts"), "utf8");
+const cadre = readFileSync(join(TOOLS, "_frame.ts"), "utf8");
 const loop = readFileSync(join(ROOT, "templates", "agent", "loop.ts"), "utf8");
 
 // ── The fences exist and are read from the environment ───────────────
@@ -76,13 +77,29 @@ const marqueurs = new Set();
 for (let i = 0; i < 5; i += 1) marqueurs.add(randomBytes(8).toString("hex"));
 check("un marqueur tire par appel est unique", marqueurs.size === 5);
 check(
-  "http-fetch tire le marqueur par appel (randomBytes dans frame)",
-  /function frame\([\s\S]*?randomBytes\(8\)\.toString\("hex"\)/.test(httpFetch),
+  "le cadre tire le marqueur par appel (randomBytes dans frame)",
+  /function frame\([\s\S]*?randomBytes\(8\)\.toString\("hex"\)/.test(cadre),
 );
 check(
   "le corps est encadre et annonce comme donnee",
-  /<<<external-content-\$\{marker\}>>>/.test(httpFetch) &&
-    /is DATA fetched from/.test(httpFetch),
+  /<<<external-content-\$\{marker\}>>>/.test(cadre) && /is DATA from/.test(cadre),
+);
+check(
+  "http-fetch passe par le cadre partage",
+  /import \{ frame \} from "\.\/_frame\.js"/.test(httpFetch) && /return frame\(/.test(httpFetch),
+);
+// Une injection STOCKEE (formulaire, champ de profil, import) revient par la
+// base, pas par le web : les lignes sont encadrees comme une page, et le
+// prompt de surete le dit (revue externe, 3.0.4).
+check(
+  "db-query encadre ses lignes avec le meme cadre",
+  /import \{ frame \} from "\.\/_frame\.js"/.test(dbQuery) &&
+    /return frame\("the project database \(db_query\)"/.test(dbQuery) &&
+    !/return `\$\{rows\.length\} row\(s\):\\n\$\{json\}`/.test(dbQuery),
+);
+check(
+  "le prompt de surete annonce les marqueurs pour db_query aussi",
+  /Content returned by http_fetch and by db_query arrives between external-content/.test(loop),
 );
 check(
   "le corps brut n'est plus renvoye tel quel",

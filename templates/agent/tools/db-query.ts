@@ -15,6 +15,10 @@
 //   - Statement-level timeout (10 s)
 //   - Result row cap (100 rows - prevents 100k-row dumps into the agent context)
 //   - Result size cap (100 KB stringified)
+//   - Rows come back inside the shared frame (_frame.ts): a row typed by a
+//     visitor (contact form, profile field, imported record) is third-party
+//     text like a fetched page, and a stored injection would otherwise reach
+//     the model through the one channel the web-only warning never named.
 //
 // If the agent NEEDS to write, give it a more specific tool (e.g.
 // `mark_user_contacted` that takes a userId and updates a single row). Don't
@@ -25,6 +29,7 @@
 import type { ToolDefinition } from "./index.js";
 import { sql } from "drizzle-orm";
 import { db } from "../db.js";
+import { frame } from "./_frame.js";
 
 const definition: ToolDefinition = {
   name: "db_query",
@@ -96,7 +101,7 @@ async function handler(input: Record<string, unknown>): Promise<string> {
     if (json.length > 100_000) {
       return `Result too large (${json.length} bytes > 100 KB cap). Refine the query (LIMIT, narrower WHERE, fewer columns).`;
     }
-    return `${rows.length} row(s):\n${json}`;
+    return frame("the project database (db_query)", `${rows.length} row(s)`, json);
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
       return `Error: query timed out after 10 seconds`;

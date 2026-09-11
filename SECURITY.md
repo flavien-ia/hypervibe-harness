@@ -76,10 +76,14 @@ can stop at any point.
 ## Guardrails
 
 Irreversible operations are guarded mechanically, not merely discouraged in
-prose. A `PreToolUse` hook refuses a sweeping `git add -A` and destructive SQL,
-and asks for your confirmation before a push, a direct production deploy (also
-when it hides behind `npx` or `pnpm dlx`), a worker deploy, a schema push,
-cloud deletions or a hard reset. The full table is in the README.
+prose. A `PreToolUse` hook, on `Bash` and on `Monitor` (the other tool that
+runs shell commands), refuses a sweeping `git add -A` and destructive SQL, and
+asks for your confirmation before a push, a direct production deploy, a worker
+deploy, a schema push, cloud deletions or a hard reset. The rules never see the
+raw head of a command: `sudo`, `command`, `env`, `time`, a launcher (`npx`,
+`pnpm dlx`), a version pin, an absolute path, a subshell or a `sh -c` payload
+are stripped or unfolded first, so a shape the rules did not foresee does not
+hide what they forbid. The full table is in the README.
 
 Two properties matter here:
 
@@ -175,7 +179,10 @@ of ours, whatever the repository says. What the signature covers is the source
 tree: the archive served by hypervibe.fr is rebuilt from that tag, and its
 fingerprint lives in the release notes, which the tag does not sign. Should the
 key ever be replaced, the new one will be announced here with the old one kept
-alongside it, so that older tags stay verifiable.
+alongside it, so that older tags stay verifiable. The release procedure itself
+(what runs before a tag exists, what is verified before the push, how the
+fingerprint is produced) is written down in [RELEASE.md](RELEASE.md): the
+pipeline is a private script, its steps are not.
 
 ## Reporting a vulnerability
 

@@ -114,6 +114,57 @@ function withoutLauncher(seg) {
   return m ? seg.slice(m[0].length) : seg;
 }
 
+/** `wrangler@latest deploy` is `wrangler deploy`: a version pin on the head
+ *  token is dropped, a scoped package (`@scope/pkg`) keeps its `@`. Found by
+ *  an outside reader on 3.0.4: `withoutLauncher` alone left it unmatched. */
+function withoutVersion(seg) {
+  return seg.replace(/^([^@\s]+)@[^\s/]+(?=\s|$)/, "$1");
+}
+
+/** Where a command hides. `sudo git add -A`, `/usr/bin/git add -A`,
+ *  `command git add -A`, `(git add -A && ...)`, `{ git add -A; }`,
+ *  `if x; then git add -A; fi`: one family, and the family is infinite, so
+ *  a pattern per shape never closes it (outside review, 3.0.4). The rules
+ *  therefore never see the raw head of a segment: the openers a shell
+ *  swallows are peeled off, the prefixes that run the rest unchanged are
+ *  dropped with their own options, a quoted or backslashed head is
+ *  unquoted, a launcher and a version pin go, and a path is reduced to its
+ *  binary. Repeated until nothing changes, because the shapes stack
+ *  (`sudo env FOO=1 /usr/bin/git ...`). The assignments met on the way are
+ *  collected: the escape prefixes are read from them. */
+function normalise(raw) {
+  const env = new Map();
+  let s = raw.trim();
+  for (let round = 0; round < 16; round += 1) {
+    const before = s;
+    // Openers and keywords a shell swallows before the command itself, and
+    // the closers of the same blocks at the end.
+    s = s.replace(/^(?:[({]\s*|(?:then|do|else|elif|if|while|until)\s+|!\s+)/, "");
+    s = s.replace(/[\s;]*[)}]+$/, "");
+    // A whole segment in quotes (`eval "git push"`) is the command it quotes.
+    s = s.replace(/^(["'])(.*)\1$/, "$2");
+    // `FOO=1 git push`: assignments carry the escape prefixes, keep them.
+    const e = withoutEnv(s);
+    for (const [k, v] of e.env) env.set(k, v);
+    s = e.rest;
+    // Prefixes that run the rest unchanged, with their own options.
+    s = s.replace(/^(?:sudo|doas)(?:\s+(?:-[ug]\s+\S+|-[A-Za-z]+|--\S*))*\s+/, "");
+    s = s.replace(/^env(?:\s+-i)?(?:\s+-u\s+\S+)*\s+/, "");
+    s = s.replace(/^nice(?:\s+-n\s+\S+|\s+-\d+)?\s+/, "");
+    s = s.replace(/^time(?:\s+-p)?\s+/, "");
+    s = s.replace(/^(?:command(?:\s+-p)?|builtin|exec|nohup|eval)\s+/, "");
+    // A quoted or escaped head: `"git" push`, `\git push`.
+    s = s.replace(/^(["'])([^"'\s]+)\1(?=\s|$)/, "$2").replace(/^\\(?=\S)/, "");
+    // A launcher, a version pin, a path: `npx wrangler@latest deploy`,
+    // `/usr/bin/git push`, `./node_modules/.bin/vercel --prod`.
+    s = withoutVersion(withoutLauncher(s));
+    s = s.replace(/^(?:[A-Za-z]:)?[^\s"'=]*\/(?=[^\s/]+(?:\s|$))/, "");
+    s = normaliseGit(s);
+    if (s === before) break;
+  }
+  return { env, seg: s.trim() };
+}
+
 const DENY = "deny";
 const ASK = "ask";
 
@@ -121,7 +172,7 @@ const ASK = "ask";
  * @param {string} command  the Bash command Claude is about to run
  * @returns {{decision: "deny"|"ask", reason: string} | null}
  */
-export function decide(command) {
+export function decide(command, inherited = new Map()) {
   if (!command || typeof command !== "string") return null;
 
   let worst = null;
@@ -132,8 +183,25 @@ export function decide(command) {
   };
 
   for (const raw of segments(command)) {
-    const { env, rest } = withoutEnv(raw);
-    const seg = normaliseGit(withoutLauncher(rest));
+    const { env, seg } = normalise(raw);
+    for (const [k, v] of inherited) if (!env.has(k)) env.set(k, v);
+    if (!seg) continue;
+
+    // A shell handed a command string runs it: `sh -c "git push"` is a push,
+    // `bash -lc "git add -A && git push"` is both. The payload is a command
+    // line of its own and goes through the same decision, with the
+    // assignments met on the way (an escape prefix is typed outside the
+    // quotes, where the caller can see it).
+    if (
+      /^(?:sh|bash|zsh|dash|ksh|fish)\s/.test(seg) &&
+      /^\S+(?:\s+-[A-Za-z-]+)*\s+-[A-Za-z]*c[A-Za-z]*\s/.test(seg)
+    ) {
+      for (const payload of quotedPayloads(seg)) {
+        const inner = decide(payload, env);
+        if (inner) keep(inner.decision, inner.reason);
+      }
+      continue;
+    }
 
     // 1. Sweeping stage. No legitimate use in a repository where another
     //    session may be working, and the alternative is one word longer.
@@ -147,8 +215,8 @@ export function decide(command) {
     //    names its own bypass is bypassed by its reader (outside review,
     //    2.9.5). Same for the push rule.
     if (
-      /^git\s+add\s+(-A\b|--all\b|-u\b|\.(\s|$))/.test(seg) ||
-      /^git\s+add\s+[^|&]*\s(-A|--all|-u)(\s|$)/.test(seg) ||
+      /^git\s+add\s+(-[a-zA-Z]*[Au][a-zA-Z]*\b|--all\b|--update\b|\.(\s|$))/.test(seg) ||
+      /^git\s+add\s+[^|&]*\s(-[a-zA-Z]*[Au][a-zA-Z]*|--all|--update|\.)(\s|$)/.test(seg) ||
       /^git\s+commit\s+(-[a-zA-Z]*a[a-zA-Z]*|--all)(\s|$)/.test(seg)
     ) {
       if (env.get("HYPERVIBE_GUARD_ALLOW_SWEEP") === "1") continue;
@@ -184,9 +252,15 @@ export function decide(command) {
     }
 
     // 3. Deploying straight to production, bypassing the git history.
+    //    `--target production` is Vercel's own long form of `--prod`, and
+    //    `vercel build --prod` builds locally and deploys nothing: not a
+    //    deploy, so not a question (outside review, 3.0.4).
     if (
       /^vercel\b/.test(seg) &&
-      (/--prod\b/.test(seg) || /^vercel\s+(promote|rollback)\b/.test(seg))
+      !/^vercel\s+build\b/.test(seg) &&
+      (/--prod\b/.test(seg) ||
+        /--target[= ]production\b/.test(seg) ||
+        /^vercel\s+(promote|rollback)\b/.test(seg))
     ) {
       keep(
         ASK,
@@ -202,7 +276,11 @@ export function decide(command) {
     //     from Node (ensure.mjs, register.mjs), which the hook does not see and
     //     which sit behind their skills' confirmations; this covers the model
     //     reaching for wrangler directly (outside review, 2.9.5).
-    if (/^wrangler\s+(deploy|publish|versions\s+deploy|secret\s+(put|bulk))\b/.test(seg)) {
+    //     A `--dry-run` deploys nothing, like `git push --dry-run` above.
+    if (
+      /^wrangler\s+(deploy|publish|versions\s+deploy|secret\s+(put|bulk))\b/.test(seg) &&
+      !/--dry-run\b/.test(seg)
+    ) {
       keep(
         ASK,
         "Deploying a worker or writing one of its secrets touches code that runs with the account's keys. Confirm with the user first.",
@@ -217,7 +295,12 @@ export function decide(command) {
     //    is the one interruption you cannot afford in front of an audience.
     //    Documented in the README and in the skills that need it, never in
     //    the reason below, which the model reads.
-    if (/(^|\s)(pnpm|npm|yarn)\s+(run\s+)?db:push\b/.test(seg) || /drizzle-kit\s+push\b/.test(seg)) {
+    //    The monorepo form (`pnpm --filter web db:push`, `pnpm -r db:push`) is
+    //    the one _convert-to-turborepo generates: same push, same question.
+    if (
+      /(^|\s)(pnpm|npm|yarn)\s+(?:(?:--filter(?:=\S+|\s+\S+)|-F\s+\S+|-r|--recursive|-w|--workspace(?:=\S+|\s+\S+)?|--prefix(?:=\S+|\s+\S+)|-C\s+\S+|--dir\s+\S+)\s+)*(?:run\s+)?db:push\b/.test(seg) ||
+      /drizzle-kit\s+push\b/.test(seg)
+    ) {
       if (env.get("HYPERVIBE_GUARD_ALLOW_DB_PUSH") === "1") continue;
       keep(
         ASK,
@@ -227,8 +310,10 @@ export function decide(command) {
     }
 
     // 5. Cloud deletions. /delete-project already double-confirms; this covers
-    //    the script being reached any other way.
-    if (/execute-deletions\.mjs/.test(seg)) {
+    //    the script being reached any other way. Only when a runtime LAUNCHES
+    //    it: `cat` or `grep` on the file is a read, and asking there is the
+    //    same wolf rule 6 stopped crying on 3.0.1 (outside review, 3.0.4).
+    if (/^(?:node|bun|deno|tsx)\s/.test(seg) && /execute-deletions\.mjs/.test(seg)) {
       keep(
         ASK,
         "Irreversible cloud deletions (Vercel, Neon, R2, DNS). This runs only inside /delete-project, after its explicit double confirmation.",
@@ -249,7 +334,10 @@ export function decide(command) {
       const unbounded =
         (/\bDELETE\s+FROM\b/i.test(sql) || /\bUPDATE\b[\s\S]*\bSET\b/i.test(sql)) &&
         !/\bWHERE\b/i.test(sql);
-      if (destructive && !/--destructif\b/.test(seg)) {
+      // run-sql.mjs accepts both spellings of the flag; so does this rule,
+      // or the alias its own usage documents is refused with a message that
+      // tells the user to do what they just did (outside review, 3.0.4).
+      if (destructive && !/--destructi(?:f|ve)\b/.test(seg)) {
         keep(
           DENY,
           "Destructive SQL refused (DROP / TRUNCATE). If it is genuinely intended, re-run the same command with the `--destructif` flag, which will ask the user to confirm.",
@@ -268,9 +356,9 @@ export function decide(command) {
     // 7. Discarding uncommitted work, possibly someone else's.
     if (
       /^git\s+reset\s+(--hard|--merge)\b/.test(seg) ||
-      /^git\s+checkout\s+--\s+\.(\s|$)/.test(seg) ||
+      /^git\s+checkout\s+(?:--\s+)?\.(\s|$)/.test(seg) ||
       /^git\s+restore\s+(--\S+\s+)*\.(\s|$)/.test(seg) ||
-      /^git\s+clean\s+-[a-zA-Z]*f/.test(seg)
+      /^git\s+clean\s+(?:-\S+\s+)*(?:-[a-zA-Z]*f[a-zA-Z]*|--force)\b/.test(seg)
     ) {
       keep(
         ASK,

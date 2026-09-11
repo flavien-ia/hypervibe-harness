@@ -157,6 +157,73 @@ for (const cmd of ["git add -A", "git push origin main"]) {
   console.log(`${ok ? "OK  " : "FAIL"} la raison de « ${cmd} » ne cite pas le prefixe d'exception`);
 }
 
+console.log("\n── La tete de la commande ne cache rien (revue externe, 3.0.4) ──");
+expect("sudo git add -A", "deny");
+expect("sudo -u deploy -E git add -A", "deny");
+expect("/usr/bin/git add -A", "deny");
+expect("command git add -A", "deny");
+expect("env FOO=1 git add -A", "deny");
+expect("(git add -A && git commit -m x)", "deny");
+expect("{ git add -A; }", "deny");
+expect("if true; then git add -A; fi", "deny");
+expect("git add -Av", "deny");
+expect("git add -v -A", "deny");
+expect('sh -c "git add -A"', "deny");
+expect("bash -lc 'git add -A && git push origin main'", "deny");
+expect('eval "git add -A"', "deny");
+expect("\\git add -A", "deny");
+expect('"git" add -A', "deny");
+expect("time git push origin main", "ask");
+expect("nice -n 10 git push origin main", "ask");
+expect('bash -c "git push origin main"', "ask");
+expect("while true; do git push origin main; done", "ask");
+expect("./node_modules/.bin/vercel --prod", "ask");
+expect("vercel deploy --target production", "ask");
+expect("vercel deploy --target=production", "ask");
+expect("npx wrangler@latest deploy", "ask");
+expect("pnpm --filter web db:push", "ask");
+expect("pnpm --filter=web run db:push", "ask");
+expect("pnpm -r db:push", "ask");
+expect("git checkout .", "ask");
+expect("git clean --force", "ask");
+expect("git clean -d -f", "ask");
+expect('node run-sql.mjs --destructive "DROP TABLE tmp_import"', "ask");
+expect('HYPERVIBE_GUARD_ALLOW_PUSH=1 bash -c "git push origin main"', "pass");
+expect("HYPERVIBE_GUARD_ALLOW_SWEEP=1 sudo git add -A", "pass");
+// ... et ce qui ressemble a ces formes sans en etre : le sens que personne ne teste.
+expect("grep -n confirm scripts/delete-project/execute-deletions.mjs", "pass");
+expect("cat scripts/delete-project/execute-deletions.mjs", "pass");
+expect("vercel build --prod", "pass");
+expect("npx wrangler deploy --dry-run", "pass");
+expect("git clean -n", "pass");
+expect("git checkout main", "pass");
+expect("git checkout -- src/app.ts", "pass");
+expect("git add -f .gitignore", "pass");
+expect("sudo apt-get install -y git", "pass");
+expect("command -v git", "pass");
+expect("bash scripts/deploy.sh", "pass");
+expect('sh -c "ls -la"', "pass");
+expect('echo "(git add -A)"', "pass");
+expect("time pnpm test", "pass");
+expect("env | grep PATH", "pass");
+expect("vercel env pull --environment=production", "pass");
+
+console.log("\n── Monitor execute du shell comme Bash ──");
+checks += 1;
+{
+  const r = call({ tool_name: "Monitor", tool_input: { command: "git push origin main" }, hook_event_name: "PreToolUse" });
+  const ok = r?.permissionDecision === "ask";
+  if (!ok) failures += 1;
+  console.log(`${ok ? "OK  " : "FAIL"} Monitor: git push -> ask`);
+}
+checks += 1;
+{
+  const r = call({ tool_name: "Monitor", tool_input: { command: "tail -f app.log | grep --line-buffered ERROR" }, hook_event_name: "PreToolUse" });
+  const ok = r === null;
+  if (!ok) failures += 1;
+  console.log(`${ok ? "OK  " : "FAIL"} Monitor: une veille ordinaire passe`);
+}
+
 console.log("\n── Robustesse (fail-open) ──");
 checks += 1;
 {
