@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.1.7 (13 septembre 2026)
+
+### Corrections
+- **Un dossier utilisateur avec un espace ne casse plus rien.** Sur Windows, quand le profil s'appelle par exemple `C:\Users\Prénom Nom`, les scripts du plugin étaient lancés à travers un shell qui coupait leur chemin à l'espace : /delete-project échouait à retirer la sauvegarde automatique, /save-project ne produisait pas son export de base, et la fenêtre du coffre-fort ne s'ouvrait jamais (ni pour le déverrouiller, ni pour y ranger une clé pendant /start). Les scripts se lancent désormais sans shell, les commandes Windows qui en exigent un reçoivent chaque argument protégé, et une recette rejoue le scénario depuis un dossier avec un espace.
+- **Le zip de /save-project n'a plus besoin de python** : il est écrit par le plugin lui-même, à l'identique sur tous les systèmes. Sur beaucoup de postes Windows, `python` n'était que l'alias du Store et la sauvegarde échouait à sa dernière étape.
+- **/start ne dépend plus du chemin d'installation de l'auteur** : ses scripts se trouvent par rapport à la skill, quelle que soit la façon dont le plugin a été installé.
+
+### Améliorations
+- **Une sauvegarde plus honnête** : quand Vercel ne répond pas (projet déjà retiré), les fichiers `.env` locaux sont copiés ; les fichiers non suivis par git sont copiés et plus seulement listés ; la mémoire Claude est cherchée dans tous les dossiers qui mentionnent le projet, pas seulement dans le sien ; le dossier de sortie par défaut est votre dossier Téléchargements.
+- **/delete-project** rouvre le coffre-fort avant l'inventaire, dit « coffre verrouillé » plutôt que « clé manquante » quand c'est le cas, et ne laisse plus de titre orphelin dans l'index de mémoire.
+
+### Coulisses
+- Deux recettes de plus (chemins avec espace, écriture du zip), un contrôle qui interdit le retour de l'ancienne forme de lancement dans tous les scripts, et un fichier de correspondance des règles du garde-fou pour un futur portage vers OpenCode, sans effet ici. Signalé par un utilisateur de la 3.1.5.
+
 ## v3.1.6 (13 septembre 2026)
 
 ### Corrections
