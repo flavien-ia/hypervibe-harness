@@ -22,24 +22,25 @@ let failures = 0;
 let checks = 0;
 const timings = [];
 
-function call(payload) {
+function call(payload, env = {}) {
   const started = process.hrtime.bigint();
   const out = execFileSync(process.execPath, [HOOK], {
     input: typeof payload === "string" ? payload : JSON.stringify(payload),
     encoding: "utf8",
+    env: { ...process.env, HYPERVIBE_GUARD_ALLOW_DB_PUSH: "", ...env },
   });
   timings.push(Number(process.hrtime.bigint() - started) / 1e6);
   if (!out.trim()) return null;
   return JSON.parse(out).hookSpecificOutput;
 }
 
-function bash(command) {
-  return call({ tool_name: "Bash", tool_input: { command }, hook_event_name: "PreToolUse" });
+function bash(command, env = {}) {
+  return call({ tool_name: "Bash", tool_input: { command }, hook_event_name: "PreToolUse" }, env);
 }
 
-function expect(command, attendu) {
+function expect(command, attendu, env = {}) {
   checks += 1;
-  const r = bash(command);
+  const r = bash(command, env);
   const obtenu = r?.permissionDecision ?? "pass";
   const ok = obtenu === attendu;
   if (!ok) failures += 1;
@@ -125,8 +126,16 @@ expect('HYPERVIBE_GUARD_ALLOW_PUSH=1 git -C "C:/DEV/x" push origin main --follow
 expect('git -C "C:/DEV/x" status --porcelain', "pass");
 expect("git -C x add CHANGELOG.md .claude-plugin/plugin.json", "pass");
 expect("git -C x ls-remote --tags origin v1", "pass");
-expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=1 pnpm db:push", "pass");
-expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=1 npx drizzle-kit push", "pass");
+// L'echappatoire du schema vient de l'environnement de la SESSION (pose par un
+// humain avant de lancer Claude Code), jamais de la commande que tape le modele
+// (revue externe, 3.1.4) : le prefixe ne suffit plus, la variable de session si.
+expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=1 pnpm db:push", "ask");
+expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=1 npx drizzle-kit push", "ask");
+expect("pnpm db:push", "pass", { HYPERVIBE_GUARD_ALLOW_DB_PUSH: "1" });
+expect("npx drizzle-kit push", "pass", { HYPERVIBE_GUARD_ALLOW_DB_PUSH: "1" });
+expect("pnpm --filter web db:push", "pass", { HYPERVIBE_GUARD_ALLOW_DB_PUSH: "1" });
+expect("git push origin main", "ask", { HYPERVIBE_GUARD_ALLOW_DB_PUSH: "1" });
+expect("git add -A", "deny", { HYPERVIBE_GUARD_ALLOW_DB_PUSH: "1" });
 expect("HYPERVIBE_GUARD_ALLOW_SWEEP=0 git add -A", "deny");
 expect("HYPERVIBE_GUARD_ALLOW_PUSH=1 git add -A", "deny");
 expect("HYPERVIBE_GUARD_ALLOW_DB_PUSH=0 pnpm db:push", "ask");

@@ -298,11 +298,18 @@ check(
   // extension legitime de ce qu'il protege finit par etre desactive.
   const r = lire("hooks/rules.mjs");
   const mentions = r.match(/HYPERVIBE_GUARD_ALLOW_[A-Z_]+/g) ?? [];
-  const lectures = r.match(/env\.get\("HYPERVIBE_GUARD_ALLOW_[A-Z_]+"\)/g) ?? [];
+  // Deux lectures possibles : la commande (`env.get`, les prefixes tapes) et
+  // l'environnement de la session (`process.env`, pose par un humain avant de
+  // lancer Claude Code, la seule forme de l'exception du schema depuis 3.1.5).
+  const lectures = r.match(/(?:env\.get\("|process\.env\.)HYPERVIBE_GUARD_ALLOW_[A-Z_]+/g) ?? [];
   check(
     "rules.mjs ne cite les prefixes ALLOW_* que pour les lire, jamais dans une raison",
     mentions.length > 0 && mentions.length === lectures.length,
     `${mentions.length} mention(s) pour ${lectures.length} lecture(s)`,
+  );
+  check(
+    "l'exception du schema vient de l'environnement de la session, jamais de la commande",
+    /process\.env\.HYPERVIBE_GUARD_ALLOW_DB_PUSH === "1"/.test(r) && !/env\.get\("HYPERVIBE_GUARD_ALLOW_DB_PUSH"\)/.test(r),
   );
 }
 
@@ -394,12 +401,25 @@ check(
     sans.length === 0,
     sans.join(", "),
   );
-  // Les skills qui touchent au reseau sans etre dans la liste : a evaluer a
-  // la prochaine revue, pas un echec (un curl vers sa propre API n'est pas une
-  // lecture de contenu tiers).
+  // Les skills qui touchent au reseau sans etre dans la liste ont ete lues une
+  // par une (11 septembre 2026) : aucune ne fait lire au modele du texte ecrit
+  // par un tiers. Un curl vers l'API du compte (Cloudflare, le worker partage),
+  // un curl vers le serveur de dev local, ou `fetch(` dans un gabarit de code
+  // ne sont pas des lectures de contenu tiers. Une skill qui sort de cette
+  // liste, ou une nouvelle qui touche au reseau, reapparait ici : a evaluer.
+  const EVALUEES_SANS_BLOC = new Set([
+    "add-cron", // curl vers le worker partage du compte
+    "add-domain", // API Cloudflare du compte ; les registrars sont dans les _dns-*
+    "add-i18n", // curl vers le serveur de dev local
+    "clean", // `fetch(` est un motif cherche dans le code, pas un appel
+    "new-email-address", // API Cloudflare du compte
+    "_check-deps", // le mot curl en prose
+    "_create-cloudflare-worker", // `fetch(request)` dans le gabarit du worker
+    "_migrate-workers", // curl vers le worker partage du compte
+  ]);
   const reseau = readdirSync(join(ROOT, "skills")).filter((d) => {
     const f = join(ROOT, "skills", d, "SKILL.md");
-    if (!existsSync(f)) return false;
+    if (!existsSync(f) || EVALUEES_SANS_BLOC.has(d)) return false;
     const t = readFileSync(f, "utf8");
     return /WebFetch|curl |fetch\(|pagespeed|npm audit|pnpm audit|dig |nslookup/.test(t) && !t.includes(PHRASE);
   });
@@ -499,6 +519,27 @@ check(
     /test|recipe/i.test(release) && /verify-tag/.test(release) && /SHA-256/.test(release) && /verification/.test(release),
   );
   check("SECURITY.md renvoie a RELEASE.md", /RELEASE\.md/.test(securite));
+}
+
+// ── Un clone n'execute jamais les hooks qu'il transporte ─────────────
+{
+  // La recette executee vit dans test-hooks-chain.mjs ; ici, la promesse de la
+  // page et la forme du bloc (revue externe, 3.1.4).
+  const chain = lire("scripts/ensure-hooks-chain.mjs");
+  check(
+    "le bloc de chainage exige l'opt-in local (git config hypervibe.hooks) avant d'executer .hooks/*",
+    /TRUST_KEY = "hypervibe\.hooks"/.test(chain) && /--local --bool --get \$\{TRUST_KEY\}/.test(chain) && /never carries|never cloned/.test(chain),
+  );
+  check(
+    "SECURITY.md dit qu'un clone n'execute jamais ses hooks sans opt-in local",
+    /a clone never carries/.test(securite) && /never run/.test(securite),
+  );
+  check("la recette du chainage est branchee dans run-all", /test-hooks-chain\.mjs/.test(lire("scripts/tests/run-all.mjs")));
+  const ci = lire("templates/tests/tests.yml");
+  check(
+    "le gabarit d'action GitHub reduit le jeton a la lecture et ne leve jamais la protection des scripts d'installation",
+    /^permissions:\n\s+contents: read/m.test(ci) && !/approve-builds/.test(ci),
+  );
 }
 
 // ── La page dit ce qu'elle promet (garde contre une page videe) ──────

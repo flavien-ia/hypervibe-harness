@@ -28,6 +28,7 @@ import { render } from "./_render.mjs";
 import { isI18nSetUp } from "./_i18n-detect.mjs";
 
 import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
+import { checkBeforeForcePush } from "./neon/schema-drift.mjs";
 
 // Prepend common CLI install dirs to process.env.PATH so subprocess invocations
 // (pnpm, gh, vercel, git, node) find their binaries even if Claude Code
@@ -348,11 +349,22 @@ function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 async function pushSchema() {
   log("Pushing schema with drizzle-kit");
   const env = { ...process.env };
+  // The users table may already hold accounts: say what the push would
+  // destroy before letting --force through (scripts/neon/schema-drift.mjs).
+  const drift = await checkBeforeForcePush({ dir: WEB_DIR, env });
+  if (drift.status !== "safe") console.log(drift.text);
+  if (drift.block) {
+    fail(
+      "Schema patched on disk but NOT pushed: the live database holds data that schema.ts does not declare " +
+        "(listed above), and the push would delete it. Show the list to the user, declare those tables/columns " +
+        "in schema.ts or get an explicit go to drop them, then retry: `cd " + WEB_DIR + " && npx drizzle-kit push`",
+    );
+  }
   // drizzle-kit reads DATABASE_URL from the project's .env via the validator.
   const probe = spawnSync("npx drizzle-kit push --help", {
     cwd: WEB_DIR, stdio: "pipe", shell: true, encoding: "utf8", env,
   });
-  const supportsForce = probe.stdout?.includes("--force");
+  const supportsForce = drift.allowForce && probe.stdout?.includes("--force");
   const cmd = supportsForce ? "npx drizzle-kit push --force" : "npx drizzle-kit push";
   const res = spawnSync(cmd, { cwd: WEB_DIR, stdio: "inherit", shell: true, env });
   if (res.status !== 0) {

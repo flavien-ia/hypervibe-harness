@@ -5,10 +5,18 @@ name: Tests et recette
 # de recette (scripts/check-recette.mjs). Une croix rouge sur GitHub = quelque
 # chose n'est pas recetté. Le hook pre-push du dépôt fait la même chose sur le
 # poste, avant l'envoi ; ici c'est la trace que tout le monde voit.
+#
+# Le jeton du dépôt est réduit à la lecture : un script d'installation de
+# dépendance n'a rien d'autre à portée. Et la liste des paquets autorisés à en
+# exécuter un est celle du projet (pnpm.onlyBuiltDependencies dans package.json,
+# ou allowBuilds dans pnpm-workspace.yaml), jamais « tous ».
 
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   recette:
@@ -24,7 +32,7 @@ jobs:
       - name: Installer les dépendances
         run: |
           corepack enable
-          pnpm install --frozen-lockfile || { pnpm approve-builds --all || true; pnpm install --frozen-lockfile; }
+          pnpm install --frozen-lockfile
       - name: Tests
         run: pnpm test
       - name: Cahier de recette complet

@@ -730,12 +730,28 @@ function checkTests() {
     const recette = existsSync(resolve(dir, "docs/recette.md"));
     const checker = existsSync(resolve(dir, "scripts/check-recette.mjs"));
     const hook = existsSync(resolve(".hooks/pre-push"));
+    // The hook only runs in a checkout that opted in (local git config, never
+    // cloned): a clone with the recette but without the opt-in is complete for
+    // git and inert for the guard. Say so; never opt in on the user's behalf.
+    let trusted = true;
+    if (hook) {
+      try {
+        trusted =
+          execSync("git config --local --bool --get hypervibe.hooks", {
+            encoding: "utf8",
+            stdio: ["ignore", "pipe", "ignore"],
+          }).trim() === "true";
+      } catch {
+        trusted = false;
+      }
+    }
     if (!vitest && !recette && !checker) continue;
     const manque = [
       !vitest && "vitest",
       !recette && "docs/recette.md",
       !checker && "scripts/check-recette.mjs",
       !hook && ".hooks/pre-push",
+      hook && !trusted && "opt-in des hooks sur ce clone (git config hypervibe.hooks true)",
     ].filter(Boolean);
     if (manque.length > 0) {
       return { ok: false, reason: `installation incomplète (manque : ${manque.join(", ")})`, webDir: dir, manque };

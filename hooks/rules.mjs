@@ -289,22 +289,24 @@ export function decide(command, inherited = new Map()) {
     }
 
     // 4. Schema push. On this stack the local database IS production.
-    //    Escape hatch, same shape as the push and sweep ones: a throwaway
-    //    database nobody depends on (a demo built live on stage, a scratch
-    //    project) has nothing to lose to a schema push, and the confirmation
-    //    is the one interruption you cannot afford in front of an audience.
-    //    Documented in the README and in the skills that need it, never in
-    //    the reason below, which the model reads.
+    //    Escape hatch, but NOT the same shape as the push and sweep ones: the
+    //    hook cannot tell a throwaway database (a demo built live on stage)
+    //    from production, and a prefix typed by the model in the command would
+    //    let the model decide that. So this exception is read from the
+    //    environment Claude Code was launched in, set by a human before the
+    //    session, never from the command line (outside review, 3.1.4).
+    //    Documented in the README, never in the reason below, which the model
+    //    reads.
     //    The monorepo form (`pnpm --filter web db:push`, `pnpm -r db:push`) is
     //    the one _convert-to-turborepo generates: same push, same question.
     if (
       /(^|\s)(pnpm|npm|yarn)\s+(?:(?:--filter(?:=\S+|\s+\S+)|-F\s+\S+|-r|--recursive|-w|--workspace(?:=\S+|\s+\S+)?|--prefix(?:=\S+|\s+\S+)|-C\s+\S+|--dir\s+\S+)\s+)*(?:run\s+)?db:push\b/.test(seg) ||
       /drizzle-kit\s+push\b/.test(seg)
     ) {
-      if (env.get("HYPERVIBE_GUARD_ALLOW_DB_PUSH") === "1") continue;
+      if (process.env.HYPERVIBE_GUARD_ALLOW_DB_PUSH === "1") continue;
       keep(
         ASK,
-        "A schema push writes to the live database (on this stack the local one IS production). Confirm with the user, and make sure the change is additive or migrated.",
+        "A schema push writes to the live database (on this stack the local one IS production). First run the plugin's scripts/neon/schema-drift.mjs from the folder holding drizzle.config (read-only): exit 3 lists the tables and columns the push would drop or truncate. Then confirm with the user, and make sure the change is additive or migrated.",
       );
       continue;
     }

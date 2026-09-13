@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.1.5 (13 septembre 2026)
+
+### Sécurité
+- **Un clone n'exécute plus jamais les hooks qu'il transporte.** Depuis la 3.1.0, les hooks git globaux posés par /start exécutaient le `.hooks/pre-commit` et le `.hooks/pre-push` versionnés de n'importe quel dépôt, y compris un dépôt fraîchement cloné pour être examiné. Ils ne s'exécutent plus qu'après un accord donné dans ce clone précis (`git config hypervibe.hooks true`, posé par /add-test, jamais transporté par un clone) ; sans accord, le hook se signale et ne fait rien. /start, /add-test et /update-hypervibe referment la porte sur une machine déjà équipée. Signalé en privé par un relecteur extérieur.
+- **L'exception de mise à jour de schéma vient de votre environnement, plus de la commande** : le préfixe que tapait le modèle ne suffit plus. Pour une base jetable (une démo sur scène), la variable se pose avant de lancer Claude Code.
+- **L'action GitHub des tests** réduit le jeton du dépôt à la lecture et n'autorise plus tous les scripts d'installation d'un coup : seule la liste du projet compte.
+
+### Améliorations
+- **Contrôle de dérive avant une mise à jour de schéma** : avant de pousser le schéma, le plugin compare le code à la base réelle et refuse de supprimer ce que la base contient et que le code ne déclare pas (une colonne ajoutée à la main, une table posée par un autre outil). Il l'explique et vous laisse choisir. Vécu sur un projet réel le 30 août.
+
+### Coulisses
+- Une recette exécute le scénario du chaînage (clone approuvé ou non, rafraîchissement d'un ancien hook), et le contrôle de dépendances signale un clone équipé dont l'accord manque.
+
 ## v3.1.4 (11 septembre 2026)
 
 ### Améliorations

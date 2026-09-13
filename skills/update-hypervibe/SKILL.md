@@ -103,6 +103,17 @@ Three things to say around it:
 
 If the current folder is **not** itself a web project, do not stop at that: it may be an **umbrella folder** holding several sub-projects (a parent directory with `site/`, `cockpit/`, `protos/<name>/`, each being its own repository). Look one and two levels down for folders that are **their own repository** (they contain `.git`, plus a `package.json`), list what you find, and offer to adopt each sub-project - each gets its own manifest at its own root, through the same dry-run then `--write` flow. A folder with a `package.json` but no `.git` of its own, sitting INSIDE a repository (e.g. `apps/web`), is an app of a **monorepo**, not a sub-project: the monorepo takes ONE manifest at its repository root, and the adoption runs from anywhere inside it (the tool anchors at the root on its own). The rule to state plainly: **one manifest per repository root, never in the umbrella folder** - the umbrella owns nothing, its sub-projects do. This nesting is exactly how existing projects get missed: a tour that only looks at the top level walks straight past them. If nothing is found at any level, mention that each existing project can be adopted by running the command from its folder, and move on.
 
+## Step 3c - Close the hooks chain on this machine
+
+Until 3.1.4 the global git hooks written by `/start` ran the versioned `.hooks/pre-commit` and `.hooks/pre-push` of ANY repository, a clone included, which is exactly what git's own hooks are never versioned to prevent. The block now runs a checkout's hooks only after a local opt-in (`git config hypervibe.hooks true`, set by `/add-test`, never cloned). An installed machine keeps the old block until something rewrites it, so run this right after the install (idempotent, a few milliseconds):
+
+```bash
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
+node "$PLUGIN_DIR/scripts/ensure-hooks-chain.mjs"
+```
+
+`REFRESHED` means the old block was replaced in both global hooks; `OK` means the machine was already closed; `INSTALLED` means the pre-push chain was missing and is now in place; `FOREIGN` means a pre-push that is not Hypervibe's exists and was left alone (say so, in one sentence). Then, if the current folder is a repository equipped by `/add-test` (it has a `.hooks/pre-push`), tell the user that its hook is now inert on this machine until they opt in, and offer the command `git config hypervibe.hooks true`. Run it only if they agree: it is their decision, per checkout.
+
 ## Step 4 - Wrap up
 
 > **Update installed (version `<version>`)! ✨**

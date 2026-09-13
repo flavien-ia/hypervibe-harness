@@ -35,7 +35,7 @@ Gives your project **automated tests** and a **cahier de recette** (an acceptanc
 - `tests/`: one test file per router, plus a helper that calls your API exactly like the application does
 - `vitest.config.ts` and the `pnpm test` / `pnpm recette` commands
 - `scripts/check-recette.mjs`: the checker (versioned, it runs on every machine and in CI)
-- `.hooks/pre-push`: the guard before publication (versioned too, so every collaborator has it)
+- `.hooks/pre-push`: the guard before publication (versioned too, so every collaborator has it; it runs only in a checkout that opted in, which this command does for yours, because a clone never executes the hooks it arrives with)
 - `.github/workflows/tests.yml`: the same guard on GitHub, visible to everyone
 - Two lines in `CLAUDE.md` that make the rule permanent
 

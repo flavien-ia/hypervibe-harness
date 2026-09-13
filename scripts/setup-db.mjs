@@ -39,6 +39,7 @@ import { getSecret } from "./vault/vault.mjs";
 import { resolveNeonOrg, withOrg, withOrgBody, orgHint } from "./neon-org.mjs";
 
 import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
+import { checkBeforeForcePush } from "./neon/schema-drift.mjs";
 
 // Prepend common CLI install dirs to process.env.PATH so subprocess invocations
 // (pnpm, gh, vercel, git, node) find their binaries even if Claude Code
@@ -390,6 +391,18 @@ async function pushSchema() {
   // Use --force (drizzle-kit 0.30+) to skip the interactive "ALTER vs DROP+CREATE"
   // prompt on a fresh empty DB. If --force is rejected on older versions, retry without.
   const env = { ...process.env, DATABASE_URL: state.connectionUri };
+  // --force also accepts data-loss statements. On a fresh database there is
+  // nothing to lose, but the database may already hold tables: say what the
+  // push would destroy before letting --force through (scripts/neon/schema-drift.mjs).
+  const drift = await checkBeforeForcePush({ dir: WEB_DIR, env });
+  if (drift.status !== "safe") console.log(drift.text);
+  if (drift.block) {
+    fail(
+      "Schema NOT pushed: the live database holds data that schema.ts does not declare (listed above), " +
+        "and the push would delete it. Show the list to the user, declare those tables/columns in schema.ts " +
+        "or get an explicit go to drop them, then push by hand.",
+    );
+  }
   const probe = spawnSync("npx drizzle-kit push --help", {
     cwd: WEB_DIR,
     stdio: "pipe",
@@ -397,7 +410,7 @@ async function pushSchema() {
     encoding: "utf8",
     env,
   });
-  const supportsForce = probe.stdout?.includes("--force");
+  const supportsForce = drift.allowForce && probe.stdout?.includes("--force");
   const cmd = supportsForce ? "npx drizzle-kit push --force" : "npx drizzle-kit push";
 
   const res = spawnSync(cmd, {

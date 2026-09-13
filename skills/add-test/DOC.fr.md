@@ -35,7 +35,7 @@ Donne à votre projet des **tests automatisés** et un **cahier de recette** lis
 - `tests/` : un fichier de tests par routeur, plus un utilitaire qui appelle votre API exactement comme l'application le fait
 - `vitest.config.ts` et les commandes `pnpm test` / `pnpm recette`
 - `scripts/check-recette.mjs` : le contrôle (versionné, il tourne sur chaque machine et en intégration continue)
-- `.hooks/pre-push` : le garde-fou avant publication (versionné aussi, pour que chaque collaborateur l'ait)
+- `.hooks/pre-push` : le garde-fou avant publication (versionné aussi, pour que chaque collaborateur l'ait ; il ne s'exécute que dans un clone qui l'a activé, ce que cette commande fait pour le vôtre, parce qu'un clone n'exécute jamais de lui-même les hooks qu'il transporte)
 - `.github/workflows/tests.yml` : le même garde-fou sur GitHub, visible de tous
 - Deux lignes dans `CLAUDE.md` qui rendent la règle permanente
 

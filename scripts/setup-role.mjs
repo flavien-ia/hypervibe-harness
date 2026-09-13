@@ -40,6 +40,7 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { render } from "./_render.mjs";
 import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
+import { checkBeforeForcePush } from "./neon/schema-drift.mjs";
 
 ensureToolsInPath();
 
@@ -314,8 +315,19 @@ async function patchSchema() {
 // ─── Step 3: drizzle-kit push ─────────────────────────────────────────
 async function pushSchema() {
   log("Pushing schema with drizzle-kit");
+  // Roles land on a users table that holds real accounts: say what the push
+  // would destroy before letting --force through (scripts/neon/schema-drift.mjs).
+  const drift = await checkBeforeForcePush({ dir: WEB_DIR });
+  if (drift.status !== "safe") console.log(drift.text);
+  if (drift.block) {
+    fail(
+      "Schema patched on disk but NOT pushed: the live database holds data that schema.ts does not declare " +
+        "(listed above), and the push would delete it. Show the list to the user, declare those tables/columns " +
+        "in schema.ts or get an explicit go to drop them, then retry: `cd " + WEB_DIR + " && npx drizzle-kit push`",
+    );
+  }
   const probe = capture("npx drizzle-kit push --help", WEB_DIR);
-  const supportsForce = probe.stdout?.includes("--force");
+  const supportsForce = drift.allowForce && probe.stdout?.includes("--force");
   const cmd = supportsForce ? "npx drizzle-kit push --force" : "npx drizzle-kit push";
   run(cmd, WEB_DIR);
   ok("Schema pushed to DB");

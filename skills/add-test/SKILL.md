@@ -181,21 +181,21 @@ pnpm tsc --noEmit && pnpm lint
 
 Test files are TypeScript like the rest of the project: they go through the same checks.
 
-## Step 9 - The hook on this machine
+## Step 9 - The hook on this machine, and the opt-in of this checkout
 
-The repository's `.hooks/pre-push` only runs if the machine's global git hooks hand over to it (Hypervibe sets `core.hooksPath` globally for the secret scan, which makes `.git/hooks` inert). Make sure the chain exists:
+The repository's `.hooks/pre-push` only runs if two things hold. The machine's global git hooks must hand over to it (Hypervibe sets `core.hooksPath` globally for the secret scan, which makes `.git/hooks` inert). And THIS checkout must have opted in: `.hooks/` files are versioned, so they arrive with any clone, and git does not version its hooks precisely so that cloning can never execute code. The opt-in is a local git config value (`hypervibe.hooks = true`), which a clone never carries. Both in one command, run from the repository:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/ensure-hooks-chain.mjs"
+node "${CLAUDE_SKILL_DIR}/../../scripts/ensure-hooks-chain.mjs" --trust
 ```
 
 | Output | Meaning |
 |---|---|
-| `OK` / `INSTALLED` | The global chain hook is in place. Every repository with a `.hooks/pre-push` is now guarded on this machine. |
-| `LOCAL` | No global hooks path (the secret scan was never installed): the chain was written into this repository's `.git/hooks/pre-push` instead. Suggest `/start` later, which installs the global setup. |
-| `FOREIGN` | A `pre-push` that is not Hypervibe's already exists. Do not overwrite it. Tell the user where it is (`~/.git-hooks/pre-push`) and what to add to it (the block that runs `.hooks/pre-push`). |
+| `OK` / `INSTALLED` / `REFRESHED` (followed by `TRUSTED`) | The global chain hook is in place (refreshed if an older, ungated block was found), and this checkout is trusted: its `.hooks/pre-push` now runs before every push. |
+| `LOCAL TRUSTED` | No global hooks path (the secret scan was never installed): the chain was written into this repository's `.git/hooks/pre-push` instead, and the checkout is trusted. Suggest `/start` later, which installs the global setup. |
+| `FOREIGN` | A `pre-push` that is not Hypervibe's already exists. Do not overwrite it. Tell the user where it is (`~/.git-hooks/pre-push`) and what to add to it (the chain block of `scripts/ensure-hooks-chain.mjs`). |
 
-Other people who clone the project get the same guard as soon as they have run `/start` (which installs the chain) - and the GitHub Action covers the case where they have not.
+Other people who clone the project do not get the guard by cloning, and that is the point: on their machine the hook announces itself at the first commit or push and stays inert until they opt in themselves, once, in their clone (`git config hypervibe.hooks true`). The GitHub Action covers the case where they have not.
 
 ## Step 10 - Update CLAUDE.md
 

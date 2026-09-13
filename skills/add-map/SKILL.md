@@ -253,7 +253,7 @@ export const locations = createTable("location", {
 });
 ```
 
-3. Push schema: `cd <WEB_DIR> && npx drizzle-kit push --force`
+3. Push schema: first `cd <WEB_DIR> && node "${CLAUDE_SKILL_DIR}/../../scripts/neon/schema-drift.mjs"` (read-only). Exit `0`: `npx drizzle-kit push --force`. Exit `4`: `npx drizzle-kit push` after telling the user what changes. Exit `3`: stop, the push would delete data the schema does not declare; show the list and follow choice 1 of `/add-db`'s menu.
 4. Create a tRPC procedure `locations.listActive` (public if the map is on a public page).
 5. (Optional) admin UI: page `/admin/locations` with basic CRUD. **Out of scope for v1** - offer the user to build it later in a follow-up "add me an admin to manage the locations".
 

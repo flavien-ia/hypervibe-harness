@@ -71,6 +71,7 @@ import { fileURLToPath } from "node:url";
 import { readUserEnv } from "./_read-user-env.mjs";
 
 import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
+import { checkBeforeForcePush } from "./neon/schema-drift.mjs";
 
 // Prepend common CLI install dirs to process.env.PATH so subprocess invocations
 // (pnpm, gh, vercel, git, node) find their binaries even if Claude Code
@@ -604,6 +605,14 @@ async function installDeps() {
 async function drizzlePush() {
   if (!state.schemaPatched) {
     warn("Schema not patched - skipping drizzle push (run pnpm db:push manually if you wired it up).");
+    return;
+  }
+  // The agent tables join an existing, populated database: say what the push
+  // would destroy before running it (scripts/neon/schema-drift.mjs).
+  const drift = await checkBeforeForcePush({ dir: join(REPO_ROOT, opts.webDir) });
+  if (drift.status !== "safe") process.stderr.write(drift.text + "\n");
+  if (drift.block) {
+    warn(`Schema NOT pushed: the push would delete data the schema does not declare (listed above). Show it to the user, fix schema.ts, then run pnpm db:push from ${opts.webDir}.`);
     return;
   }
   log("Running pnpm db:push to create agent tables in Neon");

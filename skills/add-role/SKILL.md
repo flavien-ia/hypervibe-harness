@@ -183,7 +183,8 @@ At the end, the script prints a JSON (last line of stdout). Parse it to confirm 
 **Common cases** :
 - `preflight` failed → often `src/lib/roles.ts` already exists (re-config) or a missing prerequisite clearly reported in the message.
 - `patchSchema` failed → the schema has an unexpected shape. Inspect and patch by hand.
-- `pushSchema` failed → DB unreachable or `drizzle-kit` crashes. Check `DATABASE_URL`, re-run.
+- `pushSchema` failed with **"Schema patched on disk but NOT pushed"** → the users table (or another) holds data that `schema.ts` does not declare, and the push would have deleted it (list printed just above). Show it to the user in plain words; declare those columns in `schema.ts` or get an explicit go, then `cd <WEB_DIR> && npx drizzle-kit push` (never `--force`).
+- `pushSchema` failed otherwise → DB unreachable or `drizzle-kit` crashes. Check `DATABASE_URL`, re-run.
 - `patchAuthTs` failed → the project's auth.ts was manually modified and no longer matches the pattern. Patch the callbacks by hand, taking inspiration from the script's `replace()` calls.
 
 ---

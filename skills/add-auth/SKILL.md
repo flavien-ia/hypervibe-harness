@@ -135,7 +135,7 @@ Steps (all driven by Claude):
 2. **Build the hybrid `auth.ts`**: marker → `// hypervibe:auth-modes admin, users`. Import `DrizzleAdapter`, schema tables, `eq`, `db`. Module augmentation `Session.user.id`. `authorize()`: admin path FIRST (check `email === ADMIN_USERNAME`, `getAdminPasswordHash`), users path as FALLBACK (`db.query.users.findFirst` → `verifyPassword`). Keep `isAdmin()`. Add jwt/session callbacks.
 3. **Extend `password.ts`**: add `hashPassword()` (from the users template). Keep `getAdminPasswordHash` + `verifyPassword`.
 4. **Patch schema.ts** - like `setup-auth-users.mjs` does in the `patchSchema` step: add the missing imports (`text, integer, primaryKey, index, timestamp` pg-core, `sql` drizzle-orm, `AdapterAccount` type next-auth/adapters), append the 4 NextAuth tables (+ `password_reset_tokens` if email_ok).
-5. **`pnpm db:push`** (or `--force`).
+5. **`pnpm db:push`**, after `node "${CLAUDE_SKILL_DIR}/../../scripts/neon/schema-drift.mjs"` from `<WEB_DIR>` (read-only): `--force` only on exit `0`; on exit `3` stop and show the user what the push would delete.
 6. **Patch trpc.ts** - add `protectedProcedure` (and `rateLimitedProcedure` if missing). Take inspiration from the `setup-auth-users.mjs` `addProtectedProcedure` step.
 7. **Create `src/server/api/routers/auth.ts`** from the right template (`auth-router.ts` or `auth-router-with-reset-{provider}.ts`).
 8. **Register in `root.ts`**: import + `auth: authRouter,`.

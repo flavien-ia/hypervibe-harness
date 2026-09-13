@@ -17,6 +17,7 @@ const SUITES = [
   ["managed rule blocks", join(ROOT, "scripts", "tests", "test-managed-block.mjs")],
   ["global block size", join(ROOT, "scripts", "rules", "measure.mjs")],
   ["bash guardrails", join(ROOT, "hooks", "test-hooks.mjs")],
+  ["git hooks chain (a clone never runs its hooks)", join(ROOT, "scripts", "tests", "test-hooks-chain.mjs")],
   ["agent template fences", join(ROOT, "scripts", "tests", "test-agent-template-tools.mjs")],
   ["SECURITY.md claims", join(ROOT, "scripts", "tests", "test-security-claims.mjs")],
   ["skill descriptions", join(ROOT, "scripts", "tests", "test-skill-descriptions.mjs")],
@@ -25,6 +26,7 @@ const SUITES = [
   ["vercel deploy URL parsing", join(ROOT, "scripts", "tests", "test-vercel-deploy-output.mjs")],
   ["pnpm workspace overrides", join(ROOT, "scripts", "tests", "test-pnpm-workspace.mjs")],
   ["map versions and worker", join(ROOT, "scripts", "tests", "test-map-pins.mjs")],
+  ["schema drift before db:push", join(ROOT, "scripts", "tests", "test-schema-drift.mjs")],
 ];
 
 let failed = 0;

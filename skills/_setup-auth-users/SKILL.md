@@ -56,7 +56,8 @@ Capture `emailReset` and `emailProvider` from the JSON for the summary. Move on 
    - `preflight` failed → `auth.ts` exists (re-config) → go back to the Step 0 menu of `add-auth`. Or a collision on a UI file / `password.ts` (delete manually if you want).
    - `installDeps` failed → pnpm/network error → manual retry: `cd <WEB_DIR> && pnpm add next-auth@beta @auth/drizzle-adapter`.
    - `patchSchema` failed → T3 reorganized the schema or `createTable` not found → fix manually and rerun.
-   - `pushSchema` failed → DATABASE_URL placeholder or Neon down → fix `.env` then `cd <WEB_DIR> && npx drizzle-kit push --force` by hand.
+   - `pushSchema` failed with **"Schema patched on disk but NOT pushed"** → the drift check found data in the live database that `schema.ts` does not declare (the list is printed just above). Show it to the user in plain words; the usual fix is to declare those columns in `schema.ts`, otherwise get an explicit go to drop them. Then `cd <WEB_DIR> && npx drizzle-kit push` (never `--force`).
+   - `pushSchema` failed otherwise → DATABASE_URL placeholder or Neon down → fix `.env`, run `node "${CLAUDE_SKILL_DIR}/../../scripts/neon/schema-drift.mjs"` from `<WEB_DIR>`, then `cd <WEB_DIR> && npx drizzle-kit push` by hand (`--force` only if the check said exit 0).
    - `writeAuthRouter` / `writeAuthTs` / other `write*` failed → filesystem permission (rare).
    - `pushEnvVars` failed → all the code is in place, only AUTH_SECRET didn't land → rerun manually with the value visible in the logs.
 4. Continue manually.

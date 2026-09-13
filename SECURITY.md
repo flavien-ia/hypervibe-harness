@@ -138,10 +138,17 @@ Global keys live in a Bitwarden vault, and are typed into an OS window that the
 assistant never sees. They are never printed in the chat, never committed, never
 written to a file. Project secrets stay in the project's `.env` and in Vercel.
 A global git hook (gitleaks, installed by `/start`) blocks any commit containing
-a detected secret. The same global hooks hand over to a repository's own
-`.hooks/pre-commit` and `.hooks/pre-push` when it commits them: that is how the
-recette installed by `/add-test` (tests and cahier de recette) runs before every
-push, on every machine set up by `/start`.
+a detected secret. The same global hooks can hand over to a repository's own
+`.hooks/pre-commit` and `.hooks/pre-push` (that is how the recette installed by
+`/add-test` runs before every push), but only in a checkout that opted in:
+`git config hypervibe.hooks true`, a local value that `/add-test` sets and that
+a clone never carries. Git does not version its hooks precisely so that cloning
+a repository can never execute code, and a chain that ran any repository's
+versioned hooks had reopened that door on every machine set up by `/start`
+(3.1.0 to 3.1.4, reported privately by an outside reader). Since 3.1.5 a clone
+that ships hooks is announced on stderr at its first commit or push, never run,
+and `/start`, `/add-test` and `/update-hypervibe` all replace the older block on
+an existing machine.
 
 ## Verifying what you installed
 

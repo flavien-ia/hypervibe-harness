@@ -65,7 +65,7 @@ Wait for the answer.
 
 | Choice | Action |
 |---|---|
-| 1 (push schema only) | `cd <WEB_DIR> && pnpm db:push` (or `pnpm drizzle-kit push`). Show the result. Skip to the final summary. |
+| 1 (push schema only) | **Check first, read-only**: `cd <WEB_DIR> && node "${CLAUDE_SKILL_DIR}/../../scripts/neon/schema-drift.mjs"` (compares schema.ts with the live database, see below). Exit `0` or `4`: tell the user what will be added or changed, then `pnpm db:push` (or `pnpm drizzle-kit push`), never with `--force`. Exit `3`: do NOT push. Explain in plain words which tables or columns the push would delete (they exist in the database but not in the code) and ask: add them to `schema.ts` (the usual answer, they were created outside the code) or confirm they can go. Exit `1`: the check could not run, say why, and push without `--force` so drizzle-kit asks before any loss. Show the result. Skip to the final summary. |
 | 2 (migrate to a new DB) | Confirm with the user "do you confirm losing the current data?" then re-run `setup-db.mjs --name <project-name>` (it provisions a new Neon project and pushes the DATABASE_URL - it will overwrite the old one in `.env` and on Vercel). Mention that the old Neon project stays on the account (the user can delete it manually in dashboard.neon.tech if they want to free up a slot). |
 | 3 (reset schema) | Confirm with the user then try `cd <WEB_DIR> && npx drizzle-kit drop` (depending on the Drizzle version). If not available, list the existing tables via `psql` or the Neon console, then DROP each one via SQL, then `pnpm db:push`. |
 | 4 (redo everything) | Abort: ask the user to remove `DATABASE_URL` from the `.env`, then re-run `/add-db`. |
@@ -209,7 +209,8 @@ If the banner contains warnings (e.g. `NEON_QUOTA_NEAR_LIMIT`, `NEON_PROJECT_NAM
    - `listProjects` or `createProject` failed then a Neon API error. Often a quota exceeded (show the error message as-is to the user) or an expired API key.
    - `installDriver` failed then a pnpm error (network, registry). Retry by hand: `cd <WEB_DIR> && pnpm add @neondatabase/serverless`.
    - `swapDriver` failed then T3 may have moved `src/server/db/index.ts`. Patch the file manually, taking inspiration from the template in `setup-db.mjs` step `swapDriver`.
-   - `pushSchema` failed then the schema probably has a problem (table already exists with another prefix, migration conflict). Read the drizzle-kit error, fix the schema, and retry: `cd <WEB_DIR> && DATABASE_URL='<connection-uri>' npx drizzle-kit push`.
+   - `pushSchema` failed with **"Schema NOT pushed"** then the database already held data that `schema.ts` does not declare, and the push would have deleted it (list printed just above, by `scripts/neon/schema-drift.mjs`). Show it to the user in plain words and follow choice 1 of the menu above.
+   - `pushSchema` failed otherwise then the schema probably has a problem (table already exists with another prefix, migration conflict). Read the drizzle-kit error, fix the schema, and retry: `cd <WEB_DIR> && DATABASE_URL='<connection-uri>' npx drizzle-kit push`.
    - `pushEnvVars` failed then the Neon project is provisioned + schema pushed, but the env var is not in `.env`/Vercel. Get the connection URI from the script state (visible in the logs) and invoke `_push-env-vars DATABASE_URL=<uri>` manually.
 4. **Continue** the remaining steps manually, taking inspiration from the script's functions.
 
