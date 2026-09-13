@@ -302,7 +302,7 @@ curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/u
 ⚠️ **Check the Wrangler account after login** (in case the user already has a Wrangler logged in to a DIFFERENT account):
 
 ```bash
-PLUGIN_DIR="$HOME/.claude/plugins/marketplaces/local-desktop-app-uploads/hypervibe"
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
 eval "$(node "$PLUGIN_DIR/scripts/wrangler-env-init.mjs")"
 wrangler whoami 2>&1 | head -8
 ```
@@ -316,7 +316,7 @@ If the displayed email does not match the account on which the token was created
 Once **all the other dependencies are configured** (Wrangler authenticated, the email key collected in Step 7bis), provision the **unified shared worker `hypervibe-jobs`**: ONE Cloudflare Worker for all the account-wide scheduled jobs (cron pings, database backups, quota alerts), consuming a single Cloudflare cron slot, with a git-versioned registry in `~/.hypervibe-jobs/`:
 
 ```bash
-PLUGIN_DIR="$HOME/.claude/plugins/marketplaces/local-desktop-app-uploads/hypervibe"
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
 eval "$(node "$PLUGIN_DIR/scripts/wrangler-env-init.mjs")"
 node "$PLUGIN_DIR/scripts/shared-worker/ensure.mjs"
 ```
@@ -383,7 +383,7 @@ Once the user has confirmed, run the plugin's dedicated script based on the OS.
 
 Determine the plugin path:
 ```bash
-PLUGIN_DIR="$HOME/.claude/plugins/marketplaces/local-desktop-app-uploads/hypervibe"
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
 ```
 
 ### Windows
@@ -666,7 +666,7 @@ Before finishing, we make sure Claude Code has, on this machine, the handful of 
 This block is read at the start of every session in every folder, so it is deliberately small (under 2 KB). Everything that only means something inside a web project (TypeScript, JSX, responsive, slugs, database reads) goes to that project's own CLAUDE.md instead, at `/bootstrap` time.
 
 ```bash
-PLUGIN_DIR="$HOME/.claude/plugins/marketplaces/local-desktop-app-uploads/hypervibe"
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
 node "$PLUGIN_DIR/scripts/update-global-claude-md.mjs"
 ```
 

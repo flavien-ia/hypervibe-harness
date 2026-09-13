@@ -1,0 +1,38 @@
+{
+  "$comment": "OpenCode counterpart of the ASK rules in hooks/rules.mjs. Claude Code and Codex run the hook itself; OpenCode cannot ask the user from a plugin, so the questions become native permission rules, merged into opencode.json by `claude-plugin-to-codex --target opencode`. Globs are approximate (a launcher such as npx or pnpm dlx is covered by the leading *): rules.mjs stays the reference, and the DENY rules are enforced exactly by the generated guard plugin. Order matters: OpenCode applies the last matching rule.",
+  "permission": {
+    "bash": {
+      "git push*": "ask",
+      "git -* push*": "ask",
+      "git push*--dry-run*": "allow",
+      "*vercel*--prod*": "ask",
+      "*vercel*--target*production*": "ask",
+      "*vercel promote*": "ask",
+      "*vercel rollback*": "ask",
+      "*vercel build*": "allow",
+      "*wrangler deploy*": "ask",
+      "*wrangler publish*": "ask",
+      "*wrangler versions deploy*": "ask",
+      "*wrangler secret put*": "ask",
+      "*wrangler secret bulk*": "ask",
+      "*wrangler*--dry-run*": "allow",
+      "*db:push*": "ask",
+      "*drizzle-kit push*": "ask",
+      "*execute-deletions.mjs*": "ask",
+      "*run-sql.mjs*--destructif*": "ask",
+      "*run-sql.mjs*--destructive*": "ask",
+      "*run-sql.mjs*DELETE FROM*": "ask",
+      "*run-sql.mjs*UPDATE *": "ask",
+      "git reset --hard*": "ask",
+      "git reset --merge*": "ask",
+      "git checkout -- .*": "ask",
+      "git checkout .": "ask",
+      "git checkout . *": "ask",
+      "git restore .*": "ask",
+      "git restore -* .*": "ask",
+      "git clean -f*": "ask",
+      "git clean -*f*": "ask",
+      "git clean --force*": "ask"
+    }
+  }
+}

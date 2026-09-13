@@ -22,7 +22,8 @@ import { spawnSync, spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getSecret } from "../vault/vault.mjs";
+import { getSecret, sessionStatus } from "../vault/vault.mjs";
+import { spawnSpec } from "../_spawn.mjs";
 import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
 import { loadAuthToken, readLinkedProject } from "../_vercel-auth.mjs";
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
@@ -64,6 +65,17 @@ const NEON_API_KEY = (() => { try { return getSecret("NEON", "api_key"); } catch
 const RENDER_API_KEY = readUserEnvSync("RENDER_API_KEY") || process.env.RENDER_API_KEY || "";
 const STRIPE_SECRET_KEY = readUserEnvSync("STRIPE_SECRET_KEY") || process.env.STRIPE_SECRET_KEY || "";
 
+// "NEON_API_KEY missing" read as "the key is not there" when the vault was
+// merely locked or expired: the key exists, the vault is asleep (reported on
+// 3.1.5). Say which of the two it is, and what to do.
+const VAULT_STATUS = (() => { try { return sessionStatus(); } catch { return "unknown"; } })();
+function missingKey(name) {
+  if (VAULT_STATUS !== "unlocked") {
+    return `${name} unavailable: the vault is ${VAULT_STATUS} (unlock it with _ensure-vault, then run the inventory again)`;
+  }
+  return `${name} missing`;
+}
+
 // ─── shared HTTP helper ────────────────────────────────────────────────────
 async function httpJson(url, opts = {}) {
   const res = await fetch(url, opts);
@@ -75,7 +87,10 @@ async function httpJson(url, opts = {}) {
 
 function runCmd(cmd, args = [], opts = {}) {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { shell: true, ...opts });
+    // Never an argument array under `shell: true`: a path with a space is cut
+    // in two (reported on 3.1.5). _spawn.mjs decides how each command runs.
+    const spec = spawnSpec(cmd, args);
+    const proc = spawn(spec.file, spec.args, { ...opts, shell: spec.shell });
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d));
@@ -204,7 +219,7 @@ async function scanVercel() {
 
 // ─── 2. Neon (REST API, not MCP - script context) ──────────────────────────
 async function scanNeon() {
-  if (!NEON_API_KEY) return { found: false, error: "NEON_API_KEY missing" };
+  if (!NEON_API_KEY) return { found: false, error: missingKey("NEON_API_KEY") };
   try {
     // Neon scopes this search to ONE organisation and silently falls back to the
     // account's default. Searching the wrong one answers "nothing to delete", which
@@ -235,7 +250,7 @@ async function scanNeon() {
 
 // ─── 3. Cloudflare Workers ─────────────────────────────────────────────────
 async function scanWorkers() {
-  if (!CLOUDFLARE_API_TOKEN) return { found: false, error: "CLOUDFLARE_API_TOKEN missing" };
+  if (!CLOUDFLARE_API_TOKEN) return { found: false, error: missingKey("CLOUDFLARE_API_TOKEN") };
   try {
     const data = await httpJson(
       `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/workers/scripts`,
@@ -260,7 +275,7 @@ async function scanWorkers() {
 // reported in `error` so Phase 2 can show them instead of claiming an empty result.
 // The rest of the script already talks to the REST API directly; this aligns R2 with it.
 async function scanR2() {
-  if (!CLOUDFLARE_API_TOKEN) return { found: false, buckets: [], error: "CLOUDFLARE_API_TOKEN missing (vault locked?)" };
+  if (!CLOUDFLARE_API_TOKEN) return { found: false, buckets: [], error: missingKey("CLOUDFLARE_API_TOKEN") };
   if (!CF_ACCOUNT_ID) return { found: false, buckets: [], error: "Cloudflare account id could not be resolved" };
   const buckets = [];
   const errors = [];
@@ -322,7 +337,7 @@ async function scanR2() {
 
 // ─── 5. Cloudflare DNS (all zones) ─────────────────────────────────────────
 async function scanDns() {
-  if (!CLOUDFLARE_API_TOKEN) return { found: false, error: "CLOUDFLARE_API_TOKEN missing" };
+  if (!CLOUDFLARE_API_TOKEN) return { found: false, error: missingKey("CLOUDFLARE_API_TOKEN") };
   try {
     const zonesData = await httpJson(
       "https://api.cloudflare.com/client/v4/zones?per_page=50",
@@ -510,7 +525,7 @@ async function scanUpstash() {
 
 // ─── 10. Cloudflare Email Routing ──────────────────────────────────────────
 async function scanEmailRouting() {
-  if (!CLOUDFLARE_API_TOKEN) return { found: false, error: "CLOUDFLARE_API_TOKEN missing" };
+  if (!CLOUDFLARE_API_TOKEN) return { found: false, error: missingKey("CLOUDFLARE_API_TOKEN") };
   try {
     const zonesData = await httpJson(
       "https://api.cloudflare.com/client/v4/zones?per_page=50",

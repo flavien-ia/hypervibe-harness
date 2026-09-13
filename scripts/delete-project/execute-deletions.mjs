@@ -46,6 +46,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSecret } from "../vault/vault.mjs";
 import { tokenMatches, moreSpecificOwner } from "../_match.mjs";
+import { spawnSpec } from "../_spawn.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -119,9 +120,39 @@ async function httpDelete(url, headers = {}) {
   }
 }
 
+// Never `shell: true` with an argument array: the shell cuts a path at its
+// first space (C:\Users\First Last\...), which is how the db-backup step
+// failed for a user of 3.1.5. _spawn.mjs decides: the plugin's own scripts go
+// through the running Node binary with no shell, a CLI gets one quoted line
+// on Windows (its .cmd shims need a shell) and a plain array elsewhere.
 function runCmdSync(cmd, args, opts = {}) {
-  const r = spawnSync(cmd, args, { shell: true, encoding: "utf8", ...opts });
+  const spec = spawnSpec(cmd, args);
+  const r = spawnSync(spec.file, spec.args, { encoding: "utf8", ...opts, shell: spec.shell });
   return { code: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
+}
+
+// A trimmed index must not keep a heading whose section became empty: the
+// title of a project with no line left under it is noise for every later
+// session (reported on 3.1.5).
+function dropEmptySections(lines) {
+  const out = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = /^(#{1,6})\s/.exec(lines[i]);
+    if (m) {
+      const level = m[1].length;
+      let j = i + 1;
+      let body = false;
+      while (j < lines.length) {
+        const n = /^(#{1,6})\s/.exec(lines[j]);
+        if (n && n[1].length <= level) break;
+        if (lines[j].trim()) { body = true; break; }
+        j += 1;
+      }
+      if (!body) { i = j - 1; continue; }
+    }
+    out.push(lines[i]);
+  }
+  return out;
 }
 
 // ─── deletion functions ────────────────────────────────────────────────────
@@ -517,8 +548,8 @@ async function deleteMemory() {
       const lines = original.split("\n");
       // Word-boundary match + ownership check: deleting "street" must not trim
       // index lines that actually reference "street-cool".
-      const filtered = lines.filter(
-        (l) => !(tokenMatches(PROJECT, l) && !moreSpecificOwner(PROJECT, l, OWNER_CANDIDATES)),
+      const filtered = dropEmptySections(
+        lines.filter((l) => !(tokenMatches(PROJECT, l) && !moreSpecificOwner(PROJECT, l, OWNER_CANDIDATES))),
       );
       const removed = lines.length - filtered.length;
       if (removed > 0) {

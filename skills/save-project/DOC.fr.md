@@ -16,7 +16,7 @@ Crée une **sauvegarde complète** d'un projet Hypervibe sous forme de zip horod
 
 2. **Questions** :
    - **Inclure R2 ?** Si vous avez des buckets Cloudflare R2 (fichiers, images, vidéos uploadées), Hypervibe vous demande si vous les voulez dans le zip. Si beaucoup de contenu, ça peut prendre du temps.
-   - **Où sauvegarder le zip ?** Par défaut `Dropbox/Download/`, sinon dossier courant ou chemin de votre choix.
+   - **Où sauvegarder le zip ?** Par défaut votre dossier Téléchargements, sinon le dossier courant ou un chemin de votre choix.
 
 3. **Exécution** : Hypervibe lance en séquence :
    - **Git bundle** complet (toute l'history) + working changes non-commitées capturées en patch

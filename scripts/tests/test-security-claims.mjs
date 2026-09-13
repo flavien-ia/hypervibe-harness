@@ -542,6 +542,31 @@ check(
   );
 }
 
+// ── Un chemin avec un espace, un poste sans python (revue utilisateur, 3.1.5) ──
+{
+  const scripts = tous.filter((p) => {
+    const rel = relative(ROOT, p).replace(/\\/g, "/");
+    return /\.mjs$/.test(rel) && rel.startsWith("scripts/") && !rel.startsWith("scripts/tests/");
+  });
+  check(
+    "aucun script du plugin ne lance python",
+    scripts.every((p) => !/run\("python"|spawn(?:Sync)?\("python/.test(readFileSync(p, "utf8"))),
+  );
+  check(
+    "les scripts qui lancent des sous-processus passent par _spawn.mjs",
+    ["scripts/delete-project/execute-deletions.mjs", "scripts/delete-project/discover-resources.mjs", "scripts/save-project/build-snapshot.mjs"]
+      .every((f) => /from "\.\.\/_spawn\.mjs"/.test(lire(f))),
+  );
+  check(
+    "le snapshot se replie sur les .env locaux et copie les fichiers non suivis",
+    /env\/local|"local"/.test(lire("scripts/save-project/build-snapshot.mjs")) && /"untracked"/.test(lire("scripts/save-project/build-snapshot.mjs")),
+  );
+  check(
+    "les recettes des chemins avec espace et du zip sont branchees",
+    /test-spawn-paths\.mjs/.test(lire("scripts/tests/run-all.mjs")) && /test-zip\.mjs/.test(lire("scripts/tests/run-all.mjs")),
+  );
+}
+
 // ── La page dit ce qu'elle promet (garde contre une page videe) ──────
 {
   const attendus = [

@@ -16,7 +16,7 @@ Creates a **complete backup** of a Hypervibe project as a timestamped zip. Usefu
 
 2. **Questions**:
    - **Include R2?** If you have Cloudflare R2 buckets (uploaded files, images, videos), Hypervibe asks whether you want them in the zip. If there is a lot of content, it can take a while.
-   - **Where to save the zip?** By default `Dropbox/Download/`, otherwise the current folder or a path of your choosing.
+   - **Where to save the zip?** By default your Downloads folder, otherwise the current folder or a path of your choosing.
 
 3. **Execution**: Hypervibe runs in sequence:
    - **Complete git bundle** (the whole history) + uncommitted working changes captured as a patch

@@ -127,6 +127,8 @@ Then compare the user's next reply to `<PROJECT_NAME>` **exactly** (case-sensiti
 
 ## Phase 1 - Inventory (1 script call)
 
+**Open the vault first**: invoke `_ensure-vault` before the inventory. The scan reads the Neon and Cloudflare keys from the vault, and with the vault locked or expired every cloud section comes back `unknown` behind a message that reads like a missing key (reported on 3.1.5). A scope must never be built on a sleeping vault.
+
 ```bash
 # Portable temp path (Windows + macOS): os.tmpdir() normalized to forward slashes,
 # so bash redirection, node, and the Read tool all resolve the SAME file.

@@ -9,6 +9,8 @@
 //   code/      - git bundle (--all) + package.json + CLAUDE.md + working-changes.patch (if dirty)
 //   db/        - schema.json + per-table data .json
 //   env/       - .env files pulled from Vercel (production / preview / development)
+//                + env/local/: the project's own .env files (the only source once
+//                a project has left Vercel)
 //   storage/   - R2 bucket contents (global + EU jurisdictions)
 //   memory/    - Claude memory files for this project
 //   config/    - Vercel project link, wrangler.toml, Stripe webhook metadata (no secrets)
@@ -17,13 +19,16 @@
 // Final stdout = JSON report. Exit 0 on success, 1 on fatal error.
 
 import { manifestExistant } from "../manifest/locate.mjs";
+import { spawnSpec } from "../_spawn.mjs";
+import { zipDirectory } from "../_zip.mjs";
+import { tokenMatches } from "../_match.mjs";
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, rmSync,
   cpSync, statSync, readdirSync, unlinkSync,
 } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve, dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIR = fileURLToPath(new URL(".", import.meta.url));
@@ -40,7 +45,17 @@ function flag(name) {
 
 const PROJECT = arg("--project");
 const PROJECT_DIR = resolve(arg("--project-dir") || process.cwd());
-const OUT_DIR = resolve(arg("--out") || join(homedir(), "Dropbox", "Download"));
+// Default output: the user's Downloads folder when it exists, a Dropbox
+// download folder when that is what the machine has, the home folder
+// otherwise. The old default (Dropbox/Download only) was the author's own
+// setup and did not exist on other machines (reported on 3.1.5).
+function defaultOutDir() {
+  for (const c of [join(homedir(), "Downloads"), join(homedir(), "Dropbox", "Download")]) {
+    if (existsSync(c)) return c;
+  }
+  return homedir();
+}
+const OUT_DIR = resolve(arg("--out") || defaultOutDir());
 const SKIP_STORAGE = flag("--skip-storage");
 const SKIP_MEMORY = flag("--skip-memory");
 const SKIP_DB = flag("--skip-db");
@@ -89,8 +104,12 @@ function overallStatus() {
   return { status: incomplete.length > 0 ? "partial" : "ok", incomplete };
 }
 
+// Never `shell: true` with an argument array: the shell cuts a path at its
+// first space, and the plugin's own scripts (dump-db.mjs) failed on a Windows
+// profile like C:\Users\First Last (reported on 3.1.5). _spawn.mjs decides.
 function run(cmd, argv, opts = {}) {
-  return spawnSync(cmd, argv, { encoding: "utf8", shell: true, ...opts });
+  const spec = spawnSpec(cmd, argv);
+  return spawnSync(spec.file, spec.args, { encoding: "utf8", ...opts, shell: spec.shell });
 }
 
 function dirSize(p) {
@@ -134,12 +153,35 @@ function stepGitBundle() {
   // Capture working changes (uncommitted + untracked) as a patch
   const status = run("git", ["-C", PROJECT_DIR, "status", "--porcelain"]);
   const dirty = (status.stdout || "").trim().length > 0;
+  let untrackedInfo = null;
   if (dirty) {
     const diff = run("git", ["-C", PROJECT_DIR, "diff", "HEAD"]);
     writeFileSync(join(codeDir, "working-changes.patch"), diff.stdout || "");
-    // Also list untracked files (since git diff doesn't include them)
+    // Also list untracked files (since git diff doesn't include them)...
     const untracked = run("git", ["-C", PROJECT_DIR, "ls-files", "--others", "--exclude-standard"]);
     writeFileSync(join(codeDir, "untracked-files.txt"), untracked.stdout || "");
+    // ...and COPY them: a list is not a backup. A document written next to
+    // the code and never committed was one deletion away from being lost
+    // (reported on 3.1.5). Ignored files are never listed by git, so this
+    // drags neither node_modules nor .next along.
+    const files = (untracked.stdout || "").split("\n").map((l) => l.trim()).filter(Boolean);
+    const copied = [];
+    const skipped = [];
+    for (const rel of files) {
+      const src = join(PROJECT_DIR, rel);
+      try {
+        const st = statSync(src);
+        if (!st.isFile()) continue;
+        if (st.size > 50 * 1024 * 1024) { skipped.push({ file: rel, reason: `${humanSize(st.size)} > 50 MB` }); continue; }
+        const dest = join(codeDir, "untracked", rel);
+        mkdirSync(dirname(dest), { recursive: true });
+        cpSync(src, dest);
+        copied.push(rel);
+      } catch (e) {
+        skipped.push({ file: rel, reason: String(e).slice(0, 120) });
+      }
+    }
+    untrackedInfo = { copied: copied.length, ...(skipped.length ? { skipped } : {}) };
   }
 
   // Copy a few top-level reference files
@@ -151,7 +193,7 @@ function stepGitBundle() {
   }
 
   const bundleSize = statSync(bundlePath).size;
-  logStep("git-bundle", "ok", { bundleBytes: bundleSize, dirty });
+  logStep("git-bundle", "ok", { bundleBytes: bundleSize, dirty, ...(untrackedInfo ? { untracked: untrackedInfo } : {}) });
 }
 
 // ============================================================
@@ -163,33 +205,55 @@ function stepEnvVars() {
   const envDir = join(SNAP_DIR, "env");
   mkdirSync(envDir, { recursive: true });
 
-  const vCheck = run("vercel", ["--version"]);
-  if (vCheck.status !== 0) {
-    logStep("env-vars", "skipped", { reason: "vercel CLI not installed" });
-    return;
-  }
-
-  const linkPath = join(PROJECT_DIR, ".vercel", "project.json");
-  if (!existsSync(linkPath)) {
-    logStep("env-vars", "skipped", { reason: "project not linked (.vercel/project.json missing)" });
-    return;
-  }
-
-  const envs = ["production", "preview", "development"];
+  // Vercel first (its three environments), when the CLI is there and the
+  // project is linked. Then the local .env files, ALWAYS: a project already
+  // removed from Vercel has nothing left there while its .env holds every
+  // variable, and a snapshot that said "ok" without them was a trap
+  // (reported on 3.1.5).
   const results = [];
-  for (const env of envs) {
-    const outPath = join(envDir, `${env}.env`);
-    if (existsSync(outPath)) { try { unlinkSync(outPath); } catch {} }
-    const r = run("vercel", ["env", "pull", outPath, `--environment=${env}`, "--yes"], { cwd: PROJECT_DIR });
-    if (r.status === 0 && existsSync(outPath)) {
-      const lines = readFileSync(outPath, "utf8").split("\n").filter(l => l.trim() && !l.startsWith("#")).length;
-      results.push({ env, ok: true, vars: lines });
-    } else {
-      results.push({ env, ok: false, error: (r.stderr || r.stdout || "").slice(0, 200) });
+  const vCheck = run("vercel", ["--version"]);
+  const linkPath = join(PROJECT_DIR, ".vercel", "project.json");
+  if (vCheck.status !== 0) {
+    results.push({ source: "vercel", ok: false, error: "vercel CLI not installed" });
+  } else if (!existsSync(linkPath)) {
+    results.push({ source: "vercel", ok: false, error: "project not linked (.vercel/project.json missing)" });
+  } else {
+    for (const env of ["production", "preview", "development"]) {
+      const outPath = join(envDir, `${env}.env`);
+      if (existsSync(outPath)) { try { unlinkSync(outPath); } catch {} }
+      const r = run("vercel", ["env", "pull", outPath, `--environment=${env}`, "--yes"], { cwd: PROJECT_DIR });
+      if (r.status === 0 && existsSync(outPath)) {
+        const lines = readFileSync(outPath, "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#")).length;
+        results.push({ source: "vercel", env, ok: true, vars: lines });
+      } else {
+        results.push({ source: "vercel", env, ok: false, error: (r.stderr || r.stdout || "").slice(0, 200) });
+      }
     }
   }
-  const anyOk = results.some(r => r.ok);
-  logStep("env-vars", anyOk ? "ok" : "error", { envs: results });
+
+  const localDir = join(envDir, "local");
+  for (const dir of [PROJECT_DIR, join(PROJECT_DIR, "apps", "web")]) {
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      if (!/^\.env(\..+)?$/.test(name) || name.endsWith(".example") || name.endsWith(".sample")) continue;
+      const rel = relative(PROJECT_DIR, join(dir, name)).split("\\").join("/") || name;
+      const dest = join(localDir, rel);
+      try {
+        mkdirSync(dirname(dest), { recursive: true });
+        cpSync(join(dir, name), dest);
+        const lines = readFileSync(dest, "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#")).length;
+        results.push({ source: "local", file: rel, ok: true, vars: lines });
+      } catch (e) {
+        results.push({ source: "local", file: rel, ok: false, error: String(e).slice(0, 200) });
+      }
+    }
+  }
+
+  const anyOk = results.some((r) => r.ok);
+  logStep("env-vars", anyOk ? "ok" : "error", {
+    sources: results,
+    ...(anyOk ? {} : { error: "no variables from Vercel nor from a local .env file" }),
+  });
 }
 
 // ============================================================
@@ -324,16 +388,9 @@ function stepMemory() {
   const matches = [];
   for (const d of dirs) {
     if (normalize(d).includes(needle)) {
-      const projDir = join(claudeProjects, d);
-      matches.push({ projectDir: d, srcDir: projDir });
+      matches.push({ projectDir: d, srcDir: join(claudeProjects, d) });
     }
   }
-
-  if (matches.length === 0) {
-    logStep("memory", "skipped", { reason: `no Claude project dir matching "${needle}"` });
-    return;
-  }
-
   for (const m of matches) {
     const dest = join(memoryDir, m.projectDir);
     try { cpSync(m.srcDir, dest, { recursive: true }); } catch (e) {
@@ -341,7 +398,39 @@ function stepMemory() {
       return;
     }
   }
-  logStep("memory", "ok", { matchedDirs: matches.length });
+
+  // Also the memory files of OTHER Claude project dirs that mention this
+  // project by name: a session opened on the parent folder (C:\dev) keeps
+  // its memory there, and a snapshot that only looked at the project's own
+  // dir missed it (reported on 3.1.5). Word-boundary match, the same rule
+  // as the deletion inventory.
+  const mentions = [];
+  for (const d of dirs) {
+    if (matches.some((m) => m.projectDir === d)) continue;
+    const memDir = join(claudeProjects, d, "memory");
+    if (!existsSync(memDir)) continue;
+    let names = [];
+    try { names = readdirSync(memDir); } catch { continue; }
+    for (const f of names) {
+      if (!f.endsWith(".md")) continue;
+      const src = join(memDir, f);
+      let text = "";
+      try { text = readFileSync(src, "utf8"); } catch { continue; }
+      if (!tokenMatches(PROJECT, f) && !tokenMatches(PROJECT, text)) continue;
+      const dest = join(memoryDir, "_mentions", d, f);
+      try {
+        mkdirSync(dirname(dest), { recursive: true });
+        cpSync(src, dest);
+        mentions.push(`${d}/${f}`);
+      } catch {}
+    }
+  }
+
+  if (matches.length === 0 && mentions.length === 0) {
+    logStep("memory", "skipped", { reason: `no Claude project dir matching "${needle}", and no memory file elsewhere mentions "${PROJECT}"` });
+    return;
+  }
+  logStep("memory", "ok", { matchedDirs: matches.length, mentions: mentions.length, ...(mentions.length ? { mentionFiles: mentions } : {}) });
 }
 
 // ============================================================
@@ -437,11 +526,11 @@ function writeManifest() {
 
 | Sous-dossier | Taille | Description |
 |---|---|---|
-| \`code/\` | ${sizes.code} | Git bundle complet (toute l'history) + package.json + working-changes.patch si modifs non commitées |
+| \`code/\` | ${sizes.code} | Git bundle complet (tout l'historique) + package.json + working-changes.patch si modifs non commitées + \`untracked/\` (les fichiers non suivis par git, copiés) |
 | \`db/\` | ${sizes.db} | Schema (\`schema.json\`) + données JSON par table |
-| \`env/\` | ${sizes.env} | Variables d'environnement pullées depuis Vercel (production / preview / development) |
+| \`env/\` | ${sizes.env} | Variables d'environnement pullées depuis Vercel (production / preview / development) et copie des fichiers \`.env\` locaux du projet (\`local/\`) |
 | \`storage/\` | ${sizes.storage} | Contenu des buckets Cloudflare R2 (global + EU si présents) |
-| \`memory/\` | ${sizes.memory} | Fichiers mémoire Claude du projet |
+| \`memory/\` | ${sizes.memory} | Fichiers mémoire Claude du projet, et ceux d'autres dossiers Claude qui le mentionnent (\`_mentions/\`) |
 | \`config/\` | ${sizes.config} | Snapshots Vercel/Wrangler/Render/Stripe (les webhook secrets NE sont PAS inclus) |
 
 ## Rapport d'exécution
@@ -463,7 +552,7 @@ Ce snapshot contient des **secrets en clair** (clés API dans les fichiers \`env
 La restauration n'est pas automatisée. Pour reconstruire le projet manuellement :
 
 1. **Code** : \`git clone code/repo.bundle <new-dir>\` puis \`pnpm install\`. Si \`working-changes.patch\` est présent, \`cd <new-dir> && git apply ../code/working-changes.patch\`.
-2. **Variables d'env** : \`cp env/production.env <new-dir>/.env\`. Pour Vercel : \`vercel env add\` pour chaque variable, ou utiliser la skill \`/_push-env-vars\` d'Hypervibe.
+2. **Variables d'env** : \`cp env/production.env <new-dir>/.env\` (ou \`env/local/.env\` si Vercel n'a rien rendu). Pour Vercel : \`vercel env add\` pour chaque variable, ou utiliser la skill \`/_push-env-vars\` d'Hypervibe.
 3. **DB** : créer une nouvelle base Neon, puis demander à Claude Code de générer un script de restauration qui lit \`db/schema.json\` et insère depuis les fichiers \`*.json\`.
 4. **R2** : recréer les buckets via \`wrangler r2 bucket create\`, puis \`wrangler r2 object put\` pour chaque fichier de \`storage/\`.
 5. **Webhooks Stripe** : recréer chaque webhook depuis \`config/stripe-webhooks.json\` via le dashboard Stripe (les secrets \`whsec_...\` sont nécessairement régénérés à la création).
@@ -478,35 +567,14 @@ En cas de doute, ouvrir Claude Code dans le dossier du snapshot et demander :
 // ============================================================
 // Step 8: Zip
 // ============================================================
-function buildZip() {
+async function buildZip() {
   mkdirSync(OUT_DIR, { recursive: true });
   const zipPath = join(OUT_DIR, `${SNAP_NAME}.zip`);
-
-  // Use Python zipfile (consistent with export-hypervibe convention, cross-platform).
-  // We write the script to a temp file rather than pass it via `python -c` -
-  // on Windows, multi-line scripts piped through `cmd.exe -c` get mangled
-  // ("Argument expected for the -c option"). Calling python with a file path
-  // avoids any shell quoting issues entirely.
-  const pyScript = `
-import zipfile, os, sys
-src = sys.argv[1]
-dst = sys.argv[2]
-base = os.path.basename(src)
-with zipfile.ZipFile(dst, 'w', zipfile.ZIP_DEFLATED) as zf:
-    for root, dirs, files in os.walk(src):
-        for f in files:
-            full = os.path.join(root, f)
-            rel = os.path.relpath(full, os.path.dirname(src))
-            arcname = rel.replace(os.sep, '/')
-            zf.write(full, arcname)
-`;
-  const scriptPath = join(WORK_DIR, "_zip.py");
-  writeFileSync(scriptPath, pyScript);
-  const r = run("python", [scriptPath, SNAP_DIR, zipPath]);
-  if (r.status !== 0) {
-    throw new Error(`zip failed: ${(r.stderr || r.stdout || "").slice(0, 300)}`);
-  }
-  return { zipPath, size: statSync(zipPath).size };
+  // Plain Node (scripts/_zip.mjs): no python, no tar. On many Windows machines
+  // `python` is only the Microsoft Store stub, and the snapshot used to fail
+  // at this very last step (reported on 3.1.5).
+  const info = await zipDirectory(SNAP_DIR, zipPath);
+  return { zipPath, size: info.bytes, entries: info.entries };
 }
 
 // ============================================================
@@ -521,7 +589,7 @@ try {
   stepConfigs();
   writeManifest();
 
-  const zipInfo = buildZip();
+  const zipInfo = await buildZip();
 
   // Cleanup work dir
   try { rmSync(WORK_DIR, { recursive: true, force: true }); } catch {}

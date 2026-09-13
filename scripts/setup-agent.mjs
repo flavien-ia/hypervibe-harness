@@ -65,6 +65,7 @@ import {
   readdirSync,
   statSync,
   copyFileSync,
+  rmSync,
 } from "node:fs";
 import { resolve, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -548,7 +549,7 @@ console.log("OK pgvector + agent_memory_vector ready");
       }
     } finally {
       try { writeFileSync(tmpScript, ""); } catch {}
-      try { spawnSync("rm", ["-f", tmpScript], { shell: true }); } catch {}
+      try { rmSync(tmpScript, { force: true }); } catch {}
     }
 
     // Disable the kv module so nothing imports it

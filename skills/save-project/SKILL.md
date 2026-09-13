@@ -80,7 +80,7 @@ If the answer is "Just the buckets, not the content", use `--skip-storage` like 
 Use **AskUserQuestion**:
 
 > Question: "Where to save the zip?"
-> - Option 1: **`C:/Users/<user>/Dropbox/Download/` (recommended)** - standard download location, accessible cross-device
+> - Option 1: **the Downloads folder (recommended)** - `~/Downloads` when it exists (the script also accepts a Dropbox download folder if that is what the machine has), otherwise the home folder
 > - Option 2: **In the current folder** - convenient if you want everything in the same place
 > - Option 3: **Other path** - the user specifies it explicitly
 

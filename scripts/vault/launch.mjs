@@ -38,8 +38,15 @@ const os = platform();
 if (os === "win32") {
   // Open a NEW console window running `node interactive.mjs <cmd> <flags>` and wait for it.
   // Start-Process -FilePath node creates a fresh console (a real TTY → masked input works),
-  // -Wait blocks until the user finishes. Clean arg array, no nested `& node` quoting.
-  const q = (s) => `'${String(s).replace(/'/g, "''")}'`;
+  // -Wait blocks until the user finishes.
+  //
+  // Every element is wrapped in DOUBLE quotes inside its PowerShell single
+  // quotes: Start-Process joins -ArgumentList with spaces and never quotes an
+  // element itself, so a profile path with a space (C:\Users\First Last\...)
+  // reached node in two pieces, node failed to find the module, and the
+  // window died before anyone saw it. For those users the vault never opened
+  // and /start never got past its keys (reported in July, diagnosed on 3.1.5).
+  const q = (s) => `'"${String(s).replace(/"/g, '\\"').replace(/'/g, "''")}"'`;
   const argList = ["--no-deprecation", INTERACTIVE, cmd, ...passthrough].map(q).join(",");
   // CRITICAL: capture the INNER node process exit code, not PowerShell's. Plain
   // `Start-Process -Wait` makes PowerShell exit 0 as soon as it launched the window -
