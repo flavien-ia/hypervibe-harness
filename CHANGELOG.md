@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.1.6 (13 septembre 2026)
+
+### Corrections
+- **L'alerte de stockage R2 voit enfin tout votre compte.** Elle ne lisait que le plus gros de vos espaces de stockage (les buckets) au lieu de leur total : sur un compte réel à 10,2 Go, elle en voyait 8,5, et pouvait rester muette au-delà des 10 Go gratuits. Elle additionne désormais le dernier relevé de chaque bucket, dans `/quotas` comme dans l'horloge partagée qui envoie l'alerte par email.
+- **Le décompte des opérations R2 suit la grille officielle de Cloudflare** : les suppressions, gratuites, ne comptent plus comme des lectures.
+
+### Améliorations
+- **/update-hypervibe remet votre horloge partagée à niveau.** Installer une nouvelle version ne touchait pas le worker `hypervibe-jobs` déjà déployé sur votre compte Cloudflare : il gardait son ancien code, défauts compris. La mise à jour vérifie maintenant qu'il exécute la même version que le plugin, le redéploie sinon, et vous dit ce que la réparation corrige. Elle ne crée jamais d'horloge, et fait la même vérification quand vous êtes déjà à jour.
+
+### Coulisses
+- Une recette vérifie cette réparation (aucune horloge créée, une horloge à jour laissée intacte, le défaut du stockage reconnu), et les tests du worker couvrent un compte à plusieurs buckets.
+
 ## v3.1.5 (13 septembre 2026)
 
 ### Sécurité

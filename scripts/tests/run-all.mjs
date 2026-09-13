@@ -26,6 +26,7 @@ const SUITES = [
   ["vercel deploy URL parsing", join(ROOT, "scripts", "tests", "test-vercel-deploy-output.mjs")],
   ["pnpm workspace overrides", join(ROOT, "scripts", "tests", "test-pnpm-workspace.mjs")],
   ["map versions and worker", join(ROOT, "scripts", "tests", "test-map-pins.mjs")],
+  ["shared worker check at update", join(ROOT, "scripts", "tests", "test-worker-check.mjs")],
   ["schema drift before db:push", join(ROOT, "scripts", "tests", "test-schema-drift.mjs")],
 ];
 

@@ -527,18 +527,59 @@ export async function runQuotaJob(job, env) {
   }
 }
 
+// R2 storage for the whole account = the LATEST sample of each bucket, summed.
+// Cloudflare samples every bucket roughly every 30 minutes. Without grouping by
+// bucket, `max` returned the size of the single largest bucket, not the account:
+// 8.5 GB reported for 10.2 GB actually stored (2026-09-13), so a 9 GB alert never
+// fired while the account was already past the 10 GB free tier. A bucket whose
+// latest sample lags the account's newest sample by more than 3 hours has been
+// deleted: it no longer counts.
+export function sumLatestBucketStorage(rows) {
+  const latest = new Map();
+  for (const r of rows || []) {
+    const bucket = r?.dimensions?.bucketName;
+    const at = Date.parse(r?.dimensions?.datetime ?? "");
+    if (!bucket || Number.isNaN(at)) continue;
+    const prev = latest.get(bucket);
+    if (!prev || at > prev.at) {
+      latest.set(bucket, {
+        at,
+        bytes: (r.max?.payloadSize || 0) + (r.max?.metadataSize || 0),
+        objects: r.max?.objectCount || 0,
+      });
+    }
+  }
+  const newest = Math.max(0, ...[...latest.values()].map((v) => v.at));
+  let bytes = 0;
+  let objects = 0;
+  let buckets = 0;
+  for (const v of latest.values()) {
+    if (newest - v.at > 3 * 3600 * 1000) continue;
+    bytes += v.bytes;
+    objects += v.objects;
+    buckets++;
+  }
+  return { bytes, objects, buckets };
+}
+
 async function checkR2Storage(env, cfg) {
   const threshold = parseFloat(cfg.r2ThresholdGb);
   if (!Number.isFinite(threshold) || threshold <= 0) return null;
 
   const now = new Date();
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  // Six hours of samples: about a dozen per bucket, enough to ride out an analytics delay.
+  const storageStart = new Date(now.getTime() - 6 * 3600 * 1000);
 
   const query = `query R2($accountTag: String!, $start: String!, $end: String!) {
     viewer {
       accounts(filter: { accountTag: $accountTag }) {
-        r2StorageAdaptiveGroups(limit: 1, filter: { datetime_geq: $start, datetime_leq: $end }) {
+        r2StorageAdaptiveGroups(
+          limit: 10000
+          filter: { datetime_geq: $start, datetime_leq: $end }
+          orderBy: [datetime_DESC]
+        ) {
           max { payloadSize metadataSize objectCount }
+          dimensions { bucketName datetime }
         }
       }
     }
@@ -554,7 +595,7 @@ async function checkR2Storage(env, cfg) {
       query,
       variables: {
         accountTag: cfg.cloudflareAccountId,
-        start: monthStart.toISOString(),
+        start: storageStart.toISOString(),
         end: now.toISOString(),
       },
     }),
@@ -567,27 +608,27 @@ async function checkR2Storage(env, cfg) {
     throw new Error(`CF GraphQL errors: ${JSON.stringify(data.errors).slice(0, 200)}`);
   }
 
-  const max = data?.data?.viewer?.accounts?.[0]?.r2StorageAdaptiveGroups?.[0]?.max;
-  if (!max) {
+  const rows = data?.data?.viewer?.accounts?.[0]?.r2StorageAdaptiveGroups || [];
+  if (!rows.length) {
     console.log("R2 analytics not available (no data yet).");
     return null;
   }
 
-  const usedBytes = (max.payloadSize || 0) + (max.metadataSize || 0);
+  const { bytes: usedBytes, objects, buckets } = sumLatestBucketStorage(rows);
   const usedGB = usedBytes / 1073741824;
   if (usedGB < threshold) {
-    console.log(`R2 storage OK: ${usedGB.toFixed(3)} GB / ${threshold} GB threshold (free tier limit: ${R2_FREE_TIER_GB} GB).`);
+    console.log(`R2 storage OK: ${usedGB.toFixed(3)} GB across ${buckets} bucket(s) / ${threshold} GB threshold (free tier limit: ${R2_FREE_TIER_GB} GB).`);
     return null;
   }
 
   return {
     service: "Cloudflare R2",
-    metric: "Storage mensuel",
+    metric: "Storage (all buckets)",
     used: `${usedGB.toFixed(2)} GB`,
     threshold: `${threshold} GB (seuil configure)`,
     limit: `${R2_FREE_TIER_GB} GB (free tier)`,
     pctOfLimit: `${((usedGB / R2_FREE_TIER_GB) * 100).toFixed(1)} %`,
-    objects: max.objectCount,
+    objects,
   };
 }
 

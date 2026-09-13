@@ -331,16 +331,19 @@ async function fetchR2(token, accountId) {
   const bucketListEu = (bucketsEu.ok && bucketsEu.json?.success ? bucketsEu.json.result?.buckets || [] : []).map((b) => ({ ...b, jurisdiction: "eu" }));
   const bucketList = [...bucketListDefault, ...bucketListEu];
 
-  // Aggregate storage size + ops via GraphQL Analytics for the current month
+  // Storage: the latest sample of every bucket over the last 6 hours, summed by
+  // sumLatestBucketStorage (below). Operations: summed over the current month.
   const gqlBody = {
-    query: `query R2Usage($accountTag: String!, $start: String!, $end: String!) {
+    query: `query R2Usage($accountTag: String!, $storageStart: String!, $start: String!, $end: String!) {
       viewer {
         accounts(filter: { accountTag: $accountTag }) {
           r2StorageAdaptiveGroups(
-            limit: 1
-            filter: { datetime_geq: $start, datetime_leq: $end }
+            limit: 10000
+            filter: { datetime_geq: $storageStart, datetime_leq: $end }
+            orderBy: [datetime_DESC]
           ) {
             max { payloadSize metadataSize objectCount }
+            dimensions { bucketName datetime }
           }
           r2OperationsAdaptiveGroups(
             limit: 100
@@ -354,6 +357,7 @@ async function fetchR2(token, accountId) {
     }`,
     variables: {
       accountTag: accountId,
+      storageStart: new Date(NOW.getTime() - 6 * 3600 * 1000).toISOString(),
       start: MONTH_START.toISOString(),
       end: NOW.toISOString(),
     },
@@ -372,19 +376,20 @@ async function fetchR2(token, accountId) {
   let classBOps = null;
   if (gql.ok && gql.json?.data?.viewer?.accounts?.[0]) {
     const acc = gql.json.data.viewer.accounts[0];
-    const storageMax = acc.r2StorageAdaptiveGroups?.[0]?.max;
-    if (storageMax) storageBytes = (storageMax.payloadSize || 0) + (storageMax.metadataSize || 0);
+    const storageRows = acc.r2StorageAdaptiveGroups || [];
+    if (storageRows.length > 0) storageBytes = sumLatestBucketStorage(storageRows).bytes;
     const opsBuckets = acc.r2OperationsAdaptiveGroups || [];
     classAOps = 0;
     classBOps = 0;
-    // Class A: ListBuckets, PutBucket, ListObjects, PutObject, CopyObject, CompleteMultipartUpload, CreateMultipartUpload, UploadPart, UploadPartCopy
-    // Class B: HeadBucket, HeadObject, GetObject, UsageSummary, GetBucketEncryption, GetBucketLocation
-    const CLASS_A = new Set(["ListBuckets", "PutBucket", "ListObjects", "PutObject", "CopyObject", "CompleteMultipartUpload", "CreateMultipartUpload", "UploadPart", "UploadPartCopy", "PutBucketEncryption"]);
+    // Official R2 pricing (developers.cloudflare.com/r2/pricing). Anything that is
+    // neither class A nor free counts as class B (e.g. "ReportUsageSummary").
+    const CLASS_A = new Set(["ListBuckets", "PutBucket", "ListObjects", "PutObject", "CopyObject", "CompleteMultipartUpload", "CreateMultipartUpload", "LifecycleStorageTierTransition", "ListMultipartUploads", "UploadPart", "UploadPartCopy", "ListParts", "PutBucketEncryption", "PutBucketCors", "PutBucketLifecycleConfiguration"]);
+    const FREE = new Set(["DeleteObject", "DeleteBucket", "AbortMultipartUpload"]);
     for (const b of opsBuckets) {
       const action = b.dimensions?.actionType;
       const reqs = b.sum?.requests || 0;
       if (CLASS_A.has(action)) classAOps += reqs;
-      else classBOps += reqs;
+      else if (!FREE.has(action)) classBOps += reqs;
     }
   }
 
@@ -408,6 +413,40 @@ async function fetchR2(token, accountId) {
     storageBytes === null ? "Analytics R2 non disponibles (compte trop récent ou trop peu d'usage)" : null,
     breakdown,
   );
+}
+
+// R2 storage for the whole account = the LATEST sample of each bucket, summed.
+// Cloudflare samples every bucket roughly every 30 minutes. Without grouping by
+// bucket, `max` returned the size of the single largest bucket, not the account:
+// 8.5 GB reported for 10.2 GB actually stored (2026-09-13). A bucket whose latest
+// sample lags the account's newest sample by more than 3 hours has been deleted:
+// it no longer counts.
+function sumLatestBucketStorage(rows) {
+  const latest = new Map();
+  for (const r of rows || []) {
+    const bucket = r?.dimensions?.bucketName;
+    const at = Date.parse(r?.dimensions?.datetime ?? "");
+    if (!bucket || Number.isNaN(at)) continue;
+    const prev = latest.get(bucket);
+    if (!prev || at > prev.at) {
+      latest.set(bucket, {
+        at,
+        bytes: (r.max?.payloadSize || 0) + (r.max?.metadataSize || 0),
+        objects: r.max?.objectCount || 0,
+      });
+    }
+  }
+  const newest = Math.max(0, ...[...latest.values()].map((v) => v.at));
+  let bytes = 0;
+  let objects = 0;
+  let buckets = 0;
+  for (const v of latest.values()) {
+    if (newest - v.at > 3 * 3600 * 1000) continue;
+    bytes += v.bytes;
+    objects += v.objects;
+    buckets++;
+  }
+  return { bytes, objects, buckets };
 }
 
 async function fetchWorkers(token, accountId) {

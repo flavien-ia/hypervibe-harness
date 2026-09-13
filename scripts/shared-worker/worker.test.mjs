@@ -7,7 +7,7 @@ import { mkdtempSync, writeFileSync, copyFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { cronMatches, computeNextDue, runPingJob, runSnapshotJob, runQuotaJob, isFirstRunOfWindow, resolveAlertConfig, resolveEmailProvider } from "./worker.js";
+import { cronMatches, computeNextDue, runPingJob, runSnapshotJob, runQuotaJob, isFirstRunOfWindow, resolveAlertConfig, resolveEmailProvider, sumLatestBucketStorage } from "./worker.js";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
@@ -273,11 +273,16 @@ function jsonResponse(obj, status = 200) {
     r2ThresholdGb: 9,
   };
   const gb = 1073741824;
+  // What Cloudflare really returns: one row per bucket AND per sample time.
+  const r2Row = (bytes, objectCount, bucketName = "b1", datetime = "2026-09-13T12:30:00Z") => ({
+    max: { payloadSize: bytes, metadataSize: 0, objectCount },
+    dimensions: { bucketName, datetime },
+  });
 
   // Above threshold -> GraphQL + Brevo email.
   mockFetch((call) => {
     if (call.url.includes("graphql")) {
-      return jsonResponse({ data: { viewer: { accounts: [{ r2StorageAdaptiveGroups: [{ max: { payloadSize: 9.5 * gb, metadataSize: 0, objectCount: 42 } }] }] } } });
+      return jsonResponse({ data: { viewer: { accounts: [{ r2StorageAdaptiveGroups: [r2Row(9.5 * gb, 42)] }] } } });
     }
     return jsonResponse({ messageId: "x" }, 201);
   });
@@ -293,7 +298,7 @@ function jsonResponse(obj, status = 200) {
   // Under threshold -> no email.
   mockFetch((call) => {
     if (call.url.includes("graphql")) {
-      return jsonResponse({ data: { viewer: { accounts: [{ r2StorageAdaptiveGroups: [{ max: { payloadSize: 1 * gb, metadataSize: 0, objectCount: 3 } }] }] } } });
+      return jsonResponse({ data: { viewer: { accounts: [{ r2StorageAdaptiveGroups: [r2Row(1 * gb, 3)] }] } } });
     }
     return jsonResponse({}, 201);
   });
@@ -307,7 +312,7 @@ function jsonResponse(obj, status = 200) {
   // the alert goes out through Resend.
   mockFetch((call) => {
     if (call.url.includes("graphql")) {
-      return jsonResponse({ data: { viewer: { accounts: [{ r2StorageAdaptiveGroups: [{ max: { payloadSize: 9.5 * gb, metadataSize: 0, objectCount: 42 } }] }] } } });
+      return jsonResponse({ data: { viewer: { accounts: [{ r2StorageAdaptiveGroups: [r2Row(9.5 * gb, 42)] }] } } });
     }
     return jsonResponse({ id: "x" }, 200);
   });
@@ -320,6 +325,36 @@ function jsonResponse(obj, status = 200) {
   check("quota over via Resend: bearer key used", resend?.headers?.Authorization === "Bearer re-key");
   check("quota over via Resend: recipient in body", resend?.body?.includes("user@test.fr"));
   check("quota over via Resend: sender wrapped as Name <email>", resend?.body?.includes("Test <sender@test.fr>"));
+
+  // The bug of 2026-09-13: no bucket alone crosses the threshold, the account does.
+  // 5.5 GB + 4 GB = 9.5 GB >= 9 GB -> alert, where the old `max` saw only 5.5 GB.
+  mockFetch((call) => {
+    if (call.url.includes("graphql")) {
+      return jsonResponse({ data: { viewer: { accounts: [{ r2StorageAdaptiveGroups: [
+        r2Row(5.5 * gb, 10, "atelier", "2026-09-13T12:30:00Z"),
+        r2Row(5.4 * gb, 9, "atelier", "2026-09-13T12:00:00Z"),
+        r2Row(4 * gb, 5, "fresques", "2026-09-13T12:40:00Z"),
+      ] }] } } });
+    }
+    return jsonResponse({ messageId: "x" }, 201);
+  });
+  await runQuotaJob(
+    { kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: cfg },
+    { CLOUDFLARE_API_TOKEN: "cf-tok", BREVO_API_KEY: "brevo-key" },
+  );
+  check("quota over across buckets: email sent although no bucket alone crosses the threshold", calls.some((c) => c.url.includes("brevo")));
+
+  // Pure helper: latest sample per bucket, summed; a bucket silent for over 3 h (deleted) drops out.
+  const storage = sumLatestBucketStorage([
+    r2Row(5.5 * gb, 10, "atelier", "2026-09-13T12:30:00Z"),
+    r2Row(5.4 * gb, 9, "atelier", "2026-09-13T12:00:00Z"),
+    r2Row(4 * gb, 5, "fresques", "2026-09-13T12:40:00Z"),
+    r2Row(1 * gb, 80, "deleted", "2026-09-13T06:00:00Z"),
+  ]);
+  check("storage sum: latest sample of each bucket, summed", storage.bytes === 9.5 * gb);
+  check("storage sum: objects come from the latest samples", storage.objects === 15);
+  check("storage sum: a bucket silent for over 3 h no longer counts", storage.buckets === 2);
+  check("storage sum: no rows -> zero", sumLatestBucketStorage([]).bytes === 0);
 
   // Missing token -> no checks at all.
   mockFetch(() => jsonResponse({}));

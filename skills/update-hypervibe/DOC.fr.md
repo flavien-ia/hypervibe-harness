@@ -24,16 +24,19 @@ Si vous avez installé le plugin **avec une commande** (`/plugin marketplace add
 
 5. **Elle permute les dossiers et garde une sauvegarde.** L’ancienne version est mise de côté sous le nom `hypervibe-backup-<version>`. Si une étape échoue, elle est remise en place immédiatement : vous ne vous retrouvez jamais sans plugin.
 
-6. **Elle vous demande de relancer Claude Code**, c’est ce qui charge réellement la nouvelle version.
+6. **Elle remet votre horloge partagée à niveau.** Si votre compte Cloudflare fait tourner l’horloge partagée d’Hypervibe (le worker `hypervibe-jobs`, qui porte les sauvegardes des bases, les alertes de quotas et les tâches planifiées), elle vérifie que l’horloge exécute bien le code de la version que vous avez désormais, et la redéploie sinon. Une horloge restée en arrière garde ses anciens défauts, même avec un plugin à jour. Cette vérification a lieu aussi quand vous êtes déjà à jour.
+
+7. **Elle vous demande de relancer Claude Code**, c’est ce qui charge réellement la nouvelle version.
 
 ## Ce que vous obtenez
 
 - Le plugin mis à jour sur place, au même endroit
 - La version précédente conservée en sauvegarde juste à côté, jusqu’à ce que vous décidiez de l’effacer
 - Le catalogue local des plugins remis d’accord avec le nouveau numéro de version
+- Votre horloge partagée alignée sur la version du plugin, si vous en avez une
 
 ## Bon à savoir
 
 - **La sauvegarde n’est pas supprimée toute seule.** Relancez, vérifiez que tout fonctionne, puis demandez à la retirer.
 - **Une mise à jour ratée ne vous coûte rien** : la version précédente est restaurée d’elle-même, et la commande vous dit ce qui a échoué.
-- **Rien n’est envoyé nulle part.** La vérification lit un fichier public, le téléchargement est anonyme.
+- **Rien n’est envoyé à Hypervibe.** La vérification lit un fichier public, le téléchargement est anonyme. Le seul envoi est le code de votre horloge partagée, vers votre propre compte Cloudflare, et seulement quand elle était en retard.

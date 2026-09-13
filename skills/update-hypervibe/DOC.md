@@ -24,16 +24,19 @@ If you installed the plugin **with a command** (`/plugin marketplace add flavien
 
 5. **It swaps the folders and keeps a backup.** The old version is set aside as `hypervibe-backup-<version>`. If any step fails, it is put straight back: you never end up without a plugin.
 
-6. **It asks you to restart Claude Code**, which is what actually loads the new version.
+6. **It brings your shared clock in step.** If your Cloudflare account runs Hypervibe's shared clock (the `hypervibe-jobs` worker behind database backups, quota alerts and scheduled tasks), it checks that the clock runs the code of the version you now have, and redeploys it if not. A clock left behind keeps its old defects, even under an up-to-date plugin. This check also runs when you are already up to date.
+
+7. **It asks you to restart Claude Code**, which is what actually loads the new version.
 
 ## What you get
 
 - The plugin updated in place, at the same path
 - The previous version kept as a backup next to it, until you decide to delete it
 - The local plugin catalogue kept in step with the new version number
+- Your shared clock running the same version as the plugin, if you have one
 
 ## Good to know
 
 - **The backup is not deleted automatically.** Restart, check that everything works, then ask to have it removed.
 - **A failed update costs you nothing**: the previous version is restored on its own, and the command tells you what went wrong.
-- **Nothing is sent anywhere.** The check reads a public file, the download is anonymous.
+- **Nothing is sent to Hypervibe.** The check reads a public file, the download is anonymous. The only upload is your shared clock's code, to your own Cloudflare account, and only when it was behind.

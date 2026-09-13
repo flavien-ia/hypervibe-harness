@@ -29,8 +29,8 @@ node "$PLUGIN_DIR/scripts/update/update-hypervibe.mjs" check
 Read the JSON:
 
 - `offline: true` → *"I cannot reach the update server right now, try again a little later."* **STOP.**
-- `mode: "marketplace"` → Claude Code owns the update. Report the versions, then give the command from `commandeNative` and explain it runs in Claude Code, not here. **STOP** (do not download anything).
-- `updateAvailable: false` → *"Your plugin is already up to date (version `localVersion`)."* **STOP.**
+- `mode: "marketplace"` → Claude Code owns the update. Report the versions, then give the command from `commandeNative` and explain it runs in Claude Code, not here. If `updateAvailable` is false, run Step 3d first. **STOP** (do not download anything).
+- `updateAvailable: false` → *"Your plugin is already up to date (version `localVersion`)."* Run Step 3d, then **STOP.**
 - `updateAvailable: true` and `mode: "manuel"` → announce: *"A new version is available: `publishedVersion` (you have `localVersion`). Shall I download and install it?"* Wait for the yes.
 
 ## Step 2 - Download
@@ -113,6 +113,25 @@ node "$PLUGIN_DIR/scripts/ensure-hooks-chain.mjs"
 ```
 
 `REFRESHED` means the old block was replaced in both global hooks; `OK` means the machine was already closed; `INSTALLED` means the pre-push chain was missing and is now in place; `FOREIGN` means a pre-push that is not Hypervibe's exists and was left alone (say so, in one sentence). Then, if the current folder is a repository equipped by `/add-test` (it has a `.hooks/pre-push`), tell the user that its hook is now inert on this machine until they opt in, and offer the command `git config hypervibe.hooks true`. Run it only if they agree: it is their decision, per checkout.
+
+## Step 3d - Bring the shared clock in step
+
+The shared clock is the `hypervibe-jobs` worker that `/start` deploys on the user's Cloudflare account: it runs the database backups, the quota alerts and the scheduled pings. Installing a new plugin never touches it, so it keeps the code of the day it was last deployed. Before this step existed, it only caught up when `/start`, `/quotas`, `/add-cron`, `/add-backup-db` or `/add-automation` ran again: a machine that never ran them kept an old worker, bugs included. That is how the storage alert stayed silent past the free 10 GB, reading the largest bucket instead of the account total (found on 2026-09-13).
+
+Run it after a successful install, and when Step 1 finds the plugin already up to date (the plugin files may have moved forward while the worker stayed behind):
+
+```bash
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
+eval "$(node "$PLUGIN_DIR/scripts/wrangler-env-init.mjs")"
+node "$PLUGIN_DIR/scripts/shared-worker/worker-check.mjs"
+```
+
+It never creates a worker (no `~/.hypervibe-jobs` on this machine means nothing to repair), and a machine already in step gets its answer at once, without network. One JSON line comes back:
+
+- `status: "absent"` or `"up_to_date"` → say nothing.
+- `status: "updated"` → one sentence: the shared clock now runs this version of the plugin. If `knownBugs` is not empty, say in plain words what the repair fixes, from each `message` (for the storage bug: *"your storage alert only looked at your largest bucket, it now watches your whole account"*).
+- `ok: false` with an `error` about `CLOUDFLARE_API_TOKEN` → the vault is locked. Say a window will open for the master password, run `node "$PLUGIN_DIR/scripts/vault/launch.mjs" unlock`, then run the check once more.
+- any other `ok: false` → pass on `error` (and `howTo` when present), and say the clock keeps its previous version until the next `/quotas` or the next update. Never hold the rest of the update on it.
 
 ## Step 4 - Wrap up
 
