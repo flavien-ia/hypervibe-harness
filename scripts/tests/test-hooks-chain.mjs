@@ -60,7 +60,7 @@ const witness = join(repo, "WITNESS");
 // 1. Without the opt-in: the hook is announced, not run.
 const first = git(repo, ["-c", `core.hooksPath=${hooksPathPosix}`, "commit", "-q", "-m", "first"]);
 check("un clone ne voit pas ses hooks versionnes executes (sans opt-in local)", first.status === 0 && !existsSync(witness), `exit ${first.status}`);
-check("le hook annonce ce que le depot transporte, sur stderr", /ships a \.hooks\/pre-commit/.test(first.stderr) && /git config hypervibe\.hooks true/.test(first.stderr));
+check("le hook annonce ce que le depot transporte, sur stderr, sans dicter la commande de l'accord", /ships a \.hooks\/pre-commit/.test(first.stderr) && /a person decides/.test(first.stderr) && !/hypervibe\.hooks true/.test(first.stderr));
 
 // 2. The opt-in is local config, and it is never cloned.
 git(repo, ["config", "--local", TRUST_KEY, "true"]);

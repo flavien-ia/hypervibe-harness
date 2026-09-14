@@ -49,6 +49,8 @@ If `--include-vercel` is passed, the JSON output includes a `_meta` key with :
 - `sources: ["local", "vercel-production"]` if the pull succeeded, otherwise `["local"]` only
 - `vercelPull.keys` : list of the **names** of the vars retrieved from Vercel (never the values - no secret leak in the output)
 
+Whatever the checks requested, `_meta.sharedWorker` is present when a shared clock was deployed from this machine. `stale: true` means it runs an older plugin version, which happens after a manual install of the plugin: say it once, in one sentence, with the remedy in `hint`. Never redeploy from here.
+
 ## Supported checks
 
 ### `db` - real cloud DB wired up

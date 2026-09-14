@@ -233,6 +233,26 @@ checks += 1;
   console.log(`${ok ? "OK  " : "FAIL"} Monitor: une veille ordinaire passe`);
 }
 
+console.log("\n── L'accord de confiance et le worker partage demandent (revue externe, 3.1.6) ──");
+expect("git config hypervibe.hooks true", "ask");
+expect("git config --local hypervibe.hooks true", "ask");
+expect("git -C C:/x config hypervibe.hooks true", "ask");
+expect("git config --bool hypervibe.hooks true", "ask");
+expect("git config set hypervibe.hooks true", "ask");
+expect("node scripts/ensure-hooks-chain.mjs --trust", "ask");
+expect('node "C:/Users/x y/scripts/shared-worker/ensure.mjs"', "ask");
+expect("node scripts/shared-worker/worker-check.mjs", "ask");
+expect("node scripts/shared-worker/ensure.mjs --force-redeploy", "ask");
+expect("git config --local --bool --get hypervibe.hooks", "pass");
+expect("git config --unset hypervibe.hooks", "pass");
+expect("git config get hypervibe.hooks", "pass");
+expect("git config user.email x@y.z", "pass");
+expect("node scripts/ensure-hooks-chain.mjs", "pass");
+expect("node scripts/shared-worker/ensure.mjs --dry-run", "pass");
+expect("node scripts/shared-worker/worker-check.mjs --dry-run", "pass");
+expect("node scripts/shared-worker/register.mjs --list", "pass");
+expect("cat scripts/shared-worker/ensure.mjs", "pass");
+
 console.log("\n── Robustesse (fail-open) ──");
 checks += 1;
 {

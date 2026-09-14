@@ -567,6 +567,22 @@ check(
   );
 }
 
+// ── L'accord de confiance et le worker demandent ; l'index se desindexe par lien ──
+{
+  const r = lire("hooks/rules.mjs");
+  check("le garde-fou demande avant d'ecrire hypervibe.hooks ou de lancer ensure-hooks-chain --trust", /hypervibe\\\.hooks/.test(r) && /--trust/.test(r));
+  check("le garde-fou demande avant ensure.mjs / worker-check.mjs sans --dry-run", /worker-check/.test(r) && /--dry-run/.test(r));
+  const chain = lire("scripts/ensure-hooks-chain.mjs");
+  check("le hook n'ecrit plus la commande de l'accord dans son message", !/echo .*config \$\{TRUST_KEY\} true/.test(chain) && /a person decides/.test(chain));
+  check("ensure.mjs a un --dry-run qui ne deploie rien", /flags\["dry-run"\]/.test(lire("scripts/shared-worker/ensure.mjs")));
+  check(
+    "la memoire se desindexe par le lien des fichiers supprimes, et l'inventaire montre ces lignes",
+    /from "\.\/_memory-index\.mjs"/.test(lire("scripts/delete-project/execute-deletions.mjs")) && /indexLines/.test(lire("scripts/delete-project/discover-resources.mjs")),
+  );
+  check("la recette de l'index memoire est branchee", /test-memory-index\.mjs/.test(lire("scripts/tests/run-all.mjs")));
+  check("check-deps signale un worker partage en retard", /sharedWorker/.test(lire("scripts/check-deps.mjs")));
+}
+
 // ── La page dit ce qu'elle promet (garde contre une page videe) ──────
 {
   const attendus = [

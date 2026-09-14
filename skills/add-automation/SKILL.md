@@ -91,6 +91,12 @@ Then ensure the unified shared worker is provisioned (idempotent, fast when alre
 
 ```bash
 eval "$(node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs")"
+dry=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/ensure.mjs" --dry-run)
+```
+
+The dry run changes nothing and says whether the real run would deploy: `status: "not-scaffolded"` (first setup, the clock would be created and deployed), `"would-deploy"` (the clock is behind or missing on the account; `reasons` says why), or `"in-step"` (nothing would change). **In step: do not run the real command**, treat the dry run's JSON as the provisioning result (it carries `dir`, `workerName`, `workerUrl`, `jobs`; read its `status` as `already_present`). Otherwise, say in one sentence what is about to happen on the user's Cloudflare account, then run the real command below; the guardrail asks for confirmation at that moment, and that question is the user's yes (outside review, 3.1.6):
+
+```bash
 result=$(node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/ensure.mjs")
 ```
 

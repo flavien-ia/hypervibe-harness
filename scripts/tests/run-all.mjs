@@ -20,6 +20,7 @@ const SUITES = [
   ["git hooks chain (a clone never runs its hooks)", join(ROOT, "scripts", "tests", "test-hooks-chain.mjs")],
   ["child processes and paths with spaces", join(ROOT, "scripts", "tests", "test-spawn-paths.mjs")],
   ["zip writer", join(ROOT, "scripts", "tests", "test-zip.mjs")],
+  ["memory index trimming", join(ROOT, "scripts", "tests", "test-memory-index.mjs")],
   ["agent template fences", join(ROOT, "scripts", "tests", "test-agent-template-tools.mjs")],
   ["SECURITY.md claims", join(ROOT, "scripts", "tests", "test-security-claims.mjs")],
   ["skill descriptions", join(ROOT, "scripts", "tests", "test-skill-descriptions.mjs")],

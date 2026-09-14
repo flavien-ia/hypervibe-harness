@@ -21,6 +21,23 @@ Then type `/start`: it installs everything else for you (Node.js, pnpm, Git, and
 
 Prefer a guided, click-by-click version? See the full walkthrough at **[hypervibe.fr/plugin/installation](https://hypervibe.fr/plugin/installation)**.
 
+## Codex and OpenCode
+
+Hypervibe is written for Claude Code, but the same plugin also runs on **OpenAI Codex** and on **OpenCode**: the same skills, the same guardrail, the same MCP server. hypervibe.fr serves a version converted for each host and explains how to install it without writing a line of code:
+
+- [Hypervibe for Codex](https://hypervibe.fr/en/plugin/codex)
+- [Hypervibe for OpenCode](https://hypervibe.fr/en/plugin/opencode)
+
+Developers can also convert this repository themselves with [claude-plugin-to-codex](https://github.com/flavien-ia/claude-plugin-to-codex), the open source converter behind those downloads:
+
+```bash
+git clone https://github.com/flavien-ia/hypervibe-harness.git
+npx claude-plugin-to-codex --source ./hypervibe-harness              # Codex
+npx claude-plugin-to-codex --source ./hypervibe-harness --target opencode   # OpenCode
+```
+
+What differs from Claude Code: the rules file is `AGENTS.md` (or your existing `CLAUDE.md` on a machine that also runs Claude Code), a question to you is asked in plain text on Codex and through the `question` tool on OpenCode, and a few skills still describe menus that only Claude Code has. Everything else, vault included, is the same scripts.
+
 ## Getting started
 
 | New to this? | Already comfortable? |
@@ -154,6 +171,8 @@ So the operations that cannot be undone are guarded, not merely discouraged:
 | `run-sql.mjs` with `DROP` / `TRUNCATE` | **refused** without `--destructif` | Between two backups, nothing brings a dropped table back. |
 | `run-sql.mjs` with `DELETE`/`UPDATE` and no `WHERE` | **confirmation** | Rewrites every row. |
 | `git reset --hard`, `git checkout .`, `git clean -f` | **confirmation** | Discards uncommitted work, possibly someone else's. |
+| `git config hypervibe.hooks true`, `ensure-hooks-chain.mjs --trust` | **confirmation** | Trusting a checkout's versioned git hooks runs code that arrived with a clone. A person decides, per checkout. |
+| `shared-worker/ensure.mjs`, `worker-check.mjs` (without `--dry-run`) | **confirmation** | They can redeploy the shared clock, code that runs with the account's keys, like `wrangler deploy`. |
 
 The rules look at the command, not at its costume. `sudo`, `command`, `env`, `time`, a launcher (`npx`, `pnpm dlx`), a version pin (`wrangler@latest`), an absolute path (`/usr/bin/git`), a subshell or a block (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), a quoted head, and the payload of `sh -c` or `eval` are stripped or unfolded before any rule runs. Five such shapes walked past every rule on 3.0.4; closing the family, rather than the five, is what an outside review asked for.
 
@@ -162,7 +181,7 @@ Everything else passes untouched, and that half is tested as carefully as the ot
 Three things worth knowing:
 
 - **Fail-open.** The hook runs before every Bash call; if it ever fails, it lets the command through and says so on stderr. It is a seatbelt, not an airlock.
-- **The hook only sees the command line.** What a script does internally escapes it, so `run-sql.mjs` and `execute-deletions.mjs` carry their own checks. Those also protect hosts without hooks, Codex included.
+- **The hook only sees the command line.** What a script does internally escapes it, so `run-sql.mjs` and `execute-deletions.mjs` carry their own checks. Those also protect a host where the hook is not installed.
 - **Automations that legitimately push** may prefix their command with `HYPERVIBE_GUARD_ALLOW_PUSH=1`. An operation that legitimately restructures the whole tree (a monorepo conversion) may prefix its sweeping stage with `HYPERVIBE_GUARD_ALLOW_SWEEP=1`, after a `git status` proved nothing foreign is pending. Both prefixes are visible in the command, which is the point: the exception is stated, never silent. A throwaway database nobody depends on (a project built live on stage, a scratch sandbox) is a different case: the hook cannot tell a scratch database from production, and a prefix typed by the model would let the model decide that, so this exception is read from the environment Claude Code was launched in (`HYPERVIBE_GUARD_ALLOW_DB_PUSH=1`, set by you before the session), never from the command.
 
 Hooks load when Claude Code starts: after installing or updating the plugin, restart it.

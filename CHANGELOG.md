@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.1.8 (14 septembre 2026)
+
+### Sécurité
+- **Faire confiance aux hooks d'un dépôt est un geste humain.** Depuis la 3.1.5, les hooks git versionnés d'un dépôt ne s'exécutent qu'après un accord donné dans ce clone. Le garde-fou demande désormais confirmation avant que cet accord soit posé, sous toutes ses formes, et le message du hook ne dicte plus la commande au modèle : une personne décide, dépôt par dépôt. /add-test demande donc une confirmation de plus, pour le dépôt qu'il équipe.
+- **Le redéploiement de l'horloge partagée demande, même quand un script du plugin s'en charge.** La vérification de la mise à jour et les commandes qui mettent l'horloge en place font d'abord un essai à blanc, qui dit si un déploiement serait nécessaire sans rien toucher ; la vraie commande n'est lancée que si quelque chose changerait, et le garde-fou demande confirmation à ce moment-là, comme pour `wrangler deploy`. Plus aucune question quand tout est à jour, une question quand ça déploie.
+
+### Corrections
+- **/delete-project ne désindexe que ce qu'il supprime.** L'index de mémoire perdait les lignes d'autres sujets qui citaient le projet au passage, et gardait sans ligne les fichiers conservés pour relecture. Seules les lignes dont le lien pointe vers un fichier réellement supprimé sont retirées, et elles sont montrées avant confirmation, avec le reste.
+- **Une horloge partagée en retard est signalée.** Après une installation manuelle du plugin, l'horloge garde l'ancienne version sans que rien ne le dise. Le contrôle de dépendances le mentionne désormais, avec le remède, sans jamais redéployer de lui-même.
+
+### Coulisses
+- Une recette de plus (la désindexation par lien), des cas de garde-fou pour l'accord et l'horloge, et un essai à blanc dans le script de l'horloge. Relecture extérieure de la 3.1.6 et retour d'un utilisateur de la 3.1.7.
+
 ## v3.1.7 (13 septembre 2026)
 
 ### Corrections

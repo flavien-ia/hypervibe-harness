@@ -32,8 +32,9 @@
 //   → {"db":{"ok":true,...},"email":{"ok":false,...},"auth":{"ok":true,...}}
 
 import { readFileSync, existsSync, unlinkSync } from "node:fs";
-import { resolve, join } from "node:path";
-import { tmpdir } from "node:os";
+import { resolve, join, dirname } from "node:path";
+import { tmpdir, homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import { readUserEnv } from "./_read-user-env.mjs";
 
@@ -799,6 +800,27 @@ if (includeVercel) {
     sources: vercelEnvInfo?.ok ? ["local", "vercel-production"] : ["local"],
     vercelPull: pullSummary,
   };
+}
+
+// The shared clock deployed from this machine keeps the code of the day it was
+// last deployed, and a plugin installed by hand (an upload in Claude Desktop)
+// never brings it in step: a user found his worker three weeks behind, by
+// chance (reported on 3.1.7). Local comparison, no network, no deploy: a line
+// worth saying in every skill that runs this check.
+{
+  const deployedWorker = join(homedir(), ".hypervibe-jobs", "worker.js");
+  const latestWorker = join(dirname(fileURLToPath(import.meta.url)), "shared-worker", "worker.js");
+  if (existsSync(deployedWorker) && existsSync(latestWorker)) {
+    try {
+      const stale = readFileSync(deployedWorker, "utf8") !== readFileSync(latestWorker, "utf8");
+      result._meta = {
+        ...(result._meta || {}),
+        sharedWorker: stale
+          ? { stale: true, hint: "the shared clock runs an older plugin version (a manual install never updates it): /update-hypervibe or /quotas brings it in step, and asks before redeploying" }
+          : { stale: false },
+      };
+    } catch {}
+  }
 }
 
 process.stdout.write(JSON.stringify(result));

@@ -24,6 +24,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getSecret, sessionStatus } from "../vault/vault.mjs";
 import { spawnSpec } from "../_spawn.mjs";
+import { indexLinesFor } from "./_memory-index.mjs";
 import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
 import { loadAuthToken, readLinkedProject } from "../_vercel-auth.mjs";
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
@@ -873,6 +874,23 @@ if (memory && Array.isArray(memory.files)) {
       f.isProjectSpecific = false;
       f.note = `filename matches project "${owner}" better - left for review`;
     }
+  }
+  // The index lines the deletion will remove: those whose link points to a
+  // file that will be deleted, and only those. Listed here so that the user
+  // sees them before confirming, with everything else (outside review, 3.1.7).
+  memory.indexLines = [];
+  const byDir = new Map();
+  for (const f of memory.files) {
+    if (!f.isProjectSpecific || !f.dir) continue;
+    if (!byDir.has(f.dir)) byDir.set(f.dir, []);
+    byDir.get(f.dir).push(f.filename);
+  }
+  for (const [dir, names] of byDir) {
+    const idx = join(dir, "MEMORY.md");
+    if (!existsSync(idx)) continue;
+    try {
+      for (const line of indexLinesFor(readFileSync(idx, "utf8").split("\n"), names)) memory.indexLines.push({ dir, line });
+    } catch {}
   }
 }
 

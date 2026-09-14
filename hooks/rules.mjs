@@ -368,6 +368,43 @@ export function decide(command, inherited = new Map()) {
       );
       continue;
     }
+
+    // 8. Trusting a checkout's versioned git hooks. `git config
+    //    hypervibe.hooks true` lets the .hooks/* of THIS clone run on this
+    //    machine: code that arrived with a clone. A person decides that, per
+    //    checkout. The hook's own notice reaches the model in the output of a
+    //    commit, so the model must not be the one typing the opt-in (outside
+    //    review, 3.1.6). Reads and the removal of the opt-in stay free.
+    if (
+      (/^git\s+config\b/.test(seg) &&
+        /\bhypervibe\.hooks\b/.test(seg) &&
+        !/\s(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|get|unset|list)\b/.test(seg)) ||
+      (/^(?:node|bun|deno|tsx)\s/.test(seg) && /ensure-hooks-chain\.mjs/.test(seg) && /--trust\b/.test(seg))
+    ) {
+      keep(
+        ASK,
+        "Trusting this checkout's versioned git hooks means running code that arrived with a clone. A person decides that, per checkout: confirm with the user first.",
+      );
+      continue;
+    }
+
+    // 9. Redeploying the shared clock through one of the plugin's own
+    //    scripts. ensure.mjs and worker-check.mjs end in `wrangler deploy`
+    //    (rule 3b) when the worker is behind: same code, same keys, same
+    //    question. Their --dry-run says whether a deploy would happen and
+    //    changes nothing, so it stays free (outside review, 3.1.6).
+    if (
+      /^(?:node|bun|deno|tsx)\s/.test(seg) &&
+      /shared-worker[\\/](?:ensure|worker-check)\.mjs/.test(seg) &&
+      !/--dry-run\b/.test(seg) &&
+      !/--no-deploy\b/.test(seg)
+    ) {
+      keep(
+        ASK,
+        "This can redeploy the shared clock, code that runs with the account's keys. Run it with --dry-run first to see whether a deploy is needed, and confirm with the user before the real run.",
+      );
+      continue;
+    }
   }
 
   return worst;

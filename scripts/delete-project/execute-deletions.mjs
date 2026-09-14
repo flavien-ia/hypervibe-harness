@@ -47,6 +47,7 @@ import { fileURLToPath } from "node:url";
 import { getSecret } from "../vault/vault.mjs";
 import { tokenMatches, moreSpecificOwner } from "../_match.mjs";
 import { spawnSpec } from "../_spawn.mjs";
+import { trimIndex } from "./_memory-index.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -129,30 +130,6 @@ function runCmdSync(cmd, args, opts = {}) {
   const spec = spawnSpec(cmd, args);
   const r = spawnSync(spec.file, spec.args, { encoding: "utf8", ...opts, shell: spec.shell });
   return { code: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
-}
-
-// A trimmed index must not keep a heading whose section became empty: the
-// title of a project with no line left under it is noise for every later
-// session (reported on 3.1.5).
-function dropEmptySections(lines) {
-  const out = [];
-  for (let i = 0; i < lines.length; i += 1) {
-    const m = /^(#{1,6})\s/.exec(lines[i]);
-    if (m) {
-      const level = m[1].length;
-      let j = i + 1;
-      let body = false;
-      while (j < lines.length) {
-        const n = /^(#{1,6})\s/.exec(lines[j]);
-        if (n && n[1].length <= level) break;
-        if (lines[j].trim()) { body = true; break; }
-        j += 1;
-      }
-      if (!body) { i = j - 1; continue; }
-    }
-    out.push(lines[i]);
-  }
-  return out;
 }
 
 // ─── deletion functions ────────────────────────────────────────────────────
@@ -524,12 +501,15 @@ async function deleteMemory() {
   // Delete project-specific files only (those whose filename contains the project).
   // Paths come from the inventory (discover-resources scans every project memory
   // dir), so no hardcoded workspace slug and fully cross-platform.
+  const deletedByDir = new Map();
   for (const f of inventory.memory.files) {
     const fpath = f.path || (f.dir ? join(f.dir, f.filename) : null);
     if (f.dir) dirs.add(f.dir);
     if (f.isProjectSpecific && fpath) {
       try {
         rmSync(fpath);
+        if (!deletedByDir.has(f.dir)) deletedByDir.set(f.dir, []);
+        deletedByDir.get(f.dir).push(f.filename);
         results.push({ file: f.filename, status: "deleted" });
       } catch (e) {
         results.push({ file: f.filename, status: "failed", error: String(e) });
@@ -539,22 +519,22 @@ async function deleteMemory() {
       results.push({ file: f.filename, status: "kept", reason: "not project-specific, references may be incidental - LLM should review" });
     }
   }
-  // Trim each MEMORY.md index that references this project (surgical)
+  // Trim each MEMORY.md index by the FILES deleted above, and only by them:
+  // a line goes when its link points to a file that is now gone. Matching the
+  // project's name on the line removed lines of other subjects that cited it
+  // in passing, and left files kept for review without their line (outside
+  // review, 3.1.7). The removed lines come back in the report.
   for (const dir of dirs) {
     const indexPath = join(dir, "MEMORY.md");
     if (!existsSync(indexPath)) continue;
+    const gone = deletedByDir.get(dir) ?? [];
+    if (gone.length === 0) continue;
     try {
       const original = readFileSync(indexPath, "utf8");
-      const lines = original.split("\n");
-      // Word-boundary match + ownership check: deleting "street" must not trim
-      // index lines that actually reference "street-cool".
-      const filtered = dropEmptySections(
-        lines.filter((l) => !(tokenMatches(PROJECT, l) && !moreSpecificOwner(PROJECT, l, OWNER_CANDIDATES))),
-      );
-      const removed = lines.length - filtered.length;
-      if (removed > 0) {
-        writeFileSync(indexPath, filtered.join("\n"));
-        results.push({ file: "MEMORY.md (index)", status: "trimmed", linesRemoved: removed });
+      const { text, removed } = trimIndex(original, gone);
+      if (removed.length > 0) {
+        writeFileSync(indexPath, text);
+        results.push({ file: "MEMORY.md (index)", status: "trimmed", linesRemoved: removed.length, lines: removed });
       }
     } catch (e) {
       results.push({ file: "MEMORY.md (index)", status: "failed", error: String(e) });

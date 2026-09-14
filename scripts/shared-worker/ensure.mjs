@@ -21,6 +21,7 @@
 //   --worker-name <name>  default: hypervibe-jobs
 //   --account-id <id>     default: discovered from the Cloudflare API
 //   --no-deploy           scaffold only (used by tests)
+//   --dry-run             say whether the real run would deploy, change nothing
 //   --force-redeploy      redeploy even when already present
 //
 // Output: single JSON line on stdout. Logs on stderr.
@@ -28,7 +29,7 @@
 //     jobs, deployed, adminTokenVar, healed: [...] }
 //   { ok: false, error, howTo? }
 
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
@@ -62,14 +63,15 @@ main().catch((e) => fail(e?.message || String(e)));
 
 async function main() {
   // ── Prereqs ────────────────────────────────────────────────────────────
+  const dryRun = Boolean(flags["dry-run"]);
   const wr = checkWrangler();
-  if (!wr.ok) {
+  if (!wr.ok && !dryRun) {
     fail("wrangler is not installed", {
       howTo: "Run /start (it installs and configures the Cloudflare tooling).",
     });
   }
   const token = readUserEnv("CLOUDFLARE_API_TOKEN");
-  if (!token) {
+  if (!token && !dryRun) {
     fail("CLOUDFLARE_API_TOKEN not found (vault locked or /start not done)", {
       howTo: "Unlock the vault or run /start to configure Cloudflare.",
     });
@@ -79,6 +81,38 @@ async function main() {
     existsSync(join(DIR, "wrangler.toml")) &&
     existsSync(join(DIR, "worker.js")) &&
     existsSync(join(DIR, "jobs.js"));
+
+  // --dry-run: say whether the real run would deploy, and why, without
+  // writing or deploying anything. The real run can end in `wrangler deploy`
+  // (code that runs with the account's keys), so the guardrail asks before
+  // it; the skills run this first and only call the real thing when something
+  // would change (outside review, 3.1.6).
+  if (dryRun) {
+    const reasons = [];
+    if (!wr.ok) reasons.push("wrangler is not installed: the real run would stop there");
+    if (!scaffolded) {
+      reasons.push("no shared clock was scaffolded from this machine: the real run would create and deploy it");
+    } else {
+      if (readFileSync(join(DIR, "worker.js"), "utf8") !== readFileSync(join(SCRIPT_DIR, "worker.js"), "utf8")) {
+        reasons.push("worker.js is behind the plugin: the real run would update and redeploy it");
+      }
+      if (flags["force-redeploy"]) reasons.push("--force-redeploy asked");
+      if (token) {
+        if (!(await isDeployed(token))) reasons.push("the worker is not deployed on the account: the real run would deploy it");
+      } else {
+        reasons.push("CLOUDFLARE_API_TOKEN not readable (vault locked): the deployment state is unknown");
+      }
+    }
+    const status = !scaffolded ? "not-scaffolded" : reasons.length ? "would-deploy" : "in-step";
+    let workerUrl = null;
+    if (scaffolded && token && status === "in-step") {
+      try { workerUrl = await computeWorkerUrl(token); } catch {}
+    }
+    let jobs = null;
+    if (scaffolded) { try { jobs = readRegistry(DIR).jobs.length; } catch { jobs = null; } }
+    out({ ok: true, dryRun: true, status, dir: DIR, workerName: WORKER_NAME, workerUrl, jobs, adminTokenVar: ADMIN_TOKEN_VAR, reasons });
+    return;
+  }
 
   const healed = [];
 

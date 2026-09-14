@@ -26,7 +26,10 @@
 // local config is never cloned, and the value is set by an explicit act in
 // that checkout (/add-test, `--trust` here, or the one-line
 // `git config hypervibe.hooks true`). A clone that ships hooks is announced
-// on stderr at the first commit or push, never run.
+// on stderr at the first commit or push, never run. The notice does not spell
+// the opt-in command out: that text reaches the model in the output of its
+// commit, and a person must be the one deciding (the guardrail asks before
+// any write of hypervibe.hooks, outside review 3.1.6).
 //
 // The refresh: a global hook written by an earlier version carries the ungated
 // block. Every run replaces it in place, in both hooks, so that /start,
@@ -65,7 +68,7 @@ if [ -n "$TOPLEVEL" ] && [ -f "$TOPLEVEL/.hooks/${hook}" ]; then
   if [ "$(git config --local --bool --get ${TRUST_KEY} 2>/dev/null)" = "true" ]; then
     sh "$TOPLEVEL/.hooks/${hook}" "$@" || exit 1
   else
-    echo "[hypervibe] this repository ships a .hooks/${hook}; not run on this clone until you trust it: git config ${TRUST_KEY} true" 1>&2
+    echo "[hypervibe] this repository ships a .hooks/${hook}; not run on this clone. Running it means trusting code that arrived with the clone: a person decides that, per checkout (README, Guardrails)." 1>&2
   fi
 fi
 # -----------------------------------------------------------------------------

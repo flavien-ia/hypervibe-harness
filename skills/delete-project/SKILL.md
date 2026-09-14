@@ -192,6 +192,8 @@ Markdown table listing each category where `found === true` (or `isTarget === tr
 
 For R2, state the volume at stake using `objectCount` / `sizeBytes`: *"R2 (the file storage): bucket `x-assets`, **543 files, 84 MB** - emptied then deleted"*. A bucket line without a number reads as an empty shell, and the user validates the destruction of their uploads without realizing it.
 
+For the memory files: name the files that will be deleted (`isProjectSpecific: true`), the files that mention the project but are kept for review (say so: they stay), and quote each index line that will be removed from `MEMORY.md` (`memory.indexLines`, one per line). Only lines whose link points to a deleted file are removed; a line that merely cites the project stays.
+
 ### 2.1b The resource manifest, when the project has one
 
 The inventory carries a `manifest` section when the project declares its resources in `.hypervibe/resources.json` (written by the `add-*` skills at provisioning time). Each declared resource has a `status`:
