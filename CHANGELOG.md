@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.1.9 (15 septembre 2026)
+
+### Sécurité
+- **Une commande cachée dans une substitution est jugée comme les autres.** `x=$(git push origin main)`, `` v=`git add -A` `` ou `result=$(node …/ensure.mjs)` passaient devant le garde-fou : l'affectation avalait le début de la commande. Le contenu des parenthèses et des accents graves est désormais déplié et repasse par la décision, comme la charge d'un `sh -c`. En particulier, les commandes qui mettent l'horloge partagée en place depuis /add-cron, /add-backup-db et /add-automation demandent bien confirmation avant de déployer, comme le disaient leurs consignes.
+- **L'accord de confiance des hooks est reconnu sous toutes ses casses et malgré un commentaire** : `git config HYPERVIBE.HOOKS true` demande (git lit les clés sans tenir compte de la casse), et un `--unset` placé dans un commentaire ne fait plus passer une écriture pour une lecture. L'horloge partagée est reconnue au nom de son script, quel que soit le dossier d'où on la lance.
+
+### Corrections
+- **Le contrôle de dépendances ne dicte plus la commande de l'accord** dans son rapport : il dit qu'une personne l'active, et renvoie à /add-test.
+
+- **Aucun email généré par un projet ne porte de lien vers localhost** : le module d'envoi installé par /add-email (Brevo ou Resend) et celui de l'agent généré refusent un message dont le corps pointe vers localhost ou 127.0.0.1. Un essai lancé avec la configuration locale ne peut plus partir vers de vrais destinataires avec une adresse de développement.
+
+### Coulisses
+- Dix-huit cas de garde-fou de plus, dans les deux sens (substitutions dans des guillemets doubles jugées, dans des apostrophes simples laissées telles quelles). Relecture extérieure de la 3.1.8.
+
 ## v3.1.8 (14 septembre 2026)
 
 ### Sécurité

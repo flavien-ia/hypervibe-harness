@@ -165,6 +165,64 @@ function normalise(raw) {
   return { env, seg: s.trim() };
 }
 
+/** Command substitutions run their content: `x=$(git push origin main)` is a
+ *  push, `` v=`git add -A` `` a sweep. Pulls every `$(...)` (nested ones
+ *  included, they recurse through decide) and every backtick span out of a
+ *  segment, skipping single-quoted text where a shell would not expand them.
+ *  Returns the segment without them, and their contents, each a command line
+ *  of its own. Found by an outside reader on 3.1.8: an assignment swallowed
+ *  `$(node`, and the rule for the shared clock never saw the launcher. A
+ *  backslash escapes the next character, so a quoted `\$(...)` or a
+ *  backslashed backtick (a commit message that TALKS about a command)
+ *  stays text: the guardrail refused its own release commit on 3.1.9 before
+ *  this line existed. */
+function withoutSubstitutions(segment) {
+  const inner = [];
+  let text = "";
+  let i = 0;
+  while (i < segment.length) {
+    const c = segment[i];
+    // An escaped dollar or backtick is literal for the shell (`\$(x)` in a
+    // commit message runs nothing): copy both characters and move on.
+    if (c === "\\") {
+      text += segment.slice(i, i + 2);
+      i += 2;
+      continue;
+    }
+    if (c === "'") {
+      const end = segment.indexOf("'", i + 1);
+      const stop = end < 0 ? segment.length : end + 1;
+      text += segment.slice(i, stop);
+      i = stop;
+      continue;
+    }
+    if (c === "$" && segment[i + 1] === "(") {
+      let depth = 0;
+      let j = i + 1;
+      for (; j < segment.length; j += 1) {
+        if (segment[j] === "(") depth += 1;
+        else if (segment[j] === ")") {
+          depth -= 1;
+          if (depth === 0) break;
+        }
+      }
+      inner.push(segment.slice(i + 2, j));
+      i = j + 1;
+      continue;
+    }
+    if (c === "`") {
+      const end = segment.indexOf("`", i + 1);
+      const stop = end < 0 ? segment.length : end;
+      inner.push(segment.slice(i + 1, stop));
+      i = stop + 1;
+      continue;
+    }
+    text += c;
+    i += 1;
+  }
+  return { text, inner: inner.map((x) => x.trim()).filter(Boolean) };
+}
+
 const DENY = "deny";
 const ASK = "ask";
 
@@ -183,8 +241,15 @@ export function decide(command, inherited = new Map()) {
   };
 
   for (const raw of segments(command)) {
-    const { env, seg } = normalise(raw);
+    // What a substitution runs is judged first, as a command line of its own;
+    // the segment is then read without it (`x=$(git push)` leaves `x=`).
+    const { text: outer, inner } = withoutSubstitutions(raw);
+    const { env, seg } = normalise(outer);
     for (const [k, v] of inherited) if (!env.has(k)) env.set(k, v);
+    for (const payload of inner) {
+      const verdict = decide(payload, env);
+      if (verdict) keep(verdict.decision, verdict.reason);
+    }
     if (!seg) continue;
 
     // A shell handed a command string runs it: `sh -c "git push"` is a push,
@@ -375,10 +440,16 @@ export function decide(command, inherited = new Map()) {
     //    checkout. The hook's own notice reaches the model in the output of a
     //    commit, so the model must not be the one typing the opt-in (outside
     //    review, 3.1.6). Reads and the removal of the opt-in stay free.
+    //    Git reads key names case-insensitively (`HYPERVIBE.HOOKS` sets the
+    //    same value), so does the match; and a read is a read only when its
+    //    option or subcommand comes BEFORE the key, not in a trailing comment
+    //    (outside review, 3.1.8).
+    const trustKey = /^git\s+config\b/.test(seg) ? /\bhypervibe\.hooks\b/i.exec(seg) : null;
+    const trustWrite =
+      trustKey !== null &&
+      !/\s(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|get|unset|list)(?=\s|$)/.test(seg.slice(0, trustKey.index));
     if (
-      (/^git\s+config\b/.test(seg) &&
-        /\bhypervibe\.hooks\b/.test(seg) &&
-        !/\s(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|get|unset|list)\b/.test(seg)) ||
+      trustWrite ||
       (/^(?:node|bun|deno|tsx)\s/.test(seg) && /ensure-hooks-chain\.mjs/.test(seg) && /--trust\b/.test(seg))
     ) {
       keep(
@@ -393,9 +464,13 @@ export function decide(command, inherited = new Map()) {
     //    (rule 3b) when the worker is behind: same code, same keys, same
     //    question. Their --dry-run says whether a deploy would happen and
     //    changes nothing, so it stays free (outside review, 3.1.6).
+    //    Matched on the script's name after the launcher, whatever the path:
+    //    `cd scripts/shared-worker && node ensure.mjs` is the same run
+    //    (outside review, 3.1.8).
+    const launched = /^(?:node|bun|deno|tsx)\s+(?:-\S+\s+)*(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(seg);
+    const launchedBase = launched ? (launched[1] ?? launched[2] ?? launched[3]).split(/[\\/]/).pop() : "";
     if (
-      /^(?:node|bun|deno|tsx)\s/.test(seg) &&
-      /shared-worker[\\/](?:ensure|worker-check)\.mjs/.test(seg) &&
+      /^(?:ensure|worker-check)\.mjs$/.test(launchedBase) &&
       !/--dry-run\b/.test(seg) &&
       !/--no-deploy\b/.test(seg)
     ) {

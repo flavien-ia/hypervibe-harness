@@ -752,7 +752,7 @@ function checkTests() {
       !recette && "docs/recette.md",
       !checker && "scripts/check-recette.mjs",
       !hook && ".hooks/pre-push",
-      hook && !trusted && "opt-in des hooks sur ce clone (git config hypervibe.hooks true)",
+      hook && !trusted && "accord des hooks sur ce clone (une personne l'active, voir /add-test)",
     ].filter(Boolean);
     if (manque.length > 0) {
       return { ok: false, reason: `installation incomplète (manque : ${manque.join(", ")})`, webDir: dir, manque };

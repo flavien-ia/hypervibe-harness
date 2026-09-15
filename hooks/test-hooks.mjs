@@ -253,6 +253,29 @@ expect("node scripts/shared-worker/worker-check.mjs --dry-run", "pass");
 expect("node scripts/shared-worker/register.mjs --list", "pass");
 expect("cat scripts/shared-worker/ensure.mjs", "pass");
 
+console.log("\n── Les substitutions de commande sont depliees (revue externe, 3.1.8) ──");
+expect("result=$(node scripts/shared-worker/ensure.mjs)", "ask");
+expect("x=$(git push origin main)", "ask");
+expect("ok=$(git config --local hypervibe.hooks true)", "ask");
+expect("v=`git add -A`", "deny");
+expect('echo "$(git add -A)"', "deny");
+expect("FOO=$(cat version.txt) git push origin main", "ask");
+expect("OUT=$(echo $(git push origin main))", "ask");
+expect("cd scripts/shared-worker && node ensure.mjs", "ask");
+expect("node --no-warnings scripts/shared-worker/ensure.mjs", "ask");
+expect("git config HYPERVIBE.HOOKS true", "ask");
+expect("git config --local hypervibe.hooks true # a retirer plus tard avec --unset", "ask");
+expect("echo '$(git push origin main)'", "pass");
+expect('git commit -m "the fix: x=\\$(git push origin main) is unfolded now"', "pass");
+expect('git commit -m "and v=\\`git add -A\\` too"', "pass");
+expect('echo "\\$(git add -A)"', "pass");
+expect("v=$(date +%Y)", "pass");
+expect('echo "$(git rev-parse HEAD)"', "pass");
+expect("node ensure.mjs --dry-run", "pass");
+expect("node scripts/ensure-hooks-chain.mjs", "pass");
+expect("git config --local --get hypervibe.hooks # set with true later", "pass");
+expect("git config --unset HYPERVIBE.HOOKS", "pass");
+
 console.log("\n── Robustesse (fail-open) ──");
 checks += 1;
 {

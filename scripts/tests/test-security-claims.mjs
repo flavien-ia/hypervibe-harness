@@ -583,6 +583,14 @@ check(
   check("check-deps signale un worker partage en retard", /sharedWorker/.test(lire("scripts/check-deps.mjs")));
 }
 
+// ── Les substitutions sont depliees, aucun rapport ne dicte l'accord (revue externe, 3.1.8) ──
+{
+  const r = lire("hooks/rules.mjs");
+  check("rules.mjs deplie les substitutions de commande avant de juger un segment", /function withoutSubstitutions\(/.test(r) && /decide\(payload, env\)/.test(r));
+  check("la cle de l'accord est lue sans tenir compte de la casse", /hypervibe\\\.hooks\\b\/i/.test(r));
+  check("aucun script ne dicte la commande de l'accord dans un rapport", !/git config hypervibe\.hooks true/.test(lire("scripts/check-deps.mjs")));
+}
+
 // ── La page dit ce qu'elle promet (garde contre une page videe) ──────
 {
   const attendus = [
