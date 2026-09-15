@@ -1,0 +1,8 @@
+{
+  "$comment": "Read by claude-plugin-to-codex when this plugin is ported to Codex or OpenCode (hypervibe.fr/plugin/codex and /plugin/opencode). Claude Code ignores this file and it does not ship in the ports. Internal skills trade their underscore for the hosts' naming rule. The update skill knows Claude Code only (its registry, its marketplaces) and would put the Claude variant over a port: hypervibe.fr writes an update skill of its own into each converted archive; a port made by hand updates by running the converter again. Routines need a scheduler: Codex has one in its desktop app (the skills carry a SKILL.codex.md written for it), OpenCode has none, so they stay out of that port.",
+  "internalPrefix": "hv-",
+  "exclude": {
+    "codex": ["update-hypervibe"],
+    "opencode": ["update-hypervibe", "add-routine", "_create-routine"]
+  }
+}

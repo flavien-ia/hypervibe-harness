@@ -81,5 +81,6 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 Record the service right after creation (the `srv-...` id is in the API response):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind render-service --id "<srv-id>" --name "<service-name>" --added-by <calling-skill>
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind render-service --id "<srv-id>" --name "<service-name>" --added-by <calling-skill>
 ```

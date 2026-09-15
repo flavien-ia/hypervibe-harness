@@ -690,5 +690,6 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 Record the zone once it is active on Cloudflare (the zone id is in the API responses you already handle):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind dns-zone --name "<apex-domain>" --id "<cloudflare-zone-id>" --added-by add-domain
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind dns-zone --name "<apex-domain>" --id "<cloudflare-zone-id>" --added-by add-domain
 ```

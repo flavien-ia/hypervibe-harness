@@ -51,7 +51,8 @@ Before anything, check this is the right skill:
 - The need is **scheduled or event-driven processing** -> `/add-automation`,
   which routes to the right shape.
 - The need is **a personal recurring mission for the operator** (a weekly brief
-  for themselves) -> `/add-routine`.
+  for themselves) -> `/add-routine`, when this tool offers it (otherwise say that
+  this tool cannot schedule a mission).
 
 Say which one and hand off. Do not build a second agent runtime here.
 

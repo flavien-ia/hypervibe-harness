@@ -326,6 +326,14 @@ The helper is idempotent. If the `politique-de-confidentialite/page.tsx` page ex
 
 ## Step 12 - Summary
 
+First, read the Vercel plan of the project (read-only, one API read through the Vercel CLI):
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/plan.mjs"
+```
+
+It prints one JSON line whose `plan` is `hobby`, `pro`, `enterprise`, or `null` when it cannot tell (project not linked, Vercel CLI too old for `vercel api`, not logged in). Vercel reserves its free Hobby plan for personal, non-commercial use, and a site that collects payments is commercial by Vercel's own definition: Vercel can pause it. The summary mentions it only when the plan is not a paid one (last block of this step).
+
 Present to the user:
 
 > ✅ **Stripe Checkout configured.**
@@ -348,6 +356,14 @@ If the CGV were generated:
 If the CGV were skipped:
 > - ⚠️ **Manual action required**: terms of sale are mandatory for any site that accepts payments in France. To be created before going to prod.
 
+If `plan` is `hobby`:
+> - 💳 **Your Vercel project is on the free Hobby plan.** Vercel reserves it for personal, non-commercial projects, and a site that collects payments needs the paid **Pro** plan (current price: https://vercel.com/pricing). Test mode is fine as it is. Upgrade before switching Stripe to live, or Vercel may pause the site.
+
+If `plan` is `null`:
+> - 💳 **Check your Vercel plan before going live.** Vercel reserves its free Hobby plan for personal, non-commercial projects, and a site that collects payments needs the paid **Pro** plan (current price: https://vercel.com/pricing).
+
+If `plan` is `pro` or `enterprise`: say nothing about the plan.
+
 ---
 
 ## Step 13 - Test -> live migration procedure (triggered by Choice 1 of Step 0)
@@ -360,6 +376,26 @@ This section is invoked only when the user chooses "1. Switch from test mode to 
 4. **Test webhook left active** -> keeps receiving test events after migration, noise + risk of double processing
 
 The Hypervibe bootstrap uses `price_data` (no pitfall #3), but the others remain. This procedure covers them in order.
+
+A fifth pitfall is not technical: Vercel's free Hobby plan forbids commercial use, and a site that takes real payments is commercial. Sub-step 10.0 checks the plan before anything else.
+
+### 10.0 - Check the Vercel plan (commercial use)
+
+Vercel reserves its free Hobby plan for personal, non-commercial use ("All commercial usage of the platform requires either a Pro or Enterprise plan", Vercel Fair Use Guidelines). Its definition of commercial use starts with "any method of requesting or processing payment from visitors of the site", and Vercel can pause an account in breach. Reported by a Hypervibe user (2026-09-15).
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/plan.mjs"
+```
+
+- **`plan` is `pro` or `enterprise`**: say nothing, continue with 10.1.
+- **`plan` is `hobby`**: explain, then ask with `AskUserQuestion`:
+  > Your Vercel project is on the free **Hobby** plan, which Vercel reserves for non-commercial projects. Collecting real payments requires the paid **Pro** plan (current price: https://vercel.com/pricing), otherwise Vercel may pause the site.
+  >
+  > 1. **Upgrade to Pro first** (recommended): in the Vercel dashboard, open your team's billing settings and choose Pro. Tell me once it is done and I check again.
+  > 2. **Continue anyway**: I switch Stripe to live now, and you handle the plan yourself.
+
+  Choice 1: wait for the user, re-run the script, and continue with 10.1 once it reads `pro`. Choice 2: continue with 10.1, and keep the warning line in the 10.9 recap.
+- **`plan` is `null`** (not linked, Vercel CLI too old for `vercel api`, not logged in): state the rule in one sentence, ask the user to check their plan in the Vercel dashboard, then continue with 10.1.
 
 ### 10.1 - Get the live keys
 
@@ -614,11 +650,13 @@ Update the CLAUDE.md stack line (which says "Currently in **TEST mode**") so it 
 > **Verified manually by you:**
 > - ✅ Stripe account KYC (charges_enabled = true)
 > - [✅ Price IDs migrated to price_data / lookup_key - if applicable]
+> - [✅ Vercel plan: Pro, checked in 10.0 - if it read `pro` or `enterprise`]
 >
 > **Important**:
 > - Your local `.env` keeps the TEST webhook secret (for `stripe listen` in dev) - this is intentional.
 > - The Vercel redeploy is needed for the new keys to be active - tell me *"deploy"* if you have not pushed yet.
 > - First live payment = test with a small-amount card of your own (like 1 EUR) to validate the whole end-to-end flow.
+> - [⚠️ **Vercel plan still Hobby**: upgrade to Pro before promoting the site, or Vercel may pause it - if choice 2 in 10.0]
 
 
 ---
@@ -630,5 +668,6 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 Record the webhook endpoint (its `we_...` id is in the creation response):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind stripe-webhook --id "<we_id>" --name "<endpoint-url>" --added-by add-stripe
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind stripe-webhook --id "<we_id>" --name "<endpoint-url>" --added-by add-stripe
 ```

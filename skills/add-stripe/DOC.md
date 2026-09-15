@@ -47,6 +47,7 @@ Adds **online payments** to your app via Stripe Checkout. To sell products, acce
 
 - The project must be in Next.js (typically initialized by `/bootstrap`)
 - A Stripe account (free). The Stripe CLI will be installed by Hypervibe if missing
+- To collect real payments, a paid Vercel **Pro** plan: Vercel reserves its free Hobby plan for personal, non-commercial projects. Hypervibe checks your plan and warns you before you go live
 
 ## Tips
 

@@ -433,11 +433,13 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 Record the scheduled task, naming the clock that carries it:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind cron-job --name "<task-name>" --field worker=hypervibe-jobs --field "schedule=<cron-expr>" --added-by add-cron
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind cron-job --name "<task-name>" --field worker=hypervibe-jobs --field "schedule=<cron-expr>" --added-by add-cron
 ```
 
 A dedicated worker created for the task is recorded separately by `_create-cloudflare-worker`. The shared `hypervibe-jobs` worker, if this is the project's first job on it, gets one informative entry:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind cf-worker --name hypervibe-jobs --shared --note "shared Hypervibe clock - never deleted with this project" --added-by add-cron
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind cf-worker --name hypervibe-jobs --shared --note "shared Hypervibe clock - never deleted with this project" --added-by add-cron
 ```

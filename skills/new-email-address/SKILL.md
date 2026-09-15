@@ -223,5 +223,6 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 Record the routing rule:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind email-route --name "<address@domain>" --field zone=<apex-domain> --added-by new-email-address
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind email-route --name "<address@domain>" --field zone=<apex-domain> --added-by new-email-address
 ```

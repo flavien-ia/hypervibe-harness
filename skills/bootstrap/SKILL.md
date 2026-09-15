@@ -960,8 +960,10 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 After the Vercel link exists (`.vercel/project.json`) and the GitHub repository is created, record both - the ids are in the link file and the `gh` output:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind vercel-project --id "<projectId>" --name "<project-name>" --field orgId=<orgId> --added-by bootstrap
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind github-repo --name "<owner>/<repo>" --added-by bootstrap
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind vercel-project --id "<projectId>" --name "<project-name>" --field orgId=<orgId> --added-by bootstrap
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind github-repo --name "<owner>/<repo>" --added-by bootstrap
 ```
 
 The `add-*` skills that bootstrap chains (database, storage, domain...) each record their own resources; do not duplicate theirs here.

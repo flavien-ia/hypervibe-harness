@@ -33,7 +33,7 @@ This skill is **mostly orchestration**. Your job is:
 You will rarely write code yourself in this skill - you delegate to:
 - **`add-cron`** - scheduled tasks that fit in a Vercel function (< 60s, stateless). Uses the unified shared hypervibe-jobs worker by default (1 Cloudflare slot for everything).
 - **`_create-workflow`** - finite event-triggered pipelines running INSIDE the app (2-8 known steps, some intelligent through the project's AI brick, bounded duration). The most common shape behind "I want an agent".
-- **`_create-routine`** - operator-side recurring AI missions (a Claude routine on the user's own account). Direct user entry: **`add-routine`** (thin front over the same engine - when routing from here, call the engine directly).
+- **`_create-routine`** - operator-side recurring AI missions (a routine run by the user's own AI tool on their own account, where that tool can schedule one). Direct user entry: **`add-routine`** (thin front over the same engine - when routing from here, call the engine directly).
 - **`_create-agent`** - AI-driven processes that are part of the PRODUCT (serve the app's end users) with a true agentic loop or autonomy
 - **`_setup-wrangler`** - installs Wrangler CLI if missing
 - **`_setup-render`** - ensures the Render API key is in the vault (Render via REST API, no CLI)
@@ -71,7 +71,7 @@ Ask ONLY when genuinely ambiguous (e.g. *"a weekly report"* - for whom?). One sh
 
 When the user describes a process that must **understand / interpret / decide / write** (mentions AI, Claude, GPT, agent, or uses verbs like *analyze, summarize, classify, judge, draft, reason*), combine it with the app/ops split:
 
-- **Ops + AI** ("brief me", "analyze and propose to me", "watch and alert me") → **`_create-routine`**. This is the sweet spot of routines: no infrastructure at all, the user's own Claude runs the mission on a schedule.
+- **Ops + AI** ("brief me", "analyze and propose to me", "watch and alert me") → **`_create-routine`**. This is the sweet spot of routines: no infrastructure at all, the user's own AI tool runs the mission on a schedule. A routine needs a scheduler that the tool itself provides: when **`_create-routine`** is not among the skills available in this session, this tool has none. Say so in one sentence, and do not rebuild one out of app infrastructure (a brief for the operator is not an app job).
 - **App + AI, finite pipeline** (an event triggers a KNOWN sequence of 2-8 steps, some intelligent: "when a document lands, analyze it, extract, notify"; "on form submit, enrich, summarize, save") → **`_create-workflow`**. This is the MOST COMMON case behind the words "I want an agent": no agent is needed, the app itself runs the chain within a serverless function, every run traced step by step. Check it BEFORE reaching for a full agent.
 - **App + AI, true agent** (the AI decides its own next actions in a loop with tools, or runs with autonomy: an open-ended assistant for THEIR tickets, a process that plans and acts) → offer to build it as a full agent, then invoke **`_create-agent`** with the brief. It scaffolds a production agent (Render worker, tools, memory, its own capped key, full traceability). Sample phrasing:
 
@@ -142,7 +142,8 @@ If something is ambiguous, ask **at most 3 short, targeted questions**. Examples
 
 Based on what you've learned, choose ONE architecture using these heuristics:
 
-### → Recommend a **Claude routine** (`_create-routine`) if:
+### → Recommend a **routine** (`_create-routine`) if:
+- `_create-routine` is available in this session (otherwise this tool cannot schedule a mission: say so, and do not offer one)
 - Beneficiary = the operator (the output is for THEM, not for the app)
 - The work needs reading / analyzing / writing / judgment (an AI mission, not a fixed script)
 - Frequency ≥ 1 hour (typically daily or weekly)
@@ -268,7 +269,7 @@ Invoke the **`_create-workflow`** skill with the brief (TRIGGER, STEPS and which
 
    Pass the generated `RUN_TOKEN` to `add-cron` as the authentication header. Read it from the Render dashboard or the API, never print it in the conversation.
 
-### Branch D - User accepted a Claude routine
+### Branch D - User accepted a routine
 
 Invoke **`_create-routine`** with the goal and cadence gathered during discovery. It handles: mechanism detection (cloud/local), the honest warnings, the self-contained mission prompt (validated by the user), creation and verification. When it returns, skip to Step 5 (routine variant).
 

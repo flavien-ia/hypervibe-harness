@@ -351,5 +351,6 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 The bundled script already records the Neon project on success (look for "Recorded in the project resource manifest" in its output). You only record manually when the script could not run (monorepo path, manual provisioning):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind neon-project --id "<neon-project-id>" --name "<neon-project-name>" --field host=<ep-host> --added-by add-db
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind neon-project --id "<neon-project-id>" --name "<neon-project-name>" --field host=<ep-host> --added-by add-db
 ```

@@ -59,7 +59,7 @@ Mark the step ✅, capture `prodPassword` from the JSON, and move on to Step 2.
 3. Diagnose:
    - `preflight` failed → usually `src/server/auth.ts` already exists (re-config), or one of the pages `src/app/admin/signin/page.tsx` / `src/app/admin/(protected)/{layout,page}.tsx` already exists → go back to the Step 0 menu of `add-auth`. Or `package.json` missing / no Next.js.
    - `installNextAuth` failed → pnpm / network error → retry manually.
-   - `hashPasswords` failed → often `hash-password.mjs` not found (sibling script absent) or Node too old. Diagnose with `node "$CLAUDE_SKILL_DIR/../../scripts/hash-password.mjs" --help`.
+   - `hashPasswords` failed → often `hash-password.mjs` not found (sibling script absent) or Node too old. Diagnose with `node "${CLAUDE_SKILL_DIR}/../../scripts/hash-password.mjs" --help`.
    - `writeAuthTs` / `writePasswordTs` / `writeApiRoute` / `writeAdminPages` failed → filesystem permission (rare) or missing template.
    - `pushEnvVars` failed → all the code is in place, only the env vars did not land → re-run `_push-env-vars` manually with the values visible in the logs.
 4. Continue the remaining steps manually.

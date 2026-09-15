@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.2.0 (15 septembre 2026)
+
+### Nouveautés
+- **Codex et OpenCode, sur un pied d'égalité** : le plugin déclare désormais lui-même ce dont ses versions Codex et OpenCode ont besoin (noms de skills acceptés par ces outils, ce qui ne s'y transpose pas), et `/add-routine` s'appuie sur les tâches planifiées de l'application Codex. Les archives converties se téléchargent sur hypervibe.fr/plugin/codex et hypervibe.fr/plugin/opencode, et s'y mettent à jour toutes seules.
+- **`/add-stripe` vérifie le plan Vercel** : avant d'ouvrir les paiements, le plugin lit le plan du projet et prévient si c'est le plan gratuit Hobby, que Vercel réserve à un usage non commercial (un site qui encaisse peut être suspendu). Le passage en Pro est proposé avant la mise en ligne.
+
+### Améliorations
+- **Enregistrement des ressources réparé** : dans douze commandes (`/bootstrap`, `/add-db`, `/add-cron`, `/add-domain`, `/add-storage`, `/add-stripe`, `/add-backup-db`, `/new-email-address` et quatre aides internes), la commande qui note une ressource dans le manifeste du projet contenait un retour à la ligne mal écrit, qui pouvait la faire échouer.
+- **Routines** : `/add-automation`, `/add-ai` et la création d'agent disent clairement quand l'outil en cours ne sait pas planifier une mission, au lieu d'en promettre une.
+
+### Coulisses
+- Nouvelle recette qui refuse les commandes mal écrites, les ancres de chemin sans accolades et les dossiers de plugin tapés en dur ; recette du plan Vercel.
+
 ## v3.1.9 (15 septembre 2026)
 
 ### Sécurité

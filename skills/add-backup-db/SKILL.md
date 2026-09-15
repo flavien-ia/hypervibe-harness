@@ -390,6 +390,8 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 Record the backup target (and the shared worker, informatively, if not already listed):
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind db-backup --name "<neon-project-name>" --field worker=hypervibe-jobs --added-by add-backup-db
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind cf-worker --name hypervibe-jobs --shared --note "shared Hypervibe clock - never deleted with this project" --added-by add-backup-db
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind db-backup --name "<neon-project-name>" --field worker=hypervibe-jobs --added-by add-backup-db
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind cf-worker --name hypervibe-jobs --shared --note "shared Hypervibe clock - never deleted with this project" --added-by add-backup-db
 ```

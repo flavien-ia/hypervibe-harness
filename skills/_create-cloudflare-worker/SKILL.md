@@ -176,5 +176,6 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 Record the worker right after the first successful deploy:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind cf-worker --name "<worker-name>" --added-by <calling-skill>
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind cf-worker --name "<worker-name>" --added-by <calling-skill>
 ```

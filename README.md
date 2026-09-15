@@ -28,12 +28,12 @@ Hypervibe is written for Claude Code, but the same plugin also runs on **OpenAI 
 - [Hypervibe for Codex](https://hypervibe.fr/en/plugin/codex)
 - [Hypervibe for OpenCode](https://hypervibe.fr/en/plugin/opencode)
 
-Developers can also convert this repository themselves with [claude-plugin-to-codex](https://github.com/flavien-ia/claude-plugin-to-codex), the open source converter behind those downloads:
+Developers can also convert this repository themselves with the open source converters behind those downloads, [claude-plugin-to-codex](https://www.npmjs.com/package/claude-plugin-to-codex) and [claude-plugin-to-opencode](https://www.npmjs.com/package/claude-plugin-to-opencode) (one engine, [claude-plugin-port](https://github.com/flavien-ia/claude-plugin-port)):
 
 ```bash
 git clone https://github.com/flavien-ia/hypervibe-harness.git
-npx claude-plugin-to-codex --source ./hypervibe-harness              # Codex
-npx claude-plugin-to-codex --source ./hypervibe-harness --target opencode   # OpenCode
+npx claude-plugin-to-codex --source ./hypervibe-harness      # Codex
+npx claude-plugin-to-opencode --source ./hypervibe-harness   # OpenCode
 ```
 
 What differs from Claude Code: the rules file is `AGENTS.md` (or your existing `CLAUDE.md` on a machine that also runs Claude Code), a question to you is asked in plain text on Codex and through the `question` tool on OpenCode, and a few skills still describe menus that only Claude Code has. Everything else, vault included, is the same scripts.

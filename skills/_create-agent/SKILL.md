@@ -115,11 +115,13 @@ The brief already carries `GOAL`: skip Q1 and work from it.
 
 ### Q1.bis - The routine shortcut (check BEFORE going further)
 
+Only when **`_create-routine`** is among the skills available in this session. Otherwise this tool cannot schedule a mission: skip Q1.bis and continue with Q2.
+
 Look at WHO the mission serves and HOW OFTEN it runs:
 
 - **Operator-side + scheduled (cadence >= 1 hour)** - the output is for the user themselves (a brief, a digest, an analysis, a watch report) and it runs at fixed moments (daily, weekly...). Two of the three Q1 examples are in this case (the morning RSS brief, the weekly stats digest). → This does NOT need the full agent machinery (Render worker, database tables, dashboard, budget caps). Offer the light path:
 
-> Good news: for this kind of personal recurring mission, you don't need any infrastructure at all. I can set it up as a **routine**: your own Claude runs the mission on schedule (it consumes a bit of your Claude subscription, and it serves you personally - not your app). Zero code, zero hosting, ready in 2 minutes.
+> Good news: for this kind of personal recurring mission, you don't need any infrastructure at all. I can set it up as a **routine**: the AI tool you are using right now runs the mission on schedule (it uses a bit of your subscription, and it serves you personally - not your app). Zero code, zero hosting, ready in 2 minutes.
 >
 > The full agent (with its own server, database traces and dashboard) stays the right choice if you want this to run for your app's users, or if you want detailed execution logs you can audit. Which do you prefer, the **routine** (recommended here) or the **full agent**?
 

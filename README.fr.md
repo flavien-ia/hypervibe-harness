@@ -28,12 +28,12 @@ Hypervibe est écrit pour Claude Code, mais le même plugin tourne aussi sur **O
 - [Hypervibe pour Codex](https://hypervibe.fr/plugin/codex)
 - [Hypervibe pour OpenCode](https://hypervibe.fr/plugin/opencode)
 
-Les développeurs peuvent aussi convertir ce dépôt eux-mêmes avec [claude-plugin-to-codex](https://github.com/flavien-ia/claude-plugin-to-codex), le convertisseur open source derrière ces téléchargements :
+Les développeurs peuvent aussi convertir ce dépôt eux-mêmes avec les convertisseurs open source derrière ces téléchargements, [claude-plugin-to-codex](https://www.npmjs.com/package/claude-plugin-to-codex) et [claude-plugin-to-opencode](https://www.npmjs.com/package/claude-plugin-to-opencode) (un seul moteur, [claude-plugin-port](https://github.com/flavien-ia/claude-plugin-port)) :
 
 ```bash
 git clone https://github.com/flavien-ia/hypervibe-harness.git
-npx claude-plugin-to-codex --source ./hypervibe-harness              # Codex
-npx claude-plugin-to-codex --source ./hypervibe-harness --target opencode   # OpenCode
+npx claude-plugin-to-codex --source ./hypervibe-harness      # Codex
+npx claude-plugin-to-opencode --source ./hypervibe-harness   # OpenCode
 ```
 
 Ce qui change par rapport à Claude Code : le fichier de règles est `AGENTS.md` (ou votre `CLAUDE.md` existant sur une machine qui fait aussi tourner Claude Code), une question vous est posée en texte sur Codex et par l'outil `question` sur OpenCode, et quelques skills décrivent encore des menus propres à Claude Code. Tout le reste, coffre-fort compris, ce sont les mêmes scripts.

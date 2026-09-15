@@ -234,5 +234,6 @@ Every cloud resource this skill creates or adopts is recorded in the project res
 Record the repository once it exists:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \n  --kind github-repo --name "<owner>/<repo>" --added-by <calling-skill>
+node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
+  --kind github-repo --name "<owner>/<repo>" --added-by <calling-skill>
 ```

@@ -47,6 +47,7 @@ Ajoute les **paiements en ligne** à votre app via Stripe Checkout. Pour vendre 
 
 - Le projet doit être en Next.js (typiquement initialisé par `/bootstrap`)
 - Un compte Stripe (gratuit). La CLI Stripe sera installée par Hypervibe si manquante
+- Pour encaisser de vrais paiements, le plan Vercel **Pro**, payant : Vercel réserve son plan gratuit Hobby aux projets personnels non commerciaux. Hypervibe vérifie votre plan et vous prévient avant le passage en live
 
 ## Astuces
 
