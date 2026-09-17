@@ -142,7 +142,7 @@ echo "INVENTORY_FILE=$INV"
 cat "$INV"
 ```
 
-The script scans the 17 surfaces in parallel: Vercel (REST API, paginated over every scope, CLI fallback), Neon (REST API), Cloudflare Workers / R2 (REST API, global+EU) / DNS / Email Routing, db-backup worker (BACKUP_TARGETS), cron ping jobs of the shared `hypervibe-jobs` worker (matched by their `project` field in the registry), Render, Stripe (webhooks + products), Upstash, env vars (Vercel pull + diff whitelist) → detection of third-party services (Sentry, PostHog, Mapbox, OpenAI, etc.), local folder + package.json, Claude memory, GitHub repo, Google/GitHub OAuth via present vars.
+The script scans the 17 surfaces in parallel: Vercel (every team of the account, all pages, each project with its id and its team; REST API first, the CLI with an explicit team when the token is refused), Neon (REST API), Cloudflare Workers / R2 (REST API, global+EU) / DNS / Email Routing, db-backup worker (BACKUP_TARGETS), cron ping jobs of the shared `hypervibe-jobs` worker (matched by their `project` field in the registry), Render, Stripe (webhooks + products), Upstash, env vars (Vercel pull + diff whitelist) → detection of third-party services (Sentry, PostHog, Mapbox, OpenAI, etc.), local folder + package.json, Claude memory, GitHub repo, Google/GitHub OAuth via present vars.
 
 The resulting JSON has the form:
 
@@ -150,7 +150,14 @@ The resulting JSON has the form:
 {
   "project": "cool-trattoria",
   "scannedAt": "...",
-  "vercel":       { "found": true, "names": [...], "source": "rest", "raw": "..." },
+  "vercel":       {
+    "found": true,
+    "projects": [{ "id": "prj_...", "name": "cool-trattoria", "teamId": "team_...", "teamSlug": "acme", "teamName": "Acme", "personal": false, "via": "link" }],
+    "ambiguous": false,
+    "linked": { "projectId": "prj_...", "orgId": "team_...", "projectName": "cool-trattoria", "status": "found" },
+    "names": [...],
+    "source": "rest"
+  },
   "neon":         { "found": true, "projects": [{ "id": "...", "name": "..." }] },
   "workers":      { "found": true, "workers": [...] },
   "r2":           { "found": true, "buckets": [{ "name": "...", "jurisdiction": "eu", "createdAt": "...", "objectCount": 543, "sizeBytes": 84700646 }] },
@@ -194,6 +201,22 @@ For R2, state the volume at stake using `objectCount` / `sizeBytes`: *"R2 (the f
 
 For the memory files: name the files that will be deleted (`isProjectSpecific: true`), the files that mention the project but are kept for review (say so: they stay), and quote each index line that will be removed from `MEMORY.md` (`memory.indexLines`, one per line). Only lines whose link points to a deleted file are removed; a line that merely cites the project stays.
 
+### 2.1a Vercel: which site, in which team
+
+A Vercel project name is unique inside ONE team, not across the account, and many accounts have several teams (the free team Vercel creates for everyone, a company team, a client's team). So every Vercel row names **the team** too: *"Vercel (the site's host): site `cool-trattoria`, in the team Acme"*. Each entry of `vercel.projects` says how it was found (`via`):
+
+- `link` - the project folder is linked to it (`.vercel/project.json`): it is THE site, whatever its name.
+- `manifest` - declared by the project and verified by its id.
+- `name` - found only because it bears the project's name: say it is a guess, and have the user confirm it.
+
+Then, depending on the inventory:
+
+- `ambiguous: true` - several sites could be the project's (the same name in several teams, or a name match while the folder's link could not be checked). **Nothing is deleted on Vercel until the user picks.** Ask via `AskUserQuestion` (`multiSelect: true`), one option per `projects` entry whose `via` is `name`, labelled with the site and its team (*"`cool-trattoria`, team Acme"*), plus one option to keep them all. Phase 3 passes the ids picked with `--vercel-project`; if the user keeps them all, drop `vercel` from the scope.
+- `nameMismatch: true` - the folder is linked to a site whose name differs from the project's (renamed on Vercel, or a folder named differently). Name both and have the user confirm.
+- `homonyms` - sites bearing the same name in another team. They are NOT deleted: list them in section 2.4.
+- `linked.status: "missing"` - the folder's link points to a site that no longer exists: say it in one line (already deleted, or a stale folder).
+- `partial: true` (with a `warning`) - some team could not be read: section 2.3b.
+
 ### 2.1b The resource manifest, when the project has one
 
 The inventory carries a `manifest` section when the project declares its resources in `.hypervibe/resources.json` (written by the `add-*` skills at provisioning time). Each declared resource has a `status`:
@@ -201,7 +224,7 @@ The inventory carries a `manifest` section when the project declares its resourc
 - `seen-in-scan` / `injected` - it is in the tables above; an `injected` one was found by its **exact identifier** even though its name looks nothing like the project. Mark these rows as *"declared by the project"*: they are the most trustworthy part of the inventory.
 - `missing` - declared but verified gone from the account. Mention it in one line (nothing to delete, the manifest is just stale).
 - `shared` - declared as shared infrastructure: it is in section 2.4, never in the deletion scope, whatever its name matches.
-- `unverified` - declared but not checkable automatically (dns-zone, email-route, cron-job, github-repo, vercel-project...). **List these in 2.1 too**, marked *"declared by the project - please confirm it is really this project's"*: a declaration is a strong signal, but it is not a live verification.
+- `unverified` - declared but not checkable automatically (dns-zone, email-route, cron-job, github-repo...). **List these in 2.1 too**, marked *"declared by the project - please confirm it is really this project's"*: a declaration is a strong signal, but it is not a live verification.
 
 Conversely, a resource found ONLY by name similarity (no `declared: true`) deserves the opposite caution: say it was **guessed from its name**, and have the user confirm it truly belongs to this project before it enters the scope.
 
@@ -241,12 +264,15 @@ Include conditionally:
 
 Any section carrying an `error` field (typically `vercel.error` or `r2.error`: vault locked, expired token, R2 not enabled on the account) did **not** return "nothing found", it returned "unknown". List them plainly, e.g. *"I could not check the file storage (R2): <reason>. There may be a bucket left."* and offer to fix the cause then re-run Phase 1 before going further. Never let the user validate a scope built on a failed scan.
 
+`vercel.partial: true` is the same warning, narrower: the listing worked, but some team could not be read (its reason is in `vercel.warning`, for instance a CLI too old to list every team). A site living there may be missing from the inventory: say which, and offer the same fix.
+
 ### 2.4 Section "⚪ Deliberately left untouched"
 
 - Brevo / Resend (shared)
 - Parent Cloudflare zones (the subdomains/DNS are deleted, not the parent zone)
 - Stripe products (if found but rarely scoped to the project)
 - Every `excluded` entry from the inventory sections (resource attributed to a sibling project, or shared Hypervibe infrastructure like the `hypervibe-jobs` worker) - list each with its reason in plain language
+- Every `vercel.homonyms` entry: *"a site with the same name exists in the team X, it is left untouched"*
 
 ### 2.5 Mandatory scope question
 
@@ -288,6 +314,8 @@ cat "$REPORT"
 rm -f "$INV" "$REPORT"
 ```
 
+When Phase 2 had the user pick among Vercel sites (`vercel.ambiguous`), add `--vercel-project` followed by the ids picked, comma-separated, to that command. Sites designated by the folder's link or by the manifest are always included; without the flag, an ambiguous inventory deletes nothing on Vercel (`failed.vercel.needsChoice`, with the `choices`).
+
 Create a todo list with one entry per scope category. Mark "in_progress" before the run and "completed" after (a single script run ⇒ you mark them within 2 seconds max).
 
 The script runs:
@@ -300,7 +328,7 @@ The resulting JSON:
 {
   "project": "cool-trattoria",
   "deleted": {
-    "vercel":  { "status": "deleted", "name": "..." },
+    "vercel":  { "status": "deleted", "results": [{ "id": "prj_...", "name": "...", "team": "acme", "status": "deleted", "via": "rest", "verified": true }] },
     "neon":    { "status": "deleted", "results": [...] },
     ...
   },
@@ -317,6 +345,8 @@ Display a recap to the user, plain language, with the following structure:
 
 ### 4.1 "✅ Deleted automatically"
 Table of the `report.deleted` entries translated into accessible language.
+
+For Vercel, name each site with its team. A result `absent` means the site was already gone. `verified: false` means Vercel accepted the deletion but it could not be checked afterwards (the `note` says why): say so, and suggest a look at the team's page on vercel.com rather than announcing a certainty.
 
 ### 4.2 "🟡 To do yourself via Windows Explorer / the browser"
 
@@ -368,8 +398,8 @@ Ordered list with click-by-click instructions:
 
 ## Known pitfalls (edge cases)
 
-### Vercel CLI
-`vercel project rm` has no `--yes` flag. The script uses `echo y | vercel project rm <name>`. If it fails, check that you are properly `vercel login`.
+### Vercel: a name is not an address
+A project name is unique inside one team, and the CLI acts on the team it is set to. Deleting with a bare `vercel project rm <name>` missed a project living in the account's other team (2026-09-17), and would have deleted a same-named project of the current team instead. The deletion now goes by **id and team** (`scripts/_vercel-projects.mjs`): the REST API first (`DELETE /v9/projects/{id}?teamId=...`), then, when the token is refused, the CLI with an explicit `--scope` on every call. Two more traps of the CLI, handled there: `vercel project rm` asks for confirmation even for a project that does not exist, and a refused prompt still exits 0. Only its success line counts, and every deletion is followed by a check that the project is gone. Never delete a Vercel project by hand with a bare name either: add `--scope <team>`.
 
 ### R2 jurisdictions
 The two jurisdictions are separate namespaces: the SAME bucket name can exist in `global` and in `eu` simultaneously. The script scans both (Cloudflare REST API, `cf-r2-jurisdiction: eu` header for the EU one) and tags each hit with `jurisdiction: "global"|"eu"`, which the deletion then replays.
@@ -382,7 +412,7 @@ Cloudflare refuses to delete a bucket that still holds objects (HTTP 409, `code 
 The inventory carries `objectCount` and `sizeBytes` per bucket (from `/usage`): say it in Phase 2 ("543 files, 84 MB") before the user validates.
 
 ### Vercel project listing
-`vercel projects ls` returns only its FIRST PAGE (20 projects) and its `--next` hint has to be followed by hand: any older project was declared "not found" and left orphaned (bug fixed 2026-08-02). The scan now calls the Vercel REST API (`/v9/projects`, paginated via `pagination.next`, across the personal scope AND every team), and only falls back to the CLI - following `--next` this time - when no valid token is available. The `vercel.source` field in the inventory says which path was used.
+`vercel projects ls` returns only its FIRST PAGE (20 projects), for the CURRENT team only: any older project was declared "not found" and left orphaned (bug fixed 2026-08-02), and a project of another team too (fixed 2026-09-17). The scan lists every team, all pages: REST API first (`/v2/teams`, then `/v9/projects` per team), otherwise the CLI in JSON (`vercel teams ls --format json`, then `vercel project ls --format json --scope <team>` per team), and as a last resort, with a CLI too old for JSON, the table of the current team only (`partial: true`). On current accounts an API call without `teamId` answers for the default team, so each project is attributed to the account its own record names, never to the listing that returned it. The `vercel.source` field says which path was used (`rest`, `cli`, `cli-table`).
 
 ### A scan that fails is not a scan that found nothing
 The `vercel` and `r2` sections carry an `error` field when the API call itself failed (vault locked, dead token, R2 not enabled). `found: false` **with** an `error` means "unknown", not "nothing to delete" - surface it in Phase 2 and offer to re-run rather than letting the user validate a truncated inventory.

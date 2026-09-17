@@ -34,6 +34,7 @@ import { readUserEnv } from "./_read-user-env.mjs";
 import { writeUserEnv } from "./_write-user-env.mjs";
 import { getSecret } from "./vault/vault.mjs";
 import { resolveNeonOrg, withOrg } from "./neon-org.mjs";
+import { loadAuthToken } from "./_vercel-auth.mjs";
 
 /** Optional vault field: absent is a normal answer here, never a reason to give up. */
 function vaultGetOptional(item, field) {
@@ -634,12 +635,12 @@ async function fetchResend() {
 // `/v1/usage` endpoint rejects every reasonable date range with
 // `invalid_time_range`), so we always link to the dashboard for those.
 async function fetchVercel() {
-  // Vercel CLI stores the token at ~/.local/share/com.vercel.cli/auth.json (Linux)
-  // or %APPDATA%\com.vercel.cli\auth.json (Windows). Reading via the standard
-  // Vercel pattern below. Alternative: set VERCEL_TOKEN env var (Personal
-  // Access Token from https://vercel.com/account/tokens) - useful if the CLI
-  // isn't installed.
-  const token = readUserEnv("VERCEL_TOKEN") || readVercelCliToken();
+  // The CLI login, read like every other script (_vercel-auth.mjs: the freshest
+  // auth file, xdg.data of CLI v59 included). A private reader here took the
+  // first file found, the pre-v59 one frozen with a dead token, and reported the
+  // login as expired (seen on 2026-09-17). VERCEL_TOKEN stays an override
+  // (a Personal Access Token, useful without the CLI).
+  const token = readUserEnv("VERCEL_TOKEN") || loadAuthToken();
   if (!token) return svc("vercel", "Vercel (hébergement)", false, [], "Vercel CLI non connectée (lance `vercel login` ou définis VERCEL_TOKEN)");
 
   // Resolve user + default team + plan in one shot
@@ -684,11 +685,22 @@ async function fetchVercel() {
     pages++;
   }
 
-  // Count projects
-  const projRes = await fetchJson(`https://api.vercel.com/v9/projects?limit=100${teamSuffix}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-  });
-  const projectCount = projRes.ok ? (projRes.json.projects || []).length : null;
+  // Count projects, every page (the first one stops at 100)
+  let projectCount = 0;
+  let projCursor = null;
+  for (let page = 0; page < 30; page++) {
+    const r = await fetchJson(`https://api.vercel.com/v9/projects?limit=100${teamSuffix}${projCursor ? `&until=${projCursor}` : ""}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+    });
+    if (!r.ok) {
+      if (page === 0) projectCount = null;
+      break;
+    }
+    projectCount += (r.json.projects || []).length;
+    const next = r.json.pagination?.next;
+    if (!next || next === projCursor) break;
+    projCursor = next;
+  }
 
   const dashboardUrl = teamSlug
     ? `https://vercel.com/${teamSlug}/~/usage`
@@ -716,35 +728,6 @@ async function fetchVercel() {
     ],
     planNote,
   );
-}
-
-function readVercelCliToken() {
-  // Try a few candidate paths - Vercel CLI's auth path has shifted between
-  // versions (with/without "Data" subfolder).
-  const candidates = process.platform === "win32"
-    ? [
-        `${process.env.APPDATA}\\com.vercel.cli\\Data\\auth.json`,
-        `${process.env.APPDATA}\\com.vercel.cli\\auth.json`,
-      ]
-    : process.platform === "darwin"
-      ? [
-          `${process.env.HOME}/Library/Application Support/com.vercel.cli/auth.json`,
-          `${process.env.HOME}/.local/share/com.vercel.cli/auth.json`,
-        ]
-      : [
-          `${process.env.HOME}/.local/share/com.vercel.cli/auth.json`,
-          `${process.env.HOME}/.config/com.vercel.cli/auth.json`,
-        ];
-
-  for (const path of candidates) {
-    try {
-      const data = JSON.parse(readFileSync(path, "utf8"));
-      if (data.token) return data.token;
-    } catch {
-      /* try next */
-    }
-  }
-  return null;
 }
 
 // ─── Service struct helper ───────────────────────────────────────────

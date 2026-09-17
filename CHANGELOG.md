@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.2.1 (17 septembre 2026)
+
+### Améliorations
+- **Suppression d'un projet** : le site est cherché dans toutes vos équipes Vercel, puis supprimé par son identifiant et son équipe, plus par son seul nom. Si deux de vos sites portent le même nom dans deux équipes, Hypervibe vous demande lequel retirer au lieu de choisir à votre place, et il vérifie que le site a bien disparu avant de l'annoncer.
+- **Serveurs Render** : ils réapparaissent dans l'inventaire de suppression. Leur clé d'accès, pourtant rangée dans votre coffre, n'était pas lue : vos services Render passaient inaperçus.
+- **Contrôle du nom d'un nouveau projet** : il regarde maintenant tous vos sites, dans toutes vos équipes et sur toutes les pages, au lieu des vingt premiers d'une seule équipe. Un nom déjà pris est donc repéré avant la création.
+- **Quotas et mise en place** : la clé d'accès Vercel est lue dans le fichier le plus récent. Depuis la dernière mise à jour de l'outil Vercel, une clé périmée pouvait être prise, et votre hébergement apparaissait à tort comme déconnecté.
+
+### Coulisses
+- Tout ce que le plugin demande à Vercel passe désormais par un module commun, protégé par une recette de 97 vérifications qui rejoue un compte à plusieurs équipes, sans jamais toucher au vôtre.
+
 ## v3.2.0 (15 septembre 2026)
 
 ### Nouveautés

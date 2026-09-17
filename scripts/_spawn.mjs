@@ -21,11 +21,13 @@
 //                           to the shell as ONE string. Elsewhere: no shell.
 //   runPipeline(line)       a line that genuinely needs a shell (a pipe, a
 //                           redirection), written out in full by the caller.
+//   runCliAsync(cmd, args)  runCli without blocking the event loop, for the
+//                           scripts that run several scans in parallel.
 //
 // `spawnSpec()` is the same decision for callers that drive `spawn()`
 // themselves (async, streamed output).
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const IS_WIN = process.platform === "win32";
 
@@ -65,4 +67,40 @@ export function runCli(cmd, args = [], opts = {}) {
 
 export function runPipeline(line, opts = {}) {
   return spawnSync(line, { encoding: "utf8", ...opts, shell: true });
+}
+
+/** Resolves to { status, stdout, stderr }, like runCli. `input` is written to
+ *  stdin, which is then closed: a CLI waiting for an answer gets it, or ends. */
+export function runCliAsync(cmd, args = [], { input = "", timeout = 60000, cwd } = {}) {
+  return new Promise((resolve) => {
+    const spec = spawnSpec(cmd, args);
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (status, extra = "") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ status, stdout, stderr: stderr + extra });
+    };
+    let proc;
+    try {
+      proc = spawn(spec.file, spec.args, { cwd, shell: spec.shell, windowsHide: true });
+    } catch (e) {
+      resolve({ status: -1, stdout, stderr: String(e) });
+      return;
+    }
+    const timer = setTimeout(() => {
+      proc.kill();
+      finish(-1, `\ntimed out after ${timeout} ms`);
+    }, timeout);
+    proc.stdout.setEncoding("utf8");
+    proc.stderr.setEncoding("utf8");
+    proc.stdout.on("data", (d) => (stdout += d));
+    proc.stderr.on("data", (d) => (stderr += d));
+    proc.on("error", (e) => finish(-1, String(e)));
+    proc.on("close", (code) => finish(code));
+    proc.stdin.on("error", () => {});
+    proc.stdin.end(input);
+  });
 }

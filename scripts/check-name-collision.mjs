@@ -14,7 +14,7 @@
 //      fields + snapshot target names,
 //   2. sibling folders of the parent dir (where the project will be created),
 //   3. the Neon project list (REST),
-//   4. the Vercel project list (CLI).
+//   4. the Vercel project list, every team (REST, CLI fallback).
 // Every source is fault-tolerant: a missing key or an absent CLI just drops
 // that source (reported in `sources`), it never aborts the guard.
 //
@@ -46,7 +46,6 @@
 //                             suggestions may be empty -> the caller warns).
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +53,7 @@ import { readUserEnv } from "./_read-user-env.mjs";
 import { tokenMatches, normalizeName } from "./_match.mjs";
 import { getSecret } from "./vault/vault.mjs";
 import { resolveNeonOrg, withOrg } from "./neon-org.mjs";
+import { vercelContext, listAllProjects } from "./_vercel-projects.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -139,25 +139,24 @@ async function fromNeon() {
   }
 }
 
-// Parse the first column of `vercel projects ls` into candidate project names.
-// The CLI prints its table to stdout+stderr with decorative header/footer lines;
-// the NOISE set drops the obvious non-names. Mirrors discover-resources.mjs.
-const VERCEL_NOISE = new Set(["vercel", "project", "projects", "name", "latest", "production", "preview", "https", "http", "error", "warn", "updated", "age", "url", "source", "node", "fetching", "retrieving", "deployments", "deployment", "found", "no"]);
-function fromVercel() {
-  // Command as a single string (not argv array) so shell:true does not trip
-  // Node's DEP0190 warning; needed anyway for the `vercel` .cmd shim on Windows.
-  const r = spawnSync("vercel projects ls", { encoding: "utf8", shell: true });
-  if (r.status !== 0) return { names: [], ok: false };
-  const haystack = `${r.stdout || ""}\n${r.stderr || ""}`;
-  const names = [];
-  for (const line of haystack.split("\n")) {
-    if (names.length >= 500) break;
-    const tok = normalizeName(line.trim().split(/\s+/)[0] || "");
-    if (!tok || tok.length < 2) continue;
-    if (!/^[a-z0-9][a-z0-9-]*$/.test(tok) || /^[0-9]+$/.test(tok) || VERCEL_NOISE.has(tok)) continue;
-    names.push(tok);
+// Every project of every team, all pages: the same listing as /delete-project
+// (_vercel-projects.mjs), so that both skills see the same names. Reading
+// `vercel projects ls` here saw the CLI's current team only, and its first
+// page only (20 projects).
+async function fromVercel() {
+  try {
+    const listing = await listAllProjects(vercelContext());
+    if (!listing.ok) return { names: [], ok: false };
+    return {
+      names: listing.projects.map((p) => p.name),
+      ok: true,
+      note: listing.partial
+        ? `Some Vercel teams could not be read (${listing.partialReason || listing.errors.join(", ")}): a clash there cannot be seen.`
+        : null,
+    };
+  } catch {
+    return { names: [], ok: false };
   }
-  return { names, ok: true };
 }
 
 // ─── suggestion generator ──────────────────────────────────────────────────
@@ -203,14 +202,14 @@ function buildSuggestions(existing) {
 // ─── orchestration ─────────────────────────────────────────────────────────
 const registry = fromRegistry();
 const siblings = fromSiblings();
-const vercel = fromVercel();
-const neon = await fromNeon();
+const [vercel, neon] = await Promise.all([fromVercel(), fromNeon()]);
 
 const sources = { registry: registry.ok, siblings: siblings.ok, neon: neon.ok, vercel: vercel.ok };
 const notes = [];
 if (!neon.ok) notes.push("Neon project list unavailable (key locked/absent): a Neon-only name clash cannot be seen.");
 if (neon.note) notes.push(neon.note);
 if (!vercel.ok) notes.push("Vercel project list unavailable (CLI not logged in?): a Vercel-only name clash cannot be seen.");
+if (vercel.note) notes.push(vercel.note);
 
 // Dedup the existing names (normalized).
 const existing = [...new Set(

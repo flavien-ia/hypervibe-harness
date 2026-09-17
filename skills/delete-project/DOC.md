@@ -45,6 +45,8 @@ The scan also detects **third-party services** plugged in outside the Hypervibe 
 
 Matching is precise to the word: each resource is attributed to the most specific project (deleting `street` touches nothing that belongs to `street-cool`), and the shared clock that runs your backups and scheduled tasks is never listed.
 
+On Vercel, the site is looked for in **all your teams** (the free team Vercel creates for everyone, your company's, a client's), and designated by its id and its team, not only by its name. If two of your sites bear the same name in two different teams, Hypervibe asks you which one to delete instead of picking for you.
+
 **Phase 3: Scope selection**
 
 Hypervibe presents you with a clear recap in 4 sections:

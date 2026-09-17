@@ -94,6 +94,7 @@ import { PROJECT_BLOCK } from "./rules/blocks.mjs";
 import { syncManagedBlock } from "./rules/managed-block.mjs";
 import { PNPM_OVERRIDES, setWorkspaceBlock } from "./_pnpm-workspace.mjs";
 import { parseDeployOutput } from "./vercel/parse-deploy-output.mjs";
+import { loadAuthToken, readCliCurrentTeam } from "./_vercel-auth.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -1179,37 +1180,10 @@ function ghRepo() {
 // account and a company team is the user's call, so we exit with a structured
 // VERCEL_SCOPE_AMBIGUOUS message the SKILL turns into a plain question.
 
-/** Same directory candidates as the auth file - CLI >= v40 dropped the Data/ level. */
-function vercelConfigCandidates() {
-  const os = platform();
-  const files = [];
-  if (os === "win32") {
-    const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
-    files.push(join(appData, "com.vercel.cli", "Data", "config.json"));
-    files.push(join(appData, "com.vercel.cli", "config.json"));
-  } else if (os === "darwin") {
-    const base = join(homedir(), "Library", "Application Support", "com.vercel.cli");
-    files.push(join(base, "Data", "config.json"));
-    files.push(join(base, "config.json"));
-  } else {
-    const xdgData = process.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
-    files.push(join(xdgData, "com.vercel.cli", "Data", "config.json"));
-    files.push(join(xdgData, "com.vercel.cli", "config.json"));
-  }
-  return files;
-}
-
-/** The team id the CLI itself defaults to, or null on a personal-only account. */
-function readVercelCurrentTeam() {
-  for (const p of vercelConfigCandidates()) {
-    if (!existsSync(p)) continue;
-    try {
-      const cfg = JSON.parse(readFileSync(p, "utf8"));
-      if (typeof cfg.currentTeam === "string" && cfg.currentTeam) return cfg.currentTeam;
-    } catch {/* try the next candidate */}
-  }
-  return null;
-}
+// The CLI's current team comes from readCliCurrentTeam (_vercel-auth.mjs),
+// which also knows the xdg.data folder of CLI v59 and keeps the freshest
+// config file: reading the pre-v59 file first returned a team the CLI had
+// since left (seen on 2026-09-17, a file untouched for a month).
 
 /** orgId shared by the already-linked projects sitting next to this one, if unanimous. */
 function siblingOrgId() {
@@ -1301,7 +1275,8 @@ function vercelLink() {
   const labels = choices.map((c) => c.name).join(", ");
   log("  several Vercel scopes available (" + labels + "), resolving");
 
-  const wanted = readVercelCurrentTeam() ?? siblingOrgId();
+  const currentTeam = readCliCurrentTeam();
+  const wanted = currentTeam ?? siblingOrgId();
   const picked = wanted ? choices.find((c) => c.id === wanted) : null;
 
   if (!picked) {
@@ -1314,7 +1289,7 @@ function vercelLink() {
     );
   }
 
-  const source = readVercelCurrentTeam() === picked.id ? "the Vercel CLI default" : "the neighbouring projects";
+  const source = currentTeam === picked.id ? "the Vercel CLI default" : "the neighbouring projects";
   log("  scope resolved from " + source + ": " + picked.name);
   run(base + " --scope " + picked.name, PROJECT_DIR);
   ok("Vercel linked (scope " + picked.name + ")");
@@ -1625,33 +1600,10 @@ async function detectIdentities() {
     );
     const orgId = projectJson.orgId;
     if (orgId?.startsWith("team_")) {
-      // Vercel CLI auth file path varies by OS AND by CLI version (~v40+ moved
-      // from `Data/auth.json` to `auth.json` directly). Try both candidates per
-      // platform - must mirror push-env-vars.mjs's getAuthFilePathCandidates().
-      const os = platform();
-      const candidates = [];
-      if (os === "win32") {
-        const appData = process.env.APPDATA || join(homedir(), "AppData", "Roaming");
-        candidates.push(join(appData, "com.vercel.cli", "Data", "auth.json"));
-        candidates.push(join(appData, "com.vercel.cli", "auth.json"));
-      } else if (os === "darwin") {
-        const base = join(homedir(), "Library", "Application Support", "com.vercel.cli");
-        candidates.push(join(base, "Data", "auth.json"));
-        candidates.push(join(base, "auth.json"));
-      } else {
-        const xdgData = process.env.XDG_DATA_HOME || join(homedir(), ".local", "share");
-        candidates.push(join(xdgData, "com.vercel.cli", "Data", "auth.json"));
-        candidates.push(join(xdgData, "com.vercel.cli", "auth.json"));
-      }
-      let token = null;
-      for (const p of candidates) {
-        if (existsSync(p)) {
-          try {
-            const data = JSON.parse(readFileSync(p, "utf8"));
-            if (data.token) { token = data.token; break; }
-          } catch {/* try next candidate */}
-        }
-      }
+      // Same token reader as every other script: the freshest auth file, the
+      // xdg.data folder of CLI v59 included. The first file found used to be
+      // the pre-v59 one, frozen with a dead token.
+      const token = loadAuthToken();
       if (!token) throw new Error("Vercel auth file not found in any known location.");
       const res = await fetch("https://api.vercel.com/v2/teams", {
         headers: { Authorization: `Bearer ${token}` },

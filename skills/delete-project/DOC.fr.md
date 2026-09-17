@@ -45,6 +45,8 @@ Le scan détecte aussi **les services tiers** branchés hors stack Hypervibe (Se
 
 La détection est précise au mot près : chaque ressource est attribuée au projet le plus spécifique (supprimer `street` ne touche à rien de ce qui appartient à `street-cool`), et l'horloge partagée qui porte vos sauvegardes et vos tâches planifiées n'est jamais listée.
 
+Côté Vercel, le site est cherché dans **toutes vos équipes** (l'équipe gratuite que Vercel crée d'office, celle de votre entreprise, celle d'un client), et désigné par son identifiant et son équipe, pas seulement par son nom. Si deux de vos sites portent le même nom dans deux équipes différentes, Hypervibe vous demande lequel supprimer au lieu de choisir à votre place.
+
 **Phase 3 : Choix de la portée**
 
 Hypervibe vous présente un récap clair en 4 sections :

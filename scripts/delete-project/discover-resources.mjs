@@ -26,7 +26,8 @@ import { getSecret, sessionStatus } from "../vault/vault.mjs";
 import { spawnSpec } from "../_spawn.mjs";
 import { indexLinesFor } from "./_memory-index.mjs";
 import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
-import { loadAuthToken, readLinkedProject } from "../_vercel-auth.mjs";
+import { readLinkedProject, teamIdFromOrgId } from "../_vercel-auth.mjs";
+import { vercelContext, listAllProjects, getProject, pickTargets } from "../_vercel-projects.mjs";
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
 import { manifestExistant } from "../manifest/locate.mjs";
 
@@ -63,7 +64,10 @@ function readUserEnvSync(name) {
 }
 const CLOUDFLARE_API_TOKEN = (() => { try { return getSecret("CLOUDFLARE", "api_token"); } catch { return readUserEnvSync("CLOUDFLARE_API_TOKEN") || readUserEnvSync("CF_API_TOKEN") || process.env.CLOUDFLARE_API_TOKEN || ""; } })();
 const NEON_API_KEY = (() => { try { return getSecret("NEON", "api_key"); } catch { return readUserEnvSync("NEON_API_KEY") || process.env.NEON_API_KEY || ""; } })();
-const RENDER_API_KEY = readUserEnvSync("RENDER_API_KEY") || process.env.RENDER_API_KEY || "";
+// The vault first: `_setup-render` stores the key there (item RENDER, field
+// api_key), and reading the env var alone reported "missing" to every user
+// who had followed it, so their Render services were never inventoried.
+const RENDER_API_KEY = (() => { try { return getSecret("RENDER", "api_key"); } catch { return readUserEnvSync("RENDER_API_KEY") || process.env.RENDER_API_KEY || ""; } })();
 const STRIPE_SECRET_KEY = readUserEnvSync("STRIPE_SECRET_KEY") || process.env.STRIPE_SECRET_KEY || "";
 
 // "NEON_API_KEY missing" read as "the key is not there" when the vault was
@@ -102,119 +106,65 @@ function runCmd(cmd, args = [], opts = {}) {
 }
 
 // ─── 1. Vercel ─────────────────────────────────────────────────────────────
-// REST API first, CLI as a fallback. `vercel projects ls` returns only the
-// FIRST PAGE (20 projects) and never follows its own `--next` hint: any project
-// beyond the 20 most recent was reported as "not found" and left orphaned.
-// The REST path also gives exact project names instead of a parsed table.
-// A CLI login token is scoped to the user, and projects usually live under a
-// team, so every scope (personal + each team) is listed.
-async function fetchVercelProjectsRest() {
-  const token = loadAuthToken();
-  if (!token) return { ok: false, reason: "no Vercel token (run `vercel login`)" };
-  const headers = { Authorization: `Bearer ${token}` };
-
-  const scopes = new Set([""]); // "" = personal scope (no teamId param)
-  const linked = readLinkedProject(PROJECT_DIR);
-  if (linked?.orgId) scopes.add(linked.orgId);
-  const teamsData = await httpJson("https://api.vercel.com/v2/teams?limit=100", { headers });
-  if (teamsData.__error) {
-    // 401/403 here means the stored token is dead: let the caller fall back.
-    if (/HTTP 40[13]/.test(teamsData.__error)) return { ok: false, reason: `token rejected (${teamsData.__error})` };
-  } else {
-    for (const t of teamsData.teams || []) if (t.id) scopes.add(t.id);
-  }
-
-  const names = [];
-  const errors = [];
-  for (const teamId of scopes) {
-    let until = null;
-    let pages = 0;
-    while (pages < 30) {
-      pages++;
-      const url =
-        `https://api.vercel.com/v9/projects?limit=100` +
-        (teamId ? `&teamId=${encodeURIComponent(teamId)}` : "") +
-        (until ? `&until=${encodeURIComponent(until)}` : "");
-      const data = await httpJson(url, { headers });
-      if (data.__error) {
-        if (/HTTP 40[13]/.test(data.__error) && !teamId) break; // personal scope may be forbidden, not an error
-        errors.push(`${teamId || "personal"}: ${data.__error}`);
-        break;
-      }
-      for (const p of data.projects || []) {
-        const n = normalizeName(p.name || "");
-        if (n && !names.includes(n)) names.push(n);
-      }
-      const next = data.pagination?.next;
-      if (!next || next === until) break;
-      until = next;
-    }
-  }
-  if (names.length === 0 && errors.length) return { ok: false, reason: errors.join(" | ") };
-  return { ok: true, names, source: "rest", ...(errors.length ? { warning: errors.join(" | ") } : {}) };
-}
-
-const CLI_NOISE = new Set(["vercel", "project", "projects", "name", "latest", "production", "preview", "https", "http", "error", "warn", "updated", "age", "url", "source", "node", "fetching", "retrieving", "deployments", "deployment", "found", "no"]);
-
-async function fetchVercelProjectsCli() {
-  const names = [];
-  const chunks = [];
-  let next = null;
-  for (let page = 0; page < 25; page++) {
-    const cmdArgs = ["projects", "ls"];
-    if (next) cmdArgs.push("--next", next);
-    const r = await runCmd("vercel", cmdArgs);
-    if (r.code !== 0) {
-      if (page === 0) return { ok: false, reason: (r.stderr || "").slice(0, 300) };
-      break; // keep what earlier pages gave us
-    }
-    // The Vercel CLI prints the project table to STDERR (only structured data,
-    // if any, lands on stdout). Matching stdout alone misses every project -
-    // search both streams, else /delete-project silently skips the Vercel
-    // project and leaves it orphaned.
-    const haystack = `${r.stdout}\n${r.stderr}`;
-    chunks.push(haystack);
-    // Parse the first column of the table as candidate project names: used
-    // both for an exact `found` check and by the ownership post-pass to
-    // attribute prefix-sharing resources to their real project.
-    for (const line of haystack.split("\n")) {
-      if (names.length >= 500) break;
-      const tok = normalizeName(line.trim().split(/\s+/)[0] || "");
-      if (!tok || tok.length < 2) continue;
-      if (!/^[a-z0-9][a-z0-9-]*$/.test(tok) || /^[0-9]+$/.test(tok) || CLI_NOISE.has(tok)) continue;
-      if (!names.includes(tok)) names.push(tok);
-    }
-    // "To display the next page, run `vercel project ls --next 1783722597337`"
-    // The hint is absent on the last page, which ends the loop.
-    const m = haystack.match(/--next\s+(\d+)/);
-    if (!m || m[1] === next) break;
-    next = m[1];
-  }
-  return { ok: true, names, source: "cli", raw: chunks.join("\n") };
-}
-
+// Every project of the account, in every scope, all pages (_vercel-projects.mjs:
+// REST first, the CLI with an explicit --scope when the token is refused).
+// Each target is designated by its id AND its team: the deletion once ran on a
+// bare name, in whatever team the CLI was set to, and missed a project living
+// in the account's other team (2026-09-17). The folder's link wins over the
+// name; several projects answering to the name are a choice for the user
+// (`ambiguous`), never for this script.
+let vercelCtx = null;
 async function scanVercel() {
   try {
-    let res = await fetchVercelProjectsRest();
-    let restReason = null;
-    if (!res.ok) {
-      restReason = res.reason;
-      res = await fetchVercelProjectsCli();
-      if (!res.ok) return { found: false, names: [], error: `REST: ${restReason} | CLI: ${res.reason}` };
+    vercelCtx = vercelContext();
+    const link = readLinkedProject(PROJECT_DIR);
+    const linkTeam = link ? teamIdFromOrgId(link.orgId) : null;
+    const listing = await listAllProjects(vercelCtx, { extraTeamIds: linkTeam ? [linkTeam] : [] });
+    if (!listing.ok) {
+      return {
+        found: false,
+        names: [],
+        projects: [],
+        error: listing.reason,
+        ...(link ? { linked: { ...link, status: "unknown" } } : {}),
+      };
     }
-    const found = res.names.includes(PROJECT_LOWER) ||
-      // Only the CLI path can leave an unparseable table; never guess on REST.
-      (res.source === "cli" && res.names.length === 0 && tokenMatches(PROJECT_LOWER, res.raw || ""));
+    let linked = null;
+    if (link) {
+      const listed = listing.projects.find((p) => p.id === link.projectId);
+      const probe = listed
+        ? { status: "found", project: listed }
+        : await getProject(vercelCtx, { id: link.projectId, teamId: linkTeam, personal: !linkTeam });
+      linked = { ...link, status: probe.status, project: probe.project, reason: probe.reason };
+    }
+    const pick = pickTargets({ name: PROJECT_LOWER, linked, projects: listing.projects });
+    const warnings = [...listing.errors, ...(listing.partialReason ? [listing.partialReason] : [])];
     return {
-      found,
-      names: res.names,
-      source: res.source,
-      ...(restReason ? { restFallbackReason: restReason } : {}),
-      ...(res.warning ? { warning: res.warning } : {}),
-      raw: found && res.raw ? res.raw.trim() : null,
+      found: pick.targets.length > 0,
+      projects: pick.targets,
+      ambiguous: pick.ambiguous,
+      ...(pick.nameMismatch ? { nameMismatch: true } : {}),
+      ...(pick.homonyms.length ? { homonyms: pick.homonyms } : {}),
+      ...(linked
+        ? {
+            linked: {
+              projectId: linked.projectId,
+              orgId: linked.orgId,
+              projectName: linked.projectName,
+              status: linked.status,
+              ...(linked.reason ? { reason: linked.reason } : {}),
+            },
+          }
+        : {}),
+      // Every project name of the account: the ownership pass reads them.
+      names: [...new Set(listing.projects.map((p) => normalizeName(p.name)))],
+      source: listing.via,
+      ...(listing.partial ? { partial: true } : {}),
+      ...(listing.restFallbackReason ? { restFallbackReason: listing.restFallbackReason } : {}),
+      ...(warnings.length ? { warning: warnings.join(" | ") } : {}),
     };
   } catch (e) {
-    return { found: false, names: [], error: String(e) };
+    return { found: false, names: [], projects: [], error: String(e) };
   }
 }
 
@@ -467,7 +417,7 @@ function scanCronPings() {
 
 // ─── 7. Render services ────────────────────────────────────────────────────
 async function scanRender() {
-  if (!RENDER_API_KEY) return { found: false, error: "RENDER_API_KEY missing" };
+  if (!RENDER_API_KEY) return { found: false, error: missingKey("RENDER_API_KEY") };
   try {
     const data = await httpJson("https://api.render.com/v1/services?limit=100", {
       headers: { Authorization: `Bearer ${RENDER_API_KEY}` },
@@ -1061,6 +1011,22 @@ async function reconcileManifest() {
         if (mark(upstash && upstash.databases, (d) => (r.id && d.id === r.id) || (r.name && d.name === r.name))) {
           status = "seen-in-scan";
         }
+      } else if (r.kind === "vercel-project") {
+        // Declared by id and team: the identity that survives a folder without
+        // its link (a fresh clone) and a monorepo whose apps are each linked.
+        if (mark(vercel && vercel.projects, (p) => r.id && p.id === r.id)) {
+          status = "seen-in-scan";
+        } else if (r.id && vercelCtx && vercel && !vercel.error) {
+          const teamId = teamIdFromOrgId(r.orgId);
+          const probe = await getProject(vercelCtx, { id: r.id, teamId, personal: !teamId });
+          if (probe.status === "found") {
+            (vercel.projects ||= []).push({ ...probe.project, via: "manifest", declared: true, foundVia: "manifest" });
+            vercel.found = true;
+            status = "injected";
+          } else if (probe.status === "missing") {
+            status = "missing";
+          }
+        }
       }
     } catch (e) {
       entry.reconcileError = String(e);
@@ -1071,6 +1037,18 @@ async function reconcileManifest() {
   return out;
 }
 const manifestReport = await reconcileManifest();
+
+// Projects the manifest declares are this project's Vercel projects: a
+// candidate found by its name alone is then a homonym (another team, a
+// leftover), listed for the user and kept out of the deletion.
+if (vercel && Array.isArray(vercel.projects) && vercel.projects.some((p) => p.declared)) {
+  const trusted = (p) => p.declared || p.via !== "name";
+  const guesses = vercel.projects.filter((p) => !trusted(p));
+  if (guesses.length) vercel.homonyms = [...(vercel.homonyms || []), ...guesses];
+  vercel.projects = vercel.projects.filter(trusted);
+  vercel.ambiguous = false;
+  vercel.found = vercel.projects.length > 0;
+}
 
 const elapsedMs = Date.now() - startedAt;
 

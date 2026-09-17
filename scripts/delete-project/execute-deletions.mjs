@@ -20,6 +20,11 @@
 //                   "cron-jobs","render","stripe-webhooks","upstash",
 //                   "email-routing","memory"]
 //                  Pass ["all"] as a shortcut to delete everything.
+//   --vercel-project : optional, comma-separated Vercel project ids. Required
+//                  when the inventory flags `vercel.ambiguous` (several
+//                  projects answer to the name, in different teams): the ids
+//                  the user picked among those candidates. Projects designated
+//                  by the folder's link or by the manifest are always kept.
 //
 // Outputs a JSON report to stdout:
 //   {
@@ -47,6 +52,7 @@ import { fileURLToPath } from "node:url";
 import { getSecret } from "../vault/vault.mjs";
 import { tokenMatches, moreSpecificOwner } from "../_match.mjs";
 import { spawnSpec } from "../_spawn.mjs";
+import { vercelContext, deleteProject } from "../_vercel-projects.mjs";
 import { trimIndex } from "./_memory-index.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,6 +68,7 @@ function arg(name) {
 const INVENTORY_PATH = arg("--inventory");
 const SCOPE_JSON = arg("--scope");
 const CONFIRM = arg("--confirm");
+const VERCEL_CHOICE = (arg("--vercel-project") || "").split(",").map((s) => s.trim()).filter(Boolean);
 if (!INVENTORY_PATH || !SCOPE_JSON) {
   console.error("Usage: node execute-deletions.mjs --inventory <path.json> --scope <json-array> --confirm <project-name>");
   process.exit(1);
@@ -105,10 +112,14 @@ function readUserEnvSync(name) {
   if (r.status !== 0) return process.env[name] || "";
   return (r.stdout || "").trim();
 }
-const CLOUDFLARE_API_TOKEN = (() => { try { return getSecret("CLOUDFLARE", "api_token"); } catch { return readUserEnvSync("CLOUDFLARE_API_TOKEN") || readUserEnvSync("CF_API_TOKEN") || process.env.CLOUDFLARE_API_TOKEN || ""; } })();
-const NEON_API_KEY = (() => { try { return getSecret("NEON", "api_key"); } catch { return readUserEnvSync("NEON_API_KEY") || process.env.NEON_API_KEY || ""; } })();
-const RENDER_API_KEY = readUserEnvSync("RENDER_API_KEY") || process.env.RENDER_API_KEY || "";
-const STRIPE_SECRET_KEY = readUserEnvSync("STRIPE_SECRET_KEY") || process.env.STRIPE_SECRET_KEY || "";
+// A key is read only when a category in scope uses it: a run limited to
+// Vercel never touches the vault, which also lets the recette drive it.
+const needs = (...categories) => categories.some((c) => scopeSet.has(c));
+const CLOUDFLARE_API_TOKEN = !needs("r2", "workers", "dns", "cron-jobs", "email-routing") ? "" : (() => { try { return getSecret("CLOUDFLARE", "api_token"); } catch { return readUserEnvSync("CLOUDFLARE_API_TOKEN") || readUserEnvSync("CF_API_TOKEN") || process.env.CLOUDFLARE_API_TOKEN || ""; } })();
+const NEON_API_KEY = !needs("neon") ? "" : (() => { try { return getSecret("NEON", "api_key"); } catch { return readUserEnvSync("NEON_API_KEY") || process.env.NEON_API_KEY || ""; } })();
+// Render: the vault first, where `_setup-render` stores the key.
+const RENDER_API_KEY = !needs("render") ? "" : (() => { try { return getSecret("RENDER", "api_key"); } catch { return readUserEnvSync("RENDER_API_KEY") || process.env.RENDER_API_KEY || ""; } })();
+const STRIPE_SECRET_KEY = !needs("stripe-webhooks") ? "" : readUserEnvSync("STRIPE_SECRET_KEY") || process.env.STRIPE_SECRET_KEY || "";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 async function httpDelete(url, headers = {}) {
@@ -134,15 +145,53 @@ function runCmdSync(cmd, args, opts = {}) {
 
 // ─── deletion functions ────────────────────────────────────────────────────
 
+// By id and team, never by bare name: `vercel project rm <name>` acts on the
+// team the CLI is set to, which missed a project living in the account's other
+// team (2026-09-17). Projects designated by the folder's link or by the
+// manifest are always deleted; candidates found by their name alone only when
+// there is no doubt, or when the user picked them (--vercel-project).
+const isTrusted = (p) => p.via !== "name" || p.declared === true;
+
 async function deleteVercel() {
-  if (!inventory.vercel?.found) return { status: "skipped", reason: "not found in inventory" };
-  // `vercel project rm` has no --yes flag; pipe "y" via stdin
-  const r = spawnSync("sh", ["-c", `echo y | vercel project rm "${PROJECT}"`], { encoding: "utf8" });
-  if (r.status === 0) return { status: "deleted", name: PROJECT };
-  // On Windows fall back to powershell
-  const r2 = spawnSync(`echo y | vercel project rm "${PROJECT}"`, { shell: true, encoding: "utf8" });
-  if (r2.status === 0) return { status: "deleted", name: PROJECT };
-  return { status: "failed", error: (r2.stderr || r.stderr || "").slice(0, 500) };
+  const v = inventory.vercel;
+  if (!v?.found) return { status: "skipped", reason: "not found in inventory" };
+  if (!Array.isArray(v.projects) || v.projects.length === 0) {
+    return {
+      status: "failed",
+      error: "this inventory does not say which team each Vercel project belongs to (older version): run the inventory again",
+    };
+  }
+  const trusted = v.projects.filter(isTrusted);
+  const guesses = v.projects.filter((p) => !isTrusted(p));
+  let chosen = guesses;
+  if (VERCEL_CHOICE.length) {
+    const unknown = VERCEL_CHOICE.filter((id) => !v.projects.some((p) => p.id === id));
+    if (unknown.length) {
+      return { status: "failed", error: `--vercel-project names projects the inventory does not list: ${unknown.join(", ")}` };
+    }
+    chosen = guesses.filter((p) => VERCEL_CHOICE.includes(p.id));
+  } else if (v.ambiguous) {
+    return {
+      status: "failed",
+      needsChoice: true,
+      error: "several Vercel projects answer to this name: nothing deleted until the user picks (--vercel-project <id>)",
+      choices: guesses.map(({ id, name, teamId, teamSlug, teamName }) => ({ id, name, teamId, teamSlug, teamName })),
+    };
+  }
+  const targets = [...trusted, ...chosen];
+  if (targets.length === 0) return { status: "skipped", reason: "no Vercel project picked" };
+
+  const ctx = vercelContext();
+  const results = [];
+  for (const t of targets) {
+    const team = t.teamSlug || t.teamName || t.teamId || "personal scope";
+    results.push({ id: t.id, name: t.name, team, ...(await deleteProject(ctx, t)) });
+  }
+  const failures = results.filter((r) => r.status === "failed");
+  if (failures.length === results.length) {
+    return { status: "failed", results, error: failures.map((r) => `${r.name} (${r.team}): ${r.error}`).join(" | ") };
+  }
+  return { status: failures.length ? "partial" : "deleted", results };
 }
 
 async function deleteNeon() {
