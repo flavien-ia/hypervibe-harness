@@ -224,6 +224,18 @@ check(
     "execute-deletions.mjs exige --confirm <projet>",
     /--confirm/.test(del) && /process\.exit\(7\)/.test(del),
   );
+  // Revue du lot stockage (18/09/2026) : une ressource partagee restait dans l'inventaire
+  // des qu'elle n'etait pas un worker, et la sauvegarde d'avant suppression sautait le
+  // stockage en silence des que les cles manquaient dans le .env local.
+  check(
+    "discover-resources.mjs retire de la suppression toute ressource declaree partagee, pas seulement un worker",
+    /excludeShared\(\{ workers, r2, neon, render, stripe \}, r\)/.test(lire("scripts/delete-project/discover-resources.mjs")),
+  );
+  check(
+    "la sauvegarde d'avant suppression ne saute le stockage que sur un refus explicite",
+    /--skip-storage ONLY if the user explicitly answered/.test(lire("skills/delete-project/SKILL.md")) &&
+      !/go straight to running the script with `--skip-storage`/.test(lire("skills/delete-project/SKILL.md")),
+  );
 }
 
 // ── « Both directions are tested » ───────────────────────────────────

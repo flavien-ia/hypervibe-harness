@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import { getSecret, sessionStatus } from "../vault/vault.mjs";
 import { spawnSpec } from "../_spawn.mjs";
 import { indexLinesFor } from "./_memory-index.mjs";
+import { excludeShared } from "./_shared-exclusion.mjs";
 import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
 import { readLinkedProject, teamIdFromOrgId } from "../_vercel-auth.mjs";
 import { vercelContext, listAllProjects, getProject, pickTargets } from "../_vercel-projects.mjs";
@@ -894,21 +895,10 @@ async function reconcileManifest() {
     const entry = { ...r };
     if (r.shared) {
       entry.status = "shared";
-      // A declared shared worker found by the name scan leaves the deletion
-      // inventory, same treatment as the built-in shared list.
-      if (r.kind === "cf-worker" && workers && Array.isArray(workers.workers)) {
-        const i = workers.workers.findIndex(
-          (w) => (w.id || "").toLowerCase() === String(r.name || "").toLowerCase(),
-        );
-        if (i >= 0) {
-          const [w] = workers.workers.splice(i, 1);
-          workers.excluded = [
-            ...(workers.excluded || []),
-            { ...w, excludedReason: "declared shared in the project manifest (never deleted here)" },
-          ];
-          workers.found = workers.workers.length > 0;
-        }
-      }
+      // A declared shared resource found by a name scan leaves the deletion
+      // inventory, whatever its kind: bucket, database, service, webhook or
+      // worker (only workers were taken out until 18/09/2026).
+      excludeShared({ workers, r2, neon, render, stripe }, r);
       out.resources.push(entry);
       continue;
     }

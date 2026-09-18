@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.2.4 (19 septembre 2026)
+
+### Améliorations
+- **Suppression d'un projet plus sûre pour vos fichiers** : la sauvegarde proposée avant de supprimer un projet ne laisse plus de côté les fichiers stockés quand les clés du stockage manquent sur votre ordinateur. Elle les retrouve et les télécharge quand même, et ne les écarte que si vous le demandez. Quand les fichiers ne sont dans aucune sauvegarde, l'inventaire le dit sur la ligne du stockage, avant votre validation.
+- **Les ressources partagées ne partent plus avec un projet** : une ressource déclarée partagée entre plusieurs projets (espace de stockage, base de données, service, webhook) n'est plus proposée à la suppression. Jusqu'ici, seules les tâches de fond partagées étaient protégées.
+
+### Coulisses
+- Deux nouveaux contrôles dans la recette, pour qu'aucune version future ne revienne en arrière sur ces deux points.
+
 ## v3.2.3 (18 septembre 2026)
 
 ### Améliorations

@@ -74,14 +74,14 @@ Use `AskUserQuestion`:
 
 #### If a snapshot is requested: run it inline
 
-First, silently check whether the project actually has R2 storage configured, so you never ask about a bucket that doesn't exist:
+First, silently check whether the project's storage keys are in its local environment:
 
 ```bash
 (cd "<detected-project-path>" && node "${CLAUDE_SKILL_DIR}/../../scripts/check-deps.mjs" storage)
 ```
 
-- If `storage.ok === false` (no R2 wired up for this project): skip the question entirely, go straight to running the script with `--skip-storage`.
 - If `storage.ok === true`: ask via `AskUserQuestion`, "Include the Cloudflare R2 content (can be heavy)?" - options `Yes` / `No, skip R2`.
+- If `storage.ok === false`: this only says the keys are not in the local `.env`, **not** that the project has no bucket (keys kept only at the host, a bucket created by hand...). **Do not skip the storage**: run the snapshot without `--skip-storage`, and do not ask. Without the keys, the script looks for the project's buckets with the account token (its manifest first, then its name, in both jurisdictions) and downloads them, or reports that there is none. Skipping here used to leave the files out of the backup in silence, while Phase 3 then emptied the bucket.
 
 No need to ask again for the project (we already have it) or the output folder (the default `~/Dropbox/Download/` is fine for this case).
 
@@ -91,7 +91,7 @@ Then run:
 node "${CLAUDE_SKILL_DIR}/../../scripts/save-project/build-snapshot.mjs" \
   --project "<PROJECT_NAME>" \
   --project-dir "<detected-project-path>" \
-  [--skip-storage if the user said no, or if no R2 storage was detected]
+  [--skip-storage ONLY if the user explicitly answered "No, skip R2"]
 ```
 
 While it runs, relay the script's `[step] status` logs on stderr to the user (one `↳ ...` per step that finishes).
@@ -197,7 +197,7 @@ Display a clear recap in 3 distinct sections, with a non-tech communication tone
 
 Markdown table listing each category where `found === true` (or `isTarget === true` for dbBackup, `webhooksFound === true` for stripe). For each row: resource (in plain language, e.g. "Vercel (the site's host)"), identifier, planned action.
 
-For R2, state the volume at stake using `objectCount` / `sizeBytes`: *"R2 (the file storage): bucket `x-assets`, **543 files, 84 MB** - emptied then deleted"*. A bucket line without a number reads as an empty shell, and the user validates the destruction of their uploads without realizing it.
+For R2, state the volume at stake using `objectCount` / `sizeBytes`: *"R2 (the file storage): bucket `x-assets`, **543 files, 84 MB** - emptied then deleted"*. A bucket line without a number reads as an empty shell, and the user validates the destruction of their uploads without realizing it. If the backup of 0.3 was made without the files (the user answered "No, skip R2"), or if there was no backup at all, say it on that same line: *"these files are in no backup"*.
 
 For the memory files: name the files that will be deleted (`isProjectSpecific: true`), the files that mention the project but are kept for review (say so: they stay), and quote each index line that will be removed from `MEMORY.md` (`memory.indexLines`, one per line). Only lines whose link points to a deleted file are removed; a line that merely cites the project stays.
 
