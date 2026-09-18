@@ -202,26 +202,30 @@ async function fetchNeon() {
     details.push(...chunk);
   }
 
-  // Build per-project view. Storage and compute have per-project caps on
-  // Free; egress is pooled across the whole account (the only such quota,
-  // and the one that actually broke this account in July 2026).
+  // Build per-project view. On Free, storage, compute AND egress are all capped
+  // per project. Egress was long treated here as pooled across the account;
+  // Neon's plans page states otherwise ("5 GB per project per month", "the
+  // network transfer allowance is per project", checked 2026-09-18), so a sum
+  // of small projects no longer reads as an alarm: only the heaviest one counts.
   const projectsView = details.map((p) => ({
     name: p.name,
     storageGB: (p.synthetic_storage_size || 0) / 1073741824,
     computeH: (p.compute_time_seconds || 0) / 3600,
     egressGB: (p.data_transfer_bytes || 0) / 1073741824,
   }));
-  const egressTotalGB = projectsView.reduce((sum, p) => sum + p.egressGB, 0);
 
   const projectsByStorage = [...projectsView].sort((a, b) => b.storageGB - a.storageGB);
   const projectsByCompute = [...projectsView].sort((a, b) => b.computeH - a.computeH);
+  const projectsByEgress = [...projectsView].sort((a, b) => b.egressGB - a.egressGB);
 
   const heaviestStorage = projectsByStorage[0] || { name: "-", storageGB: 0 };
   const heaviestCompute = projectsByCompute[0] || { name: "-", computeH: 0 };
+  const heaviestEgress = projectsByEgress[0] || { name: "-", egressGB: 0 };
 
   const L = LIMITS.neon.free;
   const overStorageLimit = projectsView.filter((p) => p.storageGB > L.storageGBPerProject);
   const overComputeLimit = projectsView.filter((p) => p.computeH > L.computeHoursPerProject);
+  const overEgressLimit = projectsView.filter((p) => p.egressGB > L.egressGBPerProjectPerMonth);
 
   // Limits depend on the plan. Free = the per-project values from JSON.
   // Launch/Scale = pay-as-you-go (no hard cap). We only show Free limits for
@@ -244,11 +248,11 @@ async function fetchNeon() {
       "per-project-month",
     ),
     asMetric(
-      "Egress (tout le compte)",
-      egressTotalGB,
-      isFree ? L.egressGBPerMonth : null,
+      `Egress projet le + gourmand (${heaviestEgress.name})`,
+      heaviestEgress.egressGB,
+      isFree ? L.egressGBPerProjectPerMonth : null,
       "GB",
-      "account-month",
+      "per-project-month",
     ),
     asMetric("Projets actifs", projects.length, isFree ? L.projectsMax : null, "projets", "account"),
   ];
@@ -256,20 +260,20 @@ async function fetchNeon() {
   const overParts = [];
   if (overStorageLimit.length) overParts.push(`storage > ${L.storageGBPerProject} GB sur ${overStorageLimit.length} projet(s) : ${overStorageLimit.map(p => p.name).join(", ")}`);
   if (overComputeLimit.length) overParts.push(`compute > ${L.computeHoursPerProject} h sur ${overComputeLimit.length} projet(s) : ${overComputeLimit.map(p => p.name).join(", ")}`);
+  if (overEgressLimit.length) overParts.push(`egress > ${L.egressGBPerProjectPerMonth} GB sur ${overEgressLimit.length} projet(s) : ${overEgressLimit.map(p => p.name).join(", ")}`);
 
   const note = isFree
-    ? `Plan Free détecté. Limites par projet : ${L.storageGBPerProject} GB storage · ${L.computeHoursPerProject} h compute. Account : ${L.projectsMax} projets max. Vérifié le ${LIMITS.neon.lastChecked}.${overParts.length ? ` ⚠️ ${overParts.join(" · ")}` : ""}`
+    ? `Plan Free détecté. Limites par projet : ${L.storageGBPerProject} GB storage · ${L.computeHoursPerProject} h compute · ${L.egressGBPerProjectPerMonth} GB egress par mois. Account : ${L.projectsMax} projets max. Vérifié le ${LIMITS.neon.lastChecked}.${overParts.length ? ` ⚠️ ${overParts.join(" · ")}` : ""}`
     : `Plan ${plan} détecté. Pas de plafond dur (facturation à l'usage). Les chiffres ci-dessus reflètent ta consommation ce mois.`;
 
   const breakdown = projects.length > 1 ? projectsByStorage.map((p) => ({
     label: p.name,
     storageGB: Math.round(p.storageGB * 1000) / 1000,
     computeH: Math.round(p.computeH * 100) / 100,
-    // Egress par projet : la limite est mutualisee sur le compte, mais c'est
-    // cette colonne qui dit QUEL projet la consomme quand elle chauffe.
     egressGB: Math.round(p.egressGB * 1000) / 1000,
     overStorage: p.storageGB > L.storageGBPerProject,
     overCompute: p.computeH > L.computeHoursPerProject,
+    overEgress: p.egressGB > L.egressGBPerProjectPerMonth,
   })) : null;
 
   return svc("neon", "Neon (Postgres)", true, metrics, note, breakdown);

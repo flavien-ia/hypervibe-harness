@@ -90,7 +90,7 @@ For each project, the fields that matter are `data_transfer_bytes` (egress), `co
 
 Three readings to take, and to state in the report:
 
-- **Egress against the 5 GB cap.** This cap is **pooled across the whole account**, unlike storage and compute which are per project. A single project can therefore exhaust everyone else's allowance.
+- **Egress against the 5 GB cap.** On the free plan this cap is **per project**, like storage and compute (Neon's plans page: "5 GB per project per month"), so read each project against its own 5 GB rather than summing the account. A project that reaches it has its compute suspended until the next billing period.
 - **The daily pace**, projected to the end of the billing period. A number without a trajectory tells the user nothing.
 - **Active time against elapsed time.** A database that is awake 160 hours out of 180 never gets to suspend, which means something is querying it around the clock. That ratio alone often points at the culprit before you have read a single line of code.
 

@@ -12,15 +12,15 @@ Connects a **custom domain name** to your app: `mysite.com` instead of `mysite.v
 
 The target architecture: **your registrar → Cloudflare (DNS + Email Routing) → Vercel (hosting)**. Cloudflare in the middle provides fast DNS, free DDoS protection, and email routing (receiving at `contact@mysite.com` redirected to your Gmail).
 
-1. **Domain bought or not?** If you don't have one yet, Hypervibe recommends Hostinger (French UI/support, .fr supported, easy automation). You buy it in a few minutes.
+1. **Domain bought or not?** If you don't have one yet, Hypervibe recommends Hostinger (French UI/support, .fr supported, easy automation). You buy it in a few minutes. If you are based in Switzerland, or want a `.ch` domain, it also offers **Infomaniak** (Swiss registrar, infrastructure in Switzerland): only the nameserver change is done by hand there, guided click by click.
 
-2. **Identifying the registrar**: where is the domain registered? Hypervibe handles Hostinger, Cloudflare, OVH, Namecheap, GoDaddy (manual for the latter, their API does not allow automation).
+2. **Identifying the registrar**: where is the domain registered? Hypervibe automates Hostinger, Cloudflare, OVH, Namecheap, Gandi and Porkbun, and guides you by hand at Infomaniak, IONOS, Squarespace and GoDaddy, whose APIs do not allow this operation.
 
 3. **Cloudflare check**: Hypervibe checks that your Cloudflare token is valid. Otherwise, it sends you back to `/start`.
 
 4. **Creating the Cloudflare zone**: Hypervibe adds your domain to your Cloudflare account and retrieves the **2 assigned nameservers**.
 
-5. **Changing the nameservers at the registrar**: depending on your registrar, Hypervibe calls its API directly (Hostinger, OVH, Namecheap, Gandi, Porkbun…) with your access key stored in your vault, and pushes the new nameservers. For registrars without a public API (GoDaddy, IONOS…), you'll do it by hand (clear instructions provided).
+5. **Changing the nameservers at the registrar**: depending on your registrar, Hypervibe calls its API directly (Hostinger, OVH, Namecheap, Gandi, Porkbun…) with your access key stored in your vault, and pushes the new nameservers. For registrars whose API does not allow it (Infomaniak, IONOS, Squarespace, GoDaddy), you'll do it by hand (clear instructions provided).
 
 6. **Configuring the DNS records**: Hypervibe deletes the old records and adds the Vercel ones (`A` apex → 76.76.21.21, `CNAME` www → `cname.vercel-dns.com`).
 

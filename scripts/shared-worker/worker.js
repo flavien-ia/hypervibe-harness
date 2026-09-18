@@ -25,7 +25,8 @@
 //   { "kind": "snapshot", "name": "neon-backups", "cron": "0 3 1,15 * *",
 //     "targets": [{ "name": "myapp", "projectId": "abc-123" }],
 //     "config": { "recipient": "you@x.fr", "senderEmail": "you@x.fr",
-//                 "senderName": "Hypervibe" } }   // config optional: no config = no alert mail
+//                 "senderName": "Hypervibe" } }   // config optional: without one, the
+//                                                  // alert borrows another job's address
 //   { "kind": "quota",    "name": "quota-monitor", "cron": "0 6 * * *",
 //     "config": { "cloudflareAccountId": "...", "recipient": "you@x.fr",
 //                 "senderEmail": "you@x.fr", "senderName": "Hypervibe",
@@ -42,9 +43,9 @@
 //   CLOUDFLARE_API_TOKEN   - for "quota" jobs (Account Analytics: Read)
 //   BREVO_API_KEY or       - alert email channel for "quota", "snapshot", and
 //   RESEND_API_KEY           failed "ping" jobs (one of the two, matching the
-//                            email provider chosen during /start; ping jobs
-//                            borrow the recipient/sender of whichever job
-//                            already declares one)
+//                            email provider chosen during /start; ping and
+//                            snapshot jobs borrow the recipient/sender of
+//                            whichever job already declares one)
 //   CRON_SECRET_<PROJECT>  - one per project, for its "ping" jobs
 //
 // Failure isolation: every due job runs in its own promise with its own catch;
@@ -55,11 +56,12 @@ import registry from "./jobs.js";
 const NEON = "https://console.neon.tech/api/v2";
 const R2_FREE_TIER_GB = 10;
 
-// Neon Free plan caps. Storage and compute are PER PROJECT; egress is the only
-// one pooled across the whole account, and typically the first one to break
-// (real-time sync features and unpaginated reads are the usual culprits).
+// Neon Free plan caps, all PER PROJECT. Egress was treated as pooled across the
+// account until 2026-09-18; Neon's plans page says "5 GB per project per month".
+// It is still typically the first cap to break (real-time sync features and
+// unpaginated reads are the usual culprits).
 const NEON_FREE = {
-  egressGB: 5,
+  egressGBPerProject: 5,
   computeHoursPerProject: 100,
   storageGBPerProject: 0.5,
 };
@@ -316,7 +318,8 @@ async function sendPingFailureEmail(env, cfg, job, cause, detail) {
 //             deleted after 270 days (9 months)
 //   Steady-state max per target: 2 rolling + 3 aging = 5 branches
 
-export async function runSnapshotJob(job, env) {
+// `jobs` is only passed by the tests: the live worker reads its own registry.
+export async function runSnapshotJob(job, env, jobs) {
   const targets = Array.isArray(job.targets) ? job.targets : [];
   if (!env.NEON_API_KEY) {
     console.error(`[${job.name}] NEON_API_KEY secret missing - skipping.`);
@@ -345,9 +348,15 @@ export async function runSnapshotJob(job, env) {
   // A failed target is doubly bad: backupTarget creates the new branch BEFORE
   // pruning the old ones, so a project stuck at the plan's branch cap loses its
   // backups AND its rotation, silently. Always try to surface it by email.
-  const cfg = job.config || {};
-  if (!resolveEmailProvider(env, cfg) || !cfg.senderEmail || !cfg.recipient) {
-    console.error(`[${job.name}] ${failures.length} snapshot failure(s) but no alert channel (a BREVO_API_KEY or RESEND_API_KEY secret + senderEmail + recipient in the job config) - cannot send alert.`);
+  //
+  // The address is borrowed like a ping job's: no path of the plugin writes a
+  // `config` on this job (register.mjs and migrate-live.mjs create it bare), so
+  // reading job.config alone meant a fresh install never mailed a failed
+  // backup. resolveAlertConfig falls back on the quota job's address, which
+  // also covers every registry already deployed, without a migration.
+  const cfg = resolveAlertConfig(job, jobs);
+  if (!cfg || !resolveEmailProvider(env, cfg)) {
+    console.error(`[${job.name}] ${failures.length} snapshot failure(s) but no alert channel (a BREVO_API_KEY or RESEND_API_KEY secret + a job config with recipient/senderEmail, on this job or on any other) - cannot send alert.`);
     return;
   }
 
@@ -367,6 +376,9 @@ function diagnoseSnapshotFailure(target, message) {
   // "/branches", which would otherwise make every error look branch-related.
   const detail = message.replace(/^[A-Z]+ \/\S* -> \d+:\s*/, "");
   const authFailed = /-> 40[13]:/.test(message);
+  // A project deleted at Neon but still registered as a target answers 404 on
+  // its very first call (listing the branches).
+  const projectGone = /-> 404:/.test(message);
   const storageCapped = /storage/i.test(detail) && /(limit|exceed|quota)/i.test(detail);
   const branchCapped =
     !storageCapped &&
@@ -384,6 +396,13 @@ function diagnoseSnapshotFailure(target, message) {
       cause: "L'API Neon a refuse la cle du worker (401/403).",
       impact: "Aucun projet n'a pu etre sauvegarde tant que la cle n'est pas retablie.",
       prompt: `Le worker Cloudflare "hypervibe-jobs" n'arrive plus a appeler l'API Neon, elle repond 401 ou 403. Erreur exacte : ${message}. Compare la cle du coffre Bitwarden (item NEON, champ api_key) avec le secret NEON_API_KEY du worker, verifie qu'elle est toujours valide cote Neon, et remets-la a jour avec "wrangler secret put NEON_API_KEY" depuis le dossier ~/.hypervibe-jobs si besoin.`,
+    };
+  }
+  if (projectGone) {
+    return {
+      cause: "Neon ne trouve plus ce projet (404) : il a sans doute ete supprime, ou deplace dans une autre organisation.",
+      impact: "Cette cible echouera a chaque passage tant qu'elle reste inscrite. Les autres projets, eux, sont bien sauvegardes.",
+      prompt: `Le backup automatique Neon du projet "${target.name}" (projectId ${target.projectId}) echoue parce que Neon repond 404 : le projet n'existe plus sous cet identifiant. Lis la cle Neon dans le coffre Bitwarden (item NEON, champ api_key) et liste mes projets Neon pour verifier s'il a ete supprime ou s'il a change d'identifiant. S'il a bien ete supprime, retire la cible du registre des sauvegardes (depuis le dossier du plugin Hypervibe : node scripts/shared-worker/register.mjs --kind snapshot --remove-target ${target.name}), puis redeploie l'horloge. S'il existe sous un autre identifiant, dis-le-moi avant de toucher a quoi que ce soit.`,
     };
   }
   if (storageCapped) {
@@ -632,9 +651,9 @@ async function checkR2Storage(env, cfg) {
   };
 }
 
-// Watches the three Neon Free caps. Egress is the headline: it is pooled across
-// the account, it is invisible from the console's project view, and it scales
-// with how OFTEN you read the data, not with how big the database is.
+// Watches the three Neon Free caps, each of them per project. Egress is the
+// headline: it scales with how OFTEN you read the data, not with how big the
+// database is, so the smallest project can be the one that hits its cap.
 async function checkNeonUsage(env, cfg) {
   const pct = parseFloat(cfg.neonThresholdPct ?? 60);
   if (!Number.isFinite(pct) || pct <= 0) return [];
@@ -663,10 +682,22 @@ async function checkNeonUsage(env, cfg) {
   ).filter(Boolean);
 
   const alerts = [];
-  let egressBytes = 0;
+  let topEgress = { name: "-", gb: 0 };
 
   for (const p of details) {
-    egressBytes += p.data_transfer_bytes || 0;
+    const egressGB = (p.data_transfer_bytes || 0) / 1073741824;
+    if (egressGB > topEgress.gb) topEgress = { name: p.name, gb: egressGB };
+    if (egressGB >= (NEON_FREE.egressGBPerProject * pct) / 100) {
+      alerts.push({
+        service: `Neon / ${p.name}`,
+        metric: "Egress du mois",
+        used: `${egressGB.toFixed(3)} GB`,
+        threshold: `${pct} % du plafond`,
+        limit: `${NEON_FREE.egressGBPerProject} GB (par projet)`,
+        pctOfLimit: `${((egressGB / NEON_FREE.egressGBPerProject) * 100).toFixed(1)} %`,
+        hint: "Cherche ce qui LIT en boucle, pas ce qui est gros : polling a intervalle court, requete sans pagination, ou fonction serverless qui refait la meme requete sans cache. C'est le profil type d'une synchro temps reel ou d'un polling agressif.",
+      });
+    }
 
     const computeH = (p.compute_time_seconds || 0) / 3600;
     if (computeH >= (NEON_FREE.computeHoursPerProject * pct) / 100) {
@@ -695,19 +726,10 @@ async function checkNeonUsage(env, cfg) {
     }
   }
 
-  const egressGB = egressBytes / 1073741824;
-  if (egressGB >= (NEON_FREE.egressGB * pct) / 100) {
-    alerts.push({
-      service: "Neon (tout le compte)",
-      metric: "Egress du mois",
-      used: `${egressGB.toFixed(3)} GB`,
-      threshold: `${pct} % du plafond`,
-      limit: `${NEON_FREE.egressGB} GB (compte entier)`,
-      pctOfLimit: `${((egressGB / NEON_FREE.egressGB) * 100).toFixed(1)} %`,
-      hint: "Cherche ce qui LIT en boucle, pas ce qui est gros : polling a intervalle court, requete sans pagination, ou fonction serverless qui refait la meme requete sans cache. C'est le profil type d'une synchro temps reel ou d'un polling agressif.",
-    });
-  } else {
-    console.log(`Neon egress OK: ${egressGB.toFixed(3)} GB / ${NEON_FREE.egressGB} GB (${pct} % threshold).`);
+  if (!alerts.some((a) => a.metric === "Egress du mois")) {
+    console.log(
+      `Neon egress OK: top project ${topEgress.name} at ${topEgress.gb.toFixed(3)} GB / ${NEON_FREE.egressGBPerProject} GB per project (${pct} % threshold).`,
+    );
   }
 
   return alerts;

@@ -1,15 +1,16 @@
 {
   "_about": "Limites des plans Free des services de la stack Hypervibe. Lu par scripts/quotas-fetch.mjs au runtime. Vérifié manuellement et mis à jour à chaque nouvelle version du plugin si un provider modifie son free tier. Pas d'auto-update - c'est volontaire.",
-  "_lastUpdated": "2026-05-08",
+  "_lastUpdated": "2026-09-18",
   "neon": {
-    "lastChecked": "2026-05-08",
+    "lastChecked": "2026-09-18",
     "pricingUrl": "https://neon.com/pricing",
+    "_note": "Sur le plan Free, stockage, calcul ET trafic sortant sont plafonnés PAR PROJET (neon.com/docs/introduction/plans : « 5 GB per project per month », « the network transfer allowance is per project »). Seul le nombre de projets est une limite de compte.",
     "free": {
       "storageGBPerProject": 0.5,
       "computeHoursPerProject": 100,
       "projectsMax": 100,
       "branchesPerProject": 10,
-      "egressGBPerMonth": 5
+      "egressGBPerProjectPerMonth": 5
     }
   },
   "cloudflareR2": {

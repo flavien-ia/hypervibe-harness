@@ -46,6 +46,23 @@ const KNOWN_BUGS = [
     message:
       "The storage quota alert only looked at the largest storage bucket, never at the account total: it could stay silent past the free 10 GB.",
   },
+  {
+    id: "neon-egress-summed-across-projects",
+    // Egress was compared to 5 GB for the whole account; Neon caps it at 5 GB
+    // PER PROJECT. The old constant was `egressGB`, the new `egressGBPerProject`.
+    test: (src) => /NEON_FREE\.egressGB\b/.test(src),
+    message:
+      "The Neon egress alert added up every project and compared the total with 5 GB, while the free plan allows 5 GB per project: it could fire with no project anywhere near its cap.",
+  },
+  {
+    id: "snapshot-failure-never-mailed",
+    // The backup job only looked for an alert address on itself, and no path
+    // of the plugin ever writes one there.
+    test: (src) =>
+      /const cfg = job\.config \|\| \{\};\s*if \(!resolveEmailProvider\(env, cfg\) \|\| !cfg\.senderEmail/.test(src),
+    message:
+      "A failed database backup was never emailed on a standard install: the backup job looked for an alert address on itself only, and nothing ever wrote one there.",
+  },
 ];
 
 const { flags } = parseFlags(process.argv.slice(2));

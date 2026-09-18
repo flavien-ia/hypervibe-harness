@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.2.2 (18 septembre 2026)
+
+### Améliorations
+- **Le trafic sortant de Neon est compté par projet.** Le plan gratuit de Neon accorde 5 Go par mois à chaque projet, et non 5 Go pour tout le compte comme le plugin le croyait. `/quotas` compare désormais votre projet le plus gourmand à ses 5 Go, la surveillance quotidienne alerte projet par projet, et la règle écrite dans le `CLAUDE.md` de vos projets se corrige toute seule à la prochaine mise à jour. Finies les fausses alertes quand plusieurs petits projets s'additionnaient.
+- **Une sauvegarde de base qui échoue vous prévient enfin.** Sur une installation standard, l'échec d'une sauvegarde Neon ne partait jamais par email : seule une ligne de journal en gardait la trace. L'alerte utilise maintenant l'adresse déjà configurée pour vos quotas. Et si un projet a été supprimé chez Neon, l'email le dit clairement et explique comment le retirer des sauvegardes.
+- **`/add-domain` pense aux Suisses.** Si vous n'avez pas encore de domaine et que la Suisse est en jeu (domaine en `.ch`, système en fr-CH ou de-CH), la skill propose Infomaniak à côté de Hostinger. Seul le changement de serveurs DNS s'y fait à la main, guidé clic par clic.
+- **`/quotas` oriente vers la bonne skill.** Quand un plafond Neon approche, il recommande `/optimize` dans le projet concerné, et n'envoie plus vers `/clean`, qui ne réduit pas ce qu'une app consomme.
+
+### Coulisses
+- `/update-hypervibe` reconnaît ces deux défauts sur une horloge partagée déjà déployée, et vous dit ce que la réparation corrige.
+- `/add-db` et `/optimize` expliquent le plafond par projet.
+
 ## v3.2.1 (17 septembre 2026)
 
 ### Améliorations

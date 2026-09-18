@@ -55,6 +55,22 @@ If the project is not yet deployed, tell the user to deploy first (say "deploy";
 
 -> When the purchase is confirmed, the registrar is **Hostinger**. Move to Step 4 with `registrar=hostinger`.
 
+#### Swiss alternative: Infomaniak
+
+Hostinger stays the default. Offer Infomaniak **in the same message, as a second option**, whenever Switzerland is in the picture: the user says they are Swiss-based or want a Swiss registrar, they want a `.ch` or `.swiss` domain, the OS locale ends in `-CH` (`node -e "console.log(Intl.DateTimeFormat().resolvedOptions().locale)"`), or the project's CLAUDE.md mentions Swiss hosting or the nLPD (the Swiss data protection act). Same logic as the email choice in `/add-email`: one recommendation, and a clearly stated alternative for those who have a reason to prefer it.
+
+> If you would rather keep your domain with a **Swiss registrar**, the reference is **Infomaniak** (Swiss company, infrastructure in Switzerland, sells `.ch`):
+>
+> 1. Go to **https://www.infomaniak.com/fr/domaines** (`/en/domains` in English, `/de/domains` in German)
+> 2. Search for the domain you want (e.g. `myproject.ch`)
+> 3. Buy **the domain only**: no hosting, no mail offer, the rest of the stack covers those
+>
+> One thing to know before choosing: Infomaniak does not let me change the nameservers through its API, so that single step is done by hand in their Manager. I guide you click by click, it takes two minutes, and everything else stays automated.
+
+Do not quote a price for Infomaniak: send the user to the page. Only the registrar changes; DNS still goes to Cloudflare and hosting to Vercel, so say so plainly if the user asks whether "everything stays in Switzerland" (it does not: the domain registration does).
+
+-> If the user picks Infomaniak, the registrar is **Infomaniak**. Move to Step 4 with `registrar=infomaniak`.
+
 ### If the domain already exists
 
 Ask:

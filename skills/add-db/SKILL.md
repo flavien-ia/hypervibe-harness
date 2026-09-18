@@ -241,9 +241,9 @@ The helper is idempotent - re-running `/add-db` won't duplicate existing lines.
 
 ### Why these four query rules matter (do not water them down)
 
-On the Neon free plan, **egress is the quota that gives out first, and it is the only one pooled across the whole account** (storage and compute are per project). 5 GB/month for everything the databases send back, all projects combined.
+On the Neon free plan, **egress is the quota that gives out first**: 5 GB per month for everything the database sends back. Like storage and compute, the cap is **per project** (Neon's plans page: "5 GB per project per month", checked 2026-09-18), and a project that reaches it has its compute suspended until the next billing period.
 
-The trap: **egress does not depend on how big the database is, but on how often you read it multiplied by what each read returns.** A 40 MB database read 100 times sends 4 GB. So a tiny project can exhaust the account quota on its own, and the bill lands on every other project at the same time.
+The trap: **egress does not depend on how big the database is, but on how often you read it multiplied by what each read returns.** A 40 MB database read 100 times sends 4 GB. So even a tiny project can exhaust its quota, and the app then answers with empty pages until the month rolls over.
 
 Two real cases, on this very stack, in August 2026:
 - A dashboard left open on a second screen, polling every 10 s with unbounded queries: **1.5 GB in eight days**, and a database that never got to suspend (160 h awake out of 180).

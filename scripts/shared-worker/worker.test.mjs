@@ -255,6 +255,30 @@ function jsonResponse(obj, status = 200) {
   check("snapshot aging: stale aging branch deleted", calls.some((c) => c.method === "DELETE" && c.url.endsWith("/branches/old-a")));
   check("snapshot aging: new aging branch created", calls.some((c) => c.method === "POST" && c.body?.includes(`bk-myapp-a-${today}`)));
 
+  // A failed backup must be mailed even though the snapshot job carries no
+  // `config` of its own, which is how register.mjs and migrate-live.mjs create
+  // it: the address is borrowed from the quota job, like a ping's.
+  const bareSnapshot = { kind: "snapshot", name: "neon-backups", cron: "0 3 1,15 * *", targets: [{ name: "gone-app", projectId: "pid-gone" }] };
+  const registryWithQuota = [
+    bareSnapshot,
+    { kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: { recipient: "user@test.fr", senderEmail: "sender@test.fr", senderName: "Test" } },
+  ];
+  const neonNotFound = (call) =>
+    call.url.includes("console.neon.tech")
+      ? { ok: false, status: 404, text: async () => '{"code":"","message":"project not found"}', json: async () => ({}) }
+      : jsonResponse({ messageId: "x" }, 201);
+  mockFetch(neonNotFound);
+  await runSnapshotJob(bareSnapshot, { NEON_API_KEY: "neon-key", BREVO_API_KEY: "brevo-key" }, registryWithQuota);
+  const failMail = calls.find((c) => c.url.includes("brevo"));
+  check("snapshot failure: mailed with the address borrowed from the quota job", !!failMail && failMail.body?.includes("user@test.fr"));
+  check("snapshot failure: a 404 is diagnosed as a project Neon no longer finds", failMail?.body?.includes("Neon ne trouve plus ce projet"));
+  check("snapshot failure: the mail tells how to drop the target", failMail?.body?.includes("--remove-target gone-app"));
+
+  // No config anywhere in the registry -> nothing to send to, and no crash.
+  mockFetch(neonNotFound);
+  await runSnapshotJob(bareSnapshot, { NEON_API_KEY: "neon-key", BREVO_API_KEY: "brevo-key" }, [bareSnapshot]);
+  check("snapshot failure: no address anywhere sends nothing", !calls.some((c) => c.url.includes("brevo")));
+
   // No API key -> no calls.
   mockFetch(() => jsonResponse({}));
   await runSnapshotJob({ kind: "snapshot", name: "neon-backups", cron: "0 3 1,15 * *", targets: [{ name: "x", projectId: "p" }] }, {});
@@ -355,6 +379,36 @@ function jsonResponse(obj, status = 200) {
   check("storage sum: objects come from the latest samples", storage.objects === 15);
   check("storage sum: a bucket silent for over 3 h no longer counts", storage.buckets === 2);
   check("storage sum: no rows -> zero", sumLatestBucketStorage([]).bytes === 0);
+
+  // Neon egress is capped PER PROJECT (5 GB each on Free). Two projects at 2 GB
+  // each used to add up to 4 GB "of the account" and fire at the 60 % threshold;
+  // neither is anywhere near its own cap, so nothing must go out.
+  const neonCfg = { recipient: "user@test.fr", senderEmail: "sender@test.fr", senderName: "Test" };
+  const neonMock = (egressByProject) => (call) => {
+    if (call.url.includes("/projects?")) {
+      return jsonResponse({ projects: Object.keys(egressByProject).map((id) => ({ id, name: id })) });
+    }
+    const hit = Object.keys(egressByProject).find((id) => call.url.endsWith(`/projects/${id}`));
+    if (hit) return jsonResponse({ project: { id: hit, name: hit, data_transfer_bytes: egressByProject[hit] * gb } });
+    return jsonResponse({ messageId: "x" }, 201);
+  };
+  mockFetch(neonMock({ alpha: 2, beta: 2 }));
+  await runQuotaJob(
+    { kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: neonCfg },
+    { NEON_API_KEY: "neon-key", BREVO_API_KEY: "brevo-key" },
+  );
+  check("neon egress: projects are not summed (2 GB + 2 GB sends nothing)", !calls.some((c) => c.url.includes("brevo")));
+
+  // One project past 60 % of ITS cap -> one alert, naming that project only.
+  mockFetch(neonMock({ alpha: 3.5, beta: 1 }));
+  await runQuotaJob(
+    { kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: neonCfg },
+    { NEON_API_KEY: "neon-key", BREVO_API_KEY: "brevo-key" },
+  );
+  const neonMail = calls.find((c) => c.url.includes("brevo"));
+  check("neon egress: a project past its own threshold sends an email", !!neonMail);
+  check("neon egress: the alert names the project at fault", neonMail?.body?.includes("Neon / alpha"));
+  check("neon egress: the quiet project is not mentioned", !neonMail?.body?.includes("Neon / beta"));
 
   // Missing token -> no checks at all.
   mockFetch(() => jsonResponse({}));

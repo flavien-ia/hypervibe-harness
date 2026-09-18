@@ -109,6 +109,25 @@ try {
   }
 
   {
+    // The two defects fixed on 2026-09-18, as the old workers shipped them:
+    // Neon egress summed over the account, and a failed backup never mailed.
+    const dir = workerDir(
+      [
+        "const NEON_FREE = { egressGB: 5 };",
+        "  if (egressGB >= (NEON_FREE.egressGB * pct) / 100) {}",
+        "  const cfg = job.config || {};",
+        "  if (!resolveEmailProvider(env, cfg) || !cfg.senderEmail || !cfg.recipient) {}",
+        "",
+      ].join("\n"),
+    );
+    const r = run(dir, "--dry-run");
+    const ids = (r.json?.knownBugs ?? []).map((b) => b.id);
+    check("egress bug: recognised by name", ids.includes("neon-egress-summed-across-projects"), r.raw);
+    check("snapshot alert bug: recognised by name", ids.includes("snapshot-failure-never-mailed"), r.raw);
+    check("old Neon worker: not mistaken for the R2 bug", !ids.includes("r2-storage-single-bucket"), r.raw);
+  }
+
+  {
     // The fixed worker, one comment apart: stale, but no bug claimed.
     const dir = workerDir(`${LATEST}\n// an older build\n`);
     const r = run(dir, "--dry-run");

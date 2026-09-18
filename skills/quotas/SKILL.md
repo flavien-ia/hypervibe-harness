@@ -244,12 +244,13 @@ Under the table, a short **summary line**:
 - At least one 🔴 → "X cap(s) close to being reached: <metrics>. Recommend [plan upgrade / archiving / migration] depending on the service."
 - A 🚨 (overage) → explain what it means (paid account already running, or overuse to fix).
 
-If relevant, **propose a concrete action** tied to a Hypervibe addon:
-- R2 storage cap close → *"You can run `/clean` to identify old forgotten files on R2"*
-- Neon storage cap close → *"You can move to a paid Neon plan (Pro from $19/month for 10 GB) or archive data via `/clean`"*
+If relevant, **propose a concrete action** tied to a Hypervibe addon. Name the project the Neon metric points at (it is in the metric label):
+- Neon egress or compute close to the cap → *"Run `/optimize` in the `<project>` folder: it measures what the app reads and how often, then fixes the worst offenders (unbounded queries, polling that never stops, missing cache)."* Egress is the cap that bites first, and a project that reaches it is suspended until the next month: treat it as the most urgent line of the table.
+- Neon storage cap close → *"Run `/optimize` in the `<project>` folder: files or large blobs kept in the database are the usual cause, and it moves them to file storage. Otherwise, move that project to a paid Neon plan."*
+- R2 storage cap close → *"No skill sorts the bucket for you: ask me to list the largest and oldest files in your R2 bucket, then decide what to delete. Beyond the 10 GB, Cloudflare bills a few cents per extra GB."*
 - Resend monthly cap close → *"Resend Pro at $20/month (50k emails/month) - or Brevo free up to 9k emails/month"*
 
-Never invent an addon that does not exist. If there is nothing to propose, just give the info.
+**Never send a quota problem to `/clean`**: it removes what the project no longer uses (dead code, orphan tables, unused dependencies), it neither looks inside the R2 bucket nor reduces what the app consumes. Never invent an addon that does not exist. If there is nothing to propose, just give the info.
 
 ---
 
