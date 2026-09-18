@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.2.3 (18 septembre 2026)
+
+### Améliorations
+- **Garde-fou plus juste** : un message de commit rédigé sur plusieurs lignes qui cite une commande (par exemple « git add -A reste refusé ») n'est plus pris pour la commande elle-même, ni refusé à tort.
+- **Garde-fou plus sûr** : plusieurs façons de faire passer une commande sensible sans confirmation sont fermées. Une apostrophe entre guillemets (« l'accord », « c'est ») ne cache plus ce qui la suit, et une commande glissée dans une construction particulière du shell, dans un commentaire contenant une apostrophe ou lancée en arrière-plan est désormais examinée comme les autres.
+- **Horloge partagée** : la demande de confirmation avant de relancer l'horloge ne se déclenche plus sur le script d'un autre projet qui porte le même nom.
+
+### Coulisses
+- La lecture des lignes de commande par le garde-fou a été réécrite d'un seul tenant : guillemets, textes sur plusieurs lignes, substitutions et commentaires y sont compris comme le shell les comprend. 35 nouveaux cas de recette, vérifiés aussi dans l'autre sens (ils échouent sur l'ancienne version).
+- Merci à la relecture extérieure qui a signalé ces défauts.
+
 ## v3.2.2 (18 septembre 2026)
 
 ### Améliorations

@@ -299,6 +299,51 @@ checks += 1;
   console.log(`${ok ? "OK  " : "FAIL"} commande absente -> laisse passer`);
 }
 
+// Revue externe de la 3.1.9 : ce que la lecture de la ligne de commande manquait.
+// Le corps d'un heredoc est du texte (un message de commit qui cite `git add -A` n'est
+// pas un balayage), une apostrophe entre guillemets doubles ne cache plus ce qui suit,
+// les substitutions de processus sont jugees, et la regle 9 ne vise plus le ensure.mjs
+// de n'importe quel projet.
+expect("git commit -m \"$(cat <<'EOF'\nfix: garde-fou\n\ngit add -A reste refuse.\nEOF\n)\"", "pass");
+expect("git commit -m \"$(cat <<'EOF'\nfix: garde-fou\n\ngit push origin main demande toujours.\nEOF\n)\"", "pass");
+expect("git commit -m \"$(cat <<'EOF'\nfix(hooks): 1) le corps a des parentheses\nEOF\n)\"", "pass");
+expect("git commit -m \"$(cat <<'EOF'\nfix(hooks): 1) le corps a des parentheses\nEOF\n)\" && git push origin main", "ask");
+expect("cat <<'EOF' > notes.md\ngit add -A reste refuse.\nEOF", "pass");
+expect("cat <<EOF > notes.md\n$(git push origin main)\nEOF", "ask");
+expect("cat <<'EOF' > notes.md\n$(git push origin main)\nEOF", "pass");
+expect("cat <<'EOF' > notes.md\nhello\nEOF\ngit push origin main", "ask");
+expect("echo \"<<EOF\"\ngit push origin main\nEOF", "ask");
+expect("cat <<< \"git add -A\"", "pass");
+expect("cat <<-EOF\n\tgit add -A\n\tEOF", "pass");
+expect("cat <<'EOF' > notes.md && git push origin main\nhello\nEOF", "ask");
+expect("cat <<'EOF'\ngit add -A", "pass");
+expect("echo \"l'accord $(git config hypervibe.hooks true)\"", "ask");
+expect("msg=\"c'est parti $(git push origin main)\"", "ask");
+expect("echo \"don't\" $(git push origin main)", "ask");
+expect("echo 'it $(git push origin main)'", "pass");
+expect("echo 'say \"hi' && git push origin main", "ask");
+expect("x=$(echo \")\") && git push origin main", "ask");
+expect("diff <(git push origin main) /dev/null", "ask");
+expect("cat x | tee >(git add -A)", "deny");
+expect("echo \"<(git push origin main)\"", "pass");
+expect("cat < in.txt > out.txt", "pass");
+expect("node ensure.mjs", "ask");
+expect("node ./ensure.mjs", "ask");
+expect("node scripts/setup/ensure.mjs", "pass");
+expect("node autre-projet/worker-check.mjs", "pass");
+
+// ... et la meme famille, trouvee en corrigeant : un commentaire qui contient une
+// apostrophe, une commande envoyee en arriere-plan, un calcul qui contient `<<`, une
+// ligne continuee par une barre oblique inverse.
+expect("# don't\ngit push origin main", "ask");
+expect("git status # git add -A", "pass");
+expect("sleep 1 & git push origin main", "ask");
+expect("node x.mjs > out.log 2>&1", "pass");
+expect("node x.mjs &> out.log", "pass");
+expect("echo ok >| out.txt", "pass");
+expect("(( x = 1 << 2 ))\ngit push origin main", "ask");
+expect("git push \\\n  origin main", "ask");
+
 const median = timings.sort((a, b) => a - b)[Math.floor(timings.length / 2)];
 checks += 1;
 const rapide = median < 150;

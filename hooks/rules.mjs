@@ -20,45 +20,250 @@
 // one that blocks everything, and a guardrail that cries wolf gets bypassed.
 // Style and architecture stay in CLAUDE.md, where they belong.
 
-/** Splits a command line into the segments a shell would run in sequence,
- *  respecting quotes: `echo "git add -A"` is one segment whose payload is a
- *  string, not a staging command. */
+/** Reads a command line the way a shell would, as far as judging it needs: the segments
+ *  it runs one after the other (split on newlines, `;`, `&`, `&&`, `||`, `|`), each
+ *  without its substitutions, and what those substitutions run, as command lines of
+ *  their own. What is text stays text, and what runs is found wherever it hides:
+ *  - single quotes make everything literal; inside double quotes an apostrophe is an
+ *    ordinary character and `$(...)` still runs (`"l'accord $(git push)"` is a push:
+ *    the apostrophe hid it until an outside review of 3.1.9);
+ *  - `$(...)`, backticks and process substitutions `<(...)` `>(...)` run their content
+ *    (the last two walked past every rule until the same review);
+ *  - a heredoc's body is data: a commit message written through
+ *    `git commit -m "$(cat <<'EOF' ...)"` that mentions `git add -A` is not a sweep (it
+ *    was refused on 3.1.9). With an unquoted delimiter the body still expands `$(...)`
+ *    and backticks, which are judged;
+ *  - a comment runs to the end of its line, apostrophes included;
+ *  - a backslash makes the next character literal (`\$(x)` in a commit message runs
+ *    nothing), and at the end of a line it continues the command.
+ *  Returns [{ text, inner }] in the order a shell would run them. */
+export function readCommandLine(command) {
+  return scanShell(String(command), 0, null).parts;
+}
+
+/** The segments alone, as text, for anything that only needs to split. */
 export function segments(command) {
-  const out = [];
-  let current = "";
-  let quote = null;
-  for (let i = 0; i < command.length; i += 1) {
-    const c = command[i];
-    if (quote) {
-      current += c;
-      if (c === quote && command[i - 1] !== "\\") quote = null;
-      continue;
-    }
-    if (c === '"' || c === "'") {
-      quote = c;
-      current += c;
-      continue;
-    }
-    if (c === "\n" || c === ";") {
-      out.push(current);
-      current = "";
-      continue;
-    }
-    if ((c === "&" || c === "|") && command[i + 1] === c) {
-      out.push(current);
-      current = "";
-      i += 1;
-      continue;
-    }
-    if (c === "|") {
-      out.push(current);
-      current = "";
-      continue;
-    }
-    current += c;
+  return readCommandLine(command).map((part) => part.text);
+}
+
+// A heredoc delimiter ends at a blank or at a character the shell treats as an operator.
+const WORD_END = /[\s;&|<>()]/;
+
+/** The index of the backtick closing the one at `start` (or the end of `src`). */
+function closingBacktick(src, start) {
+  for (let i = start + 1; i < src.length; i += 1) {
+    if (src[i] === "\\") i += 1;
+    else if (src[i] === "`") return i;
   }
-  out.push(current);
-  return out.map((s) => s.trim()).filter(Boolean);
+  return src.length;
+}
+
+/** A substitution opened at `start` (on `$(`, `<(` or `>(`): its content, and the index
+ *  right after it. Read by the same scanner, so the quotes, heredocs and nesting inside
+ *  are understood, and the parenthesis that closes it is the right one. */
+function readSubstitution(src, start) {
+  const sub = scanShell(src, start + 2, ")");
+  return { content: src.slice(start + 2, sub.closed ? sub.end - 1 : src.length), end: sub.end };
+}
+
+/** A double-quoted string opened at `start`: its text (without what its substitutions
+ *  run) and the substitutions found in it. An apostrophe is an ordinary character here. */
+function readDoubleQuoted(src, start) {
+  let text = '"';
+  const inner = [];
+  let i = start + 1;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === "\\") {
+      text += src.slice(i, i + 2);
+      i += 2;
+    } else if (c === '"') {
+      return { text: `${text}"`, inner, end: i + 1 };
+    } else if (c === "$" && src[i + 1] === "(") {
+      const sub = readSubstitution(src, i);
+      inner.push(sub.content);
+      i = sub.end;
+    } else if (c === "`") {
+      const end = closingBacktick(src, i);
+      inner.push(src.slice(i + 1, end));
+      i = end + 1;
+    } else {
+      text += c;
+      i += 1;
+    }
+  }
+  return { text, inner, end: src.length };
+}
+
+/** The `<<` or `<<-` operator at `start`, and its delimiter. A quote or a backslash
+ *  anywhere in the delimiter makes the body literal, as in a shell. */
+function readHeredocOperator(src, start) {
+  let i = start + 2;
+  const stripTabs = src[i] === "-";
+  if (stripTabs) i += 1;
+  while (src[i] === " " || src[i] === "\t") i += 1;
+  let delim = "";
+  let quoted = false;
+  while (i < src.length && !WORD_END.test(src[i])) {
+    const c = src[i];
+    if (c === "'" || c === '"') {
+      const close = src.indexOf(c, i + 1);
+      const stop = close < 0 ? src.length : close;
+      delim += src.slice(i + 1, stop);
+      quoted = true;
+      i = stop + 1;
+    } else if (c === "\\") {
+      delim += src[i + 1] ?? "";
+      quoted = true;
+      i += 2;
+    } else {
+      delim += c;
+      i += 1;
+    }
+  }
+  return { delim, quoted, stripTabs, end: Math.min(i, src.length) };
+}
+
+/** What a stretch of text expands, quotes being literal there (the body of a heredoc
+ *  whose delimiter is unquoted): its `$(...)` and its backticks. */
+function expansions(text) {
+  const found = [];
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === "\\") {
+      i += 2;
+    } else if (c === "$" && text[i + 1] === "(") {
+      const sub = readSubstitution(text, i);
+      found.push(sub.content);
+      i = sub.end;
+    } else if (c === "`") {
+      const end = closingBacktick(text, i);
+      found.push(text.slice(i + 1, end));
+      i = end + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return found;
+}
+
+/** The body of a heredoc, from `start` to its delimiter line (or the end): skipped as
+ *  data, except what it expands when the delimiter is unquoted. */
+function readHeredocBody(src, start, { delim, quoted, stripTabs }) {
+  const lines = [];
+  let i = start;
+  while (i < src.length) {
+    const nl = src.indexOf("\n", i);
+    const line = src.slice(i, nl < 0 ? src.length : nl).replace(/\r$/, "");
+    i = nl < 0 ? src.length : nl + 1;
+    if ((stripTabs ? line.replace(/^\t+/, "") : line) === delim) break;
+    lines.push(line);
+  }
+  return { inner: quoted ? [] : expansions(lines.join("\n")), end: i };
+}
+
+/** Scans `src` from `start` until an unbalanced `closer` (")" for a substitution) or the
+ *  end. Returns the parts met, where it stopped, and whether the closer was found. */
+function scanShell(src, start, closer) {
+  const parts = [];
+  let text = "";
+  let inner = [];
+  let pending = [];
+  let depth = 0;
+  let i = start;
+  const cut = () => {
+    const runs = inner.map((x) => x.trim()).filter(Boolean);
+    if (text.trim() || runs.length) parts.push({ text: text.trim(), inner: runs });
+    text = "";
+    inner = [];
+  };
+  const atWordStart = () => i === start || /[\s;&|()]/.test(src[i - 1]);
+  while (i < src.length) {
+    const c = src[i];
+    const next = src[i + 1];
+    if (c === "\\") {
+      text += next === "\n" ? " " : src.slice(i, i + 2);
+      i += 2;
+    } else if (c === "'") {
+      const close = src.indexOf("'", i + 1);
+      const stop = close < 0 ? src.length : close + 1;
+      text += src.slice(i, stop);
+      i = stop;
+    } else if (c === '"') {
+      const quotedText = readDoubleQuoted(src, i);
+      text += quotedText.text;
+      inner.push(...quotedText.inner);
+      i = quotedText.end;
+    } else if (c === "#" && atWordStart()) {
+      const nl = src.indexOf("\n", i);
+      i = nl < 0 ? src.length : nl;
+    } else if ((c === "$" || c === "<" || c === ">") && next === "(") {
+      const sub = readSubstitution(src, i);
+      inner.push(sub.content);
+      i = sub.end;
+    } else if (c === "`") {
+      const end = closingBacktick(src, i);
+      inner.push(src.slice(i + 1, end));
+      i = end + 1;
+    } else if (c === "(" && next === "(" && atWordStart()) {
+      // An arithmetic command, `(( x = 1 << 2 ))`: text, and its `<<` opens no heredoc.
+      const close = src.indexOf("))", i + 2);
+      const stop = close < 0 ? src.length : close + 2;
+      text += src.slice(i, stop);
+      i = stop;
+    } else if (c === "<" && next === "<" && src[i + 2] === "<") {
+      text += "<<<"; // a here-string: the word after it is data, read as such
+      i += 3;
+    } else if (c === "<" && next === "<") {
+      const operator = readHeredocOperator(src, i);
+      if (operator.delim) pending.push(operator);
+      text += src.slice(i, operator.end);
+      i = operator.end;
+    } else if (c === "\n") {
+      cut();
+      i += 1;
+      // The bodies of the heredocs opened on that line come right after it.
+      for (const operator of pending) {
+        const body = readHeredocBody(src, i, operator);
+        const runs = body.inner.map((x) => x.trim()).filter(Boolean);
+        if (runs.length) {
+          if (!parts.length) parts.push({ text: "", inner: [] });
+          parts[parts.length - 1].inner.push(...runs);
+        }
+        i = body.end;
+      }
+      pending = [];
+    } else if (c === "(") {
+      depth += 1;
+      text += c;
+      i += 1;
+    } else if (c === ")" && closer === ")" && depth === 0) {
+      cut();
+      return { parts, end: i + 1, closed: true };
+    } else if (c === ")") {
+      if (depth > 0) depth -= 1;
+      text += c;
+      i += 1;
+    } else if (c === ";") {
+      cut();
+      i += 1;
+    } else if (c === "|" && src[i - 1] !== ">") {
+      cut();
+      i += next === "|" || next === "&" ? 2 : 1;
+    } else if (c === "&" && next === "&") {
+      cut();
+      i += 2;
+    } else if (c === "&" && next !== ">" && src[i - 1] !== ">" && src[i - 1] !== "<") {
+      cut(); // a command sent to the background: the next one runs all the same
+      i += 1;
+    } else {
+      text += c;
+      i += 1;
+    }
+  }
+  cut();
+  return { parts, end: src.length, closed: false };
 }
 
 /** Drops leading environment assignments (`FOO=1 git push`) so the command
@@ -165,64 +370,6 @@ function normalise(raw) {
   return { env, seg: s.trim() };
 }
 
-/** Command substitutions run their content: `x=$(git push origin main)` is a
- *  push, `` v=`git add -A` `` a sweep. Pulls every `$(...)` (nested ones
- *  included, they recurse through decide) and every backtick span out of a
- *  segment, skipping single-quoted text where a shell would not expand them.
- *  Returns the segment without them, and their contents, each a command line
- *  of its own. Found by an outside reader on 3.1.8: an assignment swallowed
- *  `$(node`, and the rule for the shared clock never saw the launcher. A
- *  backslash escapes the next character, so a quoted `\$(...)` or a
- *  backslashed backtick (a commit message that TALKS about a command)
- *  stays text: the guardrail refused its own release commit on 3.1.9 before
- *  this line existed. */
-function withoutSubstitutions(segment) {
-  const inner = [];
-  let text = "";
-  let i = 0;
-  while (i < segment.length) {
-    const c = segment[i];
-    // An escaped dollar or backtick is literal for the shell (`\$(x)` in a
-    // commit message runs nothing): copy both characters and move on.
-    if (c === "\\") {
-      text += segment.slice(i, i + 2);
-      i += 2;
-      continue;
-    }
-    if (c === "'") {
-      const end = segment.indexOf("'", i + 1);
-      const stop = end < 0 ? segment.length : end + 1;
-      text += segment.slice(i, stop);
-      i = stop;
-      continue;
-    }
-    if (c === "$" && segment[i + 1] === "(") {
-      let depth = 0;
-      let j = i + 1;
-      for (; j < segment.length; j += 1) {
-        if (segment[j] === "(") depth += 1;
-        else if (segment[j] === ")") {
-          depth -= 1;
-          if (depth === 0) break;
-        }
-      }
-      inner.push(segment.slice(i + 2, j));
-      i = j + 1;
-      continue;
-    }
-    if (c === "`") {
-      const end = segment.indexOf("`", i + 1);
-      const stop = end < 0 ? segment.length : end;
-      inner.push(segment.slice(i + 1, stop));
-      i = stop + 1;
-      continue;
-    }
-    text += c;
-    i += 1;
-  }
-  return { text, inner: inner.map((x) => x.trim()).filter(Boolean) };
-}
-
 const DENY = "deny";
 const ASK = "ask";
 
@@ -240,10 +387,9 @@ export function decide(command, inherited = new Map()) {
     }
   };
 
-  for (const raw of segments(command)) {
+  for (const { text: outer, inner } of readCommandLine(command)) {
     // What a substitution runs is judged first, as a command line of its own;
     // the segment is then read without it (`x=$(git push)` leaves `x=`).
-    const { text: outer, inner } = withoutSubstitutions(raw);
     const { env, seg } = normalise(outer);
     for (const [k, v] of inherited) if (!env.has(k)) env.set(k, v);
     for (const payload of inner) {
@@ -464,13 +610,18 @@ export function decide(command, inherited = new Map()) {
     //    (rule 3b) when the worker is behind: same code, same keys, same
     //    question. Their --dry-run says whether a deploy would happen and
     //    changes nothing, so it stays free (outside review, 3.1.6).
-    //    Matched on the script's name after the launcher, whatever the path:
+    //    Matched on the script's name after the launcher when it comes bare:
     //    `cd scripts/shared-worker && node ensure.mjs` is the same run
-    //    (outside review, 3.1.8).
+    //    (outside review, 3.1.8). A path says where the script lives, and only
+    //    the shared worker's folder is the clock: another project's
+    //    `scripts/setup/ensure.mjs` is not (outside review, 3.1.9).
     const launched = /^(?:node|bun|deno|tsx)\s+(?:-\S+\s+)*(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(seg);
-    const launchedBase = launched ? (launched[1] ?? launched[2] ?? launched[3]).split(/[\\/]/).pop() : "";
+    const launchedPath = launched ? (launched[1] ?? launched[2] ?? launched[3]).replace(/^\.[\\/]/, "") : "";
+    const launchedBase = launchedPath.split(/[\\/]/).pop();
+    const sharedClock = !/[\\/]/.test(launchedPath) || /shared-worker[\\/][^\\/]+$/.test(launchedPath);
     if (
       /^(?:ensure|worker-check)\.mjs$/.test(launchedBase) &&
+      sharedClock &&
       !/--dry-run\b/.test(seg) &&
       !/--no-deploy\b/.test(seg)
     ) {
