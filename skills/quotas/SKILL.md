@@ -189,7 +189,7 @@ One table per service, or a global table with a "Service" column. Prefer **a glo
 | Service | Metric | Used | Cap | % | Verdict |
 |---|---|---|---|---|---|
 | Neon | Storage | 0,247 GB | 0,5 GB | 49,5 % | ✅ |
-| Neon | Compute | 12,1 h | 191,9 h | 6,3 % | ✅ |
+| Neon | Compute | 12,1 h | 100 h | 12,1 % | ✅ |
 | Neon | Active projects | 7 | 1 | - | 🚨 (paid account required) |
 | Cloudflare R2 | Storage | 0,079 GB | 10 GB | 0,8 % | ✅ |
 | ... |

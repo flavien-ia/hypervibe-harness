@@ -21,15 +21,22 @@
 //   --no-tx  run the statements one by one instead, for commands that cannot run
 //            inside a transaction block (CREATE INDEX CONCURRENTLY, VACUUM, ...).
 //
-// DESTRUCTIVE STATEMENTS: DROP, TRUNCATE, and DELETE/UPDATE without a WHERE
-// clause are refused unless --destructif is passed. On this stack the database
-// reached by DATABASE_URL is very often production itself, and these mistakes
-// are not recoverable between two backups. The flag makes the intent explicit,
-// which is the whole point: a guard you can pass on purpose, never by accident.
+// DESTRUCTIVE STATEMENTS: any DROP, TRUNCATE, DELETE/UPDATE without a real WHERE
+// clause, and a DO block running dynamic SQL are refused unless --destructif is
+// passed. The database reached by DATABASE_URL can be production itself, and these
+// mistakes are not recoverable between two backups. The flag makes the intent
+// explicit, which is the whole point: a guard you can pass on purpose, never by
+// accident.
 //
 // The check lives here, and not only in the Bash guardrail, because a hook only
 // sees the command line: SQL arriving through a file, a heredoc or a pipe would
-// slip past it, and hosts without hooks (Codex) have no guardrail at all.
+// slip past it, and hosts without hooks (Codex) have no guardrail at all. The two
+// guards must agree: hooks/test-hooks.mjs replays the same statements through both.
+//
+// THE HOST IS CHECKED BEFORE ANYTHING IS SENT: the whole connection string, password
+// included, travels in a header of the request. A DATABASE_URL pointing anywhere else
+// (another Postgres, a stale .env, a pasted value) is refused, never posted to
+// whatever web server answers at that name.
 //
 // Output (stdout): JSON. Single statement → { rows, rowCount, command } (unchanged).
 // Several statements → { statements: [{ command, rowCount, rows }], statementCount, atomic }.
@@ -38,6 +45,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hoteDuFournisseur } from "./neon-host.mjs";
 
 const args = process.argv.slice(2);
 let conn = null;
@@ -158,38 +166,56 @@ export function splitStatements(sql) {
  * `DELETE FROM t` nu qui le suit. Les mots-cles sont cherches hors chaines,
  * pour qu'un `INSERT INTO log VALUES ('DROP TABLE')` passe sans encombre.
  */
+// Tout DROP, quel que soit l'objet. Une liste d'objets (TABLE, SCHEMA, INDEX...) en
+// oublie toujours un : DROP FUNCTION, DROP POLICY, DROP MATERIALIZED VIEW passaient.
+// Le garde-fou (hooks/rules.mjs) porte la MEME expression : ne pas changer l'une sans l'autre.
+const DROP_ANYTHING = /\bDROP\s+[A-Za-z_]/i;
+// Un WHERE qui ne borne rien (WHERE true, WHERE 1=1) vaut une absence de WHERE.
+const WHERE_TOUJOURS_VRAI = /\bWHERE\s+(?:TRUE|1\s*=\s*1|''\s*=\s*'')\s*(?:RETURNING\b[\s\S]*)?$/i;
+
+function sansCommentaires(stmt) {
+  return stmt.replace(/--[^\n]*/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
+}
+
+function motifDestructeur(texte) {
+  if (DROP_ANYTHING.test(texte)) return /\bALTER\b/i.test(texte) && !/^\s*DROP\b/i.test(texte) ? "ALTER ... DROP" : "DROP";
+  if (/\bTRUNCATE\b/i.test(texte)) return "TRUNCATE";
+  const borne = /\bWHERE\b/i.test(texte) && !WHERE_TOUJOURS_VRAI.test(texte.trim());
+  if (/\bDELETE\s+FROM\b/i.test(texte) && !borne) return "DELETE sans WHERE";
+  if (/\bUPDATE\b[\s\S]*\bSET\b/i.test(texte) && !borne) return "UPDATE sans WHERE";
+  return null;
+}
+
 export function statementsDestructrices(sql) {
   const trouve = [];
   for (const stmt of splitStatements(sql)) {
     // Neutralise chaines et commentaires avant de chercher les mots-cles.
-    const nu = stmt
-      .replace(/'(?:[^']|'')*'/g, "''")
-      .replace(/"(?:[^"])*"/g, '""')
-      .replace(/--[^\n]*/g, " ")
-      .replace(/\/\*[\s\S]*?\*\//g, " ");
-    if (/\bDROP\s+(TABLE|SCHEMA|DATABASE|INDEX|VIEW|TYPE|COLUMN)\b/i.test(nu)) {
-      trouve.push("DROP");
+    const nu = sansCommentaires(
+      stmt.replace(/'(?:[^']|'')*'/g, "''").replace(/"(?:[^"])*"/g, '""'),
+    );
+    const motif = motifDestructeur(nu);
+    if (motif) {
+      trouve.push(motif);
       continue;
     }
-    if (/\bTRUNCATE\b/i.test(nu)) {
-      trouve.push("TRUNCATE");
-      continue;
-    }
-    if (/\bALTER\s+TABLE\b[\s\S]*\bDROP\b/i.test(nu)) {
-      trouve.push("ALTER ... DROP");
-      continue;
-    }
-    if (/\bDELETE\s+FROM\b/i.test(nu) && !/\bWHERE\b/i.test(nu)) {
-      trouve.push("DELETE sans WHERE");
-      continue;
-    }
-    if (/\bUPDATE\b[\s\S]*\bSET\b/i.test(nu) && !/\bWHERE\b/i.test(nu)) {
-      trouve.push("UPDATE sans WHERE");
-      continue;
+    // Un bloc DO s'execute tout de suite, et son SQL dynamique vit dans des chaines :
+    // `DO $$ BEGIN EXECUTE 'DROP TABLE clients'; END $$` etait invisible une fois les
+    // chaines neutralisees. On relit donc le bloc AVEC ses chaines. Et quand le SQL est
+    // fabrique a l'execution (concatenation, format), le controle ne peut pas le voir :
+    // il refuse, il ne laisse pas passer.
+    if (/^\s*DO\b/i.test(nu)) {
+      const brut = sansCommentaires(stmt);
+      const dansLeBloc = motifDestructeur(brut);
+      if (dansLeBloc) trouve.push(`${dansLeBloc} (dans un bloc DO)`);
+      else if (/\bEXECUTE\b/i.test(nu)) trouve.push("SQL dynamique (EXECUTE dans un bloc DO)");
     }
   }
   return [...new Set(trouve)];
 }
+
+// L'hote d'une chaine de connexion est-il bien celui du fournisseur ? Une seule
+// definition, dans neon-host.mjs, que schema-drift.mjs interroge aussi.
+export { hoteDuFournisseur };
 
 // Importing this file (e.g. to unit-test splitStatements) must not run the query.
 const isMain =
@@ -205,8 +231,8 @@ if (isMain) {
   if (danger.length > 0 && !destructifOk) {
     console.error(
       `Refuse : instruction destructrice (${danger.join(", ")}).\n` +
-        "Sur cette stack, la base atteinte par DATABASE_URL est souvent la production.\n" +
-        "Si c'est bien voulu, relancer la meme commande avec le drapeau --destructif.\n" +
+        "La base atteinte par DATABASE_URL peut etre la production, et rien de cela ne se rattrape entre deux sauvegardes.\n" +
+        "Si c'est bien voulu, relancer la meme commande avec le drapeau --destructif (une confirmation sera demandee).\n" +
         "Pour un DELETE ou un UPDATE, ajouter une clause WHERE suffit le plus souvent.",
     );
     process.exit(6);
@@ -231,6 +257,16 @@ if (isMain) {
     host = new URL(conn).hostname;
   } catch {
     console.error("Invalid connection string.");
+    process.exit(1);
+  }
+  if (!hoteDuFournisseur(host)) {
+    // Le nom d'hote n'est pas un secret, la chaine si : on ne montre que lui.
+    console.error(
+      `Refuse : l'hote de DATABASE_URL (${host}) n'est pas une base Neon.\n` +
+        "run-sql.mjs parle le SQL sur HTTP de Neon : la chaine de connexion entiere, mot de passe compris,\n" +
+        "part dans la requete. Elle n'est jamais envoyee a un autre hote. Verifier le DATABASE_URL du projet\n" +
+        "(.env), ou passer par le pilote PostgreSQL du projet pour une base hebergee ailleurs.",
+    );
     process.exit(1);
   }
 

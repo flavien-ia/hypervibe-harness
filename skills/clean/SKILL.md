@@ -390,9 +390,10 @@ All the deletions (files, code, deps, env vars) happen on this branch. One commi
 
 If some changes touch the database (deletion of tables, columns, migrations):
 
-1. Create a **Neon branch** from `main` via the Neon REST API (`POST https://console.neon.tech/api/v2/projects/{id}/branches`, key `NEON.api_key` from the vault) or `neonctl branches create`
+1. Create a **Neon branch** from `main` via the Neon REST API (`POST https://console.neon.tech/api/v2/projects/{id}/branches`, key `NEON.api_key` from the vault, read into a shell variable). There is no `neonctl` on this stack: the REST API is the only way.
    - Name: `cleanup-YYYY-MM-DD`
-2. Get its `connection_string`
+   - Send the response to a file or a variable, **never to the screen**: it carries the branch's connection string, password included.
+2. Get its `connection_string` **without ever displaying it**: a connection string is a secret, whole. Extract it in the same command that writes it where it is needed (a shell variable piped into `.env.local`, or `node scripts/push-env-vars.mjs --target=preview --stdin`), and check the result by its HOST only (`node -e "console.log(new URL(process.env.U).host)"`), never by printing the value.
 3. Add it to Vercel in the **Preview** environment only (not Production), as `DATABASE_URL` for the previews of the `cleanup/*` branch. Or simply replace `DATABASE_URL` in the `.env.local` during the verification phase.
 4. Apply the cleaned schema on this Neon branch (via `pnpm db:push` or the Drizzle migration)
 5. Production stays intact during the whole verification phase
@@ -422,7 +423,7 @@ When the user confirms that everything works:
 1. PR → merge onto `main` (→ Vercel redeploys to prod)
 2. Apply the schema changes on the **Neon main branch** (via `pnpm db:push` pointed at prod)
 3. Delete the cleanup Git branch: `git branch -d cleanup/YYYY-MM-DD`
-4. Delete the cleanup Neon branch: REST API (`DELETE https://console.neon.tech/api/v2/projects/{id}/branches/{branch_id}`) or `neonctl branches delete cleanup-YYYY-MM-DD`
+4. Delete the cleanup Neon branch: REST API (`DELETE https://console.neon.tech/api/v2/projects/{id}/branches/{branch_id}`, with `curl -sf` so that a refusal is seen as a failure). **List the branches first and check the name of the one about to go**: the id of `main` in that URL would destroy production and every backup with it. The guardrail asks for a confirmation on this call, that is expected.
 
 ---
 

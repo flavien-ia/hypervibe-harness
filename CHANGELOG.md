@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.2.5 (20 septembre 2026)
+
+Une version de correction, centrée sur la base de données : plus sûre, plus discrète avec tes secrets, et plus honnête quand quelque chose échoue.
+
+### Améliorations
+- **Ta base de données reste en Europe** : dans un projet qui regroupe plusieurs applications, `/add-db` créait la base sans préciser de région, donc aux États-Unis. Elle est maintenant créée à Francfort, comme partout ailleurs, et sa région est notée dans ton projet.
+- **L'adresse de connexion de ta base ne se montre plus jamais** : elle ne s'affiche plus à l'écran, même quand une étape échoue, et ne passe plus dans une ligne de commande. Si une étape échoue après la création de la base, son adresse est quand même rangée dans ton projet au lieu d'être perdue.
+- **Suppressions accidentelles mieux arrêtées** : toute commande qui supprime quelque chose dans ta base est reconnue (plus seulement la suppression d'une table), et une confirmation t'est toujours demandée avant de l'exécuter.
+- **`/save-project` ne dit plus « tout va bien » à tort** : si des tables n'ont pas pu être lues, la sauvegarde le signale en évidence et nomme les tables qui manquent.
+- **Coffre-fort verrouillé** : `/add-db` et `/quotas` te demandent maintenant de l'ouvrir, au lieu de te proposer de créer une nouvelle clé.
+- **Chiffres du plan gratuit de Neon remis à jour** : 10 copies par base (et non 20), 100 heures de calcul par mois.
+
+### Coulisses
+- L'adresse de connexion n'est envoyée qu'aux serveurs de Neon, jamais ailleurs. Le contrôle qui précède une mise à jour de la structure de ta base refuse de forcer quand il n'a pas pu tout vérifier. Cinq nouvelles vérifications automatiques accompagnent ces corrections.
+
 ## v3.2.4 (19 septembre 2026)
 
 ### Améliorations

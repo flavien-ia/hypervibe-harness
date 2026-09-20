@@ -280,12 +280,13 @@ function stepDbDump() {
     return;
   }
 
-  const r = run("node", [
-    join(SCRIPT_DIR, "dump-db.mjs"),
-    "--conn-string", connString,
-    "--out-dir", dbDir,
-    "--project-dir", PROJECT_DIR,
-  ]);
+  // The connection string reaches the child through its environment, never its arguments:
+  // a process list is readable by anything running on the machine.
+  const r = run(
+    "node",
+    [join(SCRIPT_DIR, "dump-db.mjs"), "--out-dir", dbDir, "--project-dir", PROJECT_DIR],
+    { env: { ...process.env, DUMP_DB_CONN: connString } },
+  );
   let payload = {};
   try {
     const lastLine = (r.stdout || "").trim().split("\n").pop();
@@ -302,6 +303,18 @@ function stepDbDump() {
   if ((payload.tableCount ?? 0) === 0) {
     logStep("db-dump", "error", {
       error: "database reachable but 0 table found - the snapshot would contain no data",
+    });
+    return;
+  }
+  // "partial" = some tables could not be read. Say it here, or the report calls a backup
+  // with holes a success (same rule as the storage download below).
+  if (payload.status === "partial") {
+    logStep("db-dump", "partial", {
+      driver: payload.driver,
+      tableCount: payload.tableCount,
+      totalRows: payload.totalRows,
+      failedTables: payload.failedTables,
+      error: payload.reason,
     });
     return;
   }

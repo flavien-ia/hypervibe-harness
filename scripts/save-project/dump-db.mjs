@@ -2,7 +2,12 @@
 // dump-db.mjs - Dump a Postgres database to JSON files (one per table) + schema.
 //
 // Usage:
-//   node dump-db.mjs --conn-string <postgres-url> --out-dir <dir> [--project-dir <path>]
+//   DUMP_DB_CONN=<postgres-url> node dump-db.mjs --out-dir <dir> [--project-dir <path>]
+//
+// The connection string is a secret, whole: it comes through the DUMP_DB_CONN environment
+// variable of this process (what build-snapshot.mjs sets), never through its arguments,
+// which anything running on the machine can read in the process list. --conn-string is
+// still accepted for a hand-run, with that warning.
 //
 // Writes:
 //   <out-dir>/schema.json          - list of tables + columns + types
@@ -12,7 +17,11 @@
 // Driver detection: tries @neondatabase/serverless, pg, then postgres (in that order),
 // resolved from the project's node_modules via createRequire.
 //
-// Exits 0 on success, 1 on error. Final stdout line is a JSON status report.
+// Exits 0 on success, 1 on error. Final stdout line is a JSON status report:
+//   "ok"       every table was read
+//   "partial"  some tables could not be read: they are NAMED (failedTables), exit 0
+//   "error"    nothing could be read, or no table at all was readable: exit 1
+// An export of a database nothing could be read from is not a backup, and never says "ok".
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -25,13 +34,18 @@ function arg(name) {
   return i >= 0 ? args[i + 1] : null;
 }
 
-const CONN = arg("--conn-string");
+const CONN = process.env.DUMP_DB_CONN || arg("--conn-string");
 const OUT = arg("--out-dir");
 const PROJECT_DIR = arg("--project-dir") || process.cwd();
 
 if (!CONN || !OUT) {
-  console.error("Usage: node dump-db.mjs --conn-string <url> --out-dir <dir> [--project-dir <path>]");
+  console.error("Usage: DUMP_DB_CONN=<url> node dump-db.mjs --out-dir <dir> [--project-dir <path>]");
   process.exit(1);
+}
+if (!process.env.DUMP_DB_CONN) {
+  console.error(
+    "[dump-db] --conn-string met l'URL de connexion dans la liste des processus et l'historique du shell : preferer la variable d'environnement DUMP_DB_CONN.",
+  );
 }
 
 mkdirSync(OUT, { recursive: true });
@@ -162,12 +176,23 @@ try {
     tables: tablesDumped,
   }, null, 2));
 
+  // A table that could not be read (permissions, suspended compute, exhausted quota) used
+  // to vanish into _summary.json while the run reported "ok" with totalRows: 0.
+  const failed = tablesDumped.filter((t) => t.error).map((t) => t.name);
+  const status = failed.length === 0 ? "ok" : failed.length === tables.length ? "error" : "partial";
   console.log(JSON.stringify({
-    status: "ok",
+    status,
     driver: qfn.driver,
     tableCount: tables.length,
     totalRows,
+    ...(failed.length
+      ? {
+          failedTables: failed,
+          reason: `${failed.length} of ${tables.length} table(s) could not be read (details in _summary.json)`,
+        }
+      : {}),
   }));
+  if (status === "error") process.exitCode = 1;
 } catch (e) {
   console.log(JSON.stringify({ status: "error", reason: e.message }));
   process.exit(1);

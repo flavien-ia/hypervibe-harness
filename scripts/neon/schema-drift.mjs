@@ -39,6 +39,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hoteDuFournisseur } from "./neon-host.mjs";
 
 // ─── drizzle.config: where it is, and which filters push applies ──────────
 
@@ -176,6 +177,10 @@ export function resolveConn(dir, env = process.env) {
 
 async function sqlHttp(conn, query) {
   const host = new URL(conn).hostname;
+  // The whole connection string travels in this request: only ever to the provider.
+  if (!hoteDuFournisseur(host)) {
+    throw new Error(`the host of DATABASE_URL (${host}) is not a Neon database: the connection string is never sent anywhere else`);
+  }
   const res = await fetch(`https://${host}/sql`, {
     method: "POST",
     headers: {
@@ -356,7 +361,8 @@ export async function driftReport({ dir = process.cwd(), env = process.env } = {
 /**
  * The decision the setup scripts need before `drizzle-kit push --force`.
  *   block: true      -> do not push at all, show `text` and stop
- *   allowForce: true -> --force is safe (nothing would be lost)
+ *   allowForce: true -> --force is safe: nothing would be lost, and the check SAW
+ *                       everything (never true when a filter could not be read)
  *   otherwise        -> the check could not run: push WITHOUT --force, so that
  *                       drizzle-kit asks (and fails in a non-interactive shell)
  *                       instead of accepting a data loss nobody saw.
@@ -366,9 +372,19 @@ export async function checkBeforeForcePush({ dir, env = process.env }) {
   return {
     status: res.status,
     block: res.status === "data-loss",
-    allowForce: res.status === "safe" || res.status === "warnings",
+    allowForce: allowsForce(res),
     text: formatReport(res),
   };
+}
+
+/**
+ * A filter the check could not read (computed in drizzle.config) means it did NOT see
+ * which tables the push would drop. "Could not see" is not "nothing to lose": --force is
+ * withheld, exactly as when the check could not run at all.
+ */
+export function allowsForce(res) {
+  const blind = (res.report?.unreadableFilters?.length ?? 0) > 0;
+  return res.status === "safe" || (res.status === "warnings" && !blind);
 }
 
 export function formatReport(res) {
@@ -389,7 +405,7 @@ export function formatReport(res) {
   if (r.outsideFilter.length)
     L.push(`tablesFilter in drizzle.config does not cover ${r.outsideFilter.join(", ")}: push does not see them in the database and may try to recreate them.`);
   for (const f of r.unreadableFilters)
-    L.push(`${f} is computed in drizzle.config and could not be read: tables absent from schema.ts were not reported as losses.`);
+    L.push(`${f} is computed in drizzle.config and could not be read: tables absent from schema.ts were NOT checked, so --force is withheld (the push will ask, or fail in a non-interactive shell). Write the filter as a literal to get the full check.`);
   if (!r.dataLoss && !r.warnings) {
     const adds = r.addedTables.length + r.addedColumns.length;
     L.push(adds ? `Safe: the push only adds (${r.addedTables.length} table(s), ${r.addedColumns.length} column(s)).` : "Safe: schema.ts and the database already match.");

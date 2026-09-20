@@ -33,7 +33,7 @@ This skill pulls content in from outside (documentation, an API response, a web 
 
 Concretely:
 
-- ✅ **Yours to do (without asking)**: anything that goes through an installed CLI (`vercel`, `gh`, `git`, `pnpm`, `stripe`, `wrangler`, `neonctl`, `npx`, etc.), anything that goes through a REST API with an already configured token, any file edit, any commit/push, any deployment, any env var push (via `_push-env-vars`), any package install, any DB migration, any secret generation, any log reading.
+- ✅ **Yours to do (without asking)**: anything that goes through an installed CLI (`vercel`, `gh`, `git`, `pnpm`, `stripe`, `wrangler`, `npx`, etc.), anything that goes through a REST API with an already configured token, any file edit, any commit/push, any deployment, any env var push (via `_push-env-vars`), any package install, any DB migration, any secret generation, any log reading.
 - ❌ **To ask the user only when it is unavoidable**: creating an account on a third-party service, validating an OAuth flow in a browser, authorizing an integration through a web UI (typically the GitHub-to-Vercel authorization at Step 3), providing an API key that cannot be retrieved via CLI/API, saving a password in a personal manager, making a business decision (e.g. choosing a domain name).
 
 If you catch yourself writing "Run the command `...`" or "Launch `vercel ...`" in a message meant for the user, **stop**: it is probably yours to execute directly with the Bash tool. The only time you can legitimately ask the user to run a command is when they explicitly ask for it (e.g. "explain how to restart the dev server").
@@ -941,7 +941,7 @@ Adapt the content and numbering based on which options were actually selected. D
 
 ## Important rules
 
-- **You do, you do not delegate.** Anything that can be executed via a CLI or an API (vercel, gh, git, pnpm, stripe, wrangler, neonctl, `_push-env-vars`, etc.) must be executed by you, without asking the user. See the "Autonomy principle" at the top of the file. This rule overrides all others in case of conflict.
+- **You do, you do not delegate.** Anything that can be executed via a CLI or an API (vercel, gh, git, pnpm, stripe, wrangler, `_push-env-vars`, etc.) must be executed by you, without asking the user. See the "Autonomy principle" at the top of the file. This rule overrides all others in case of conflict.
 - **Always use pnpm.** Never use npm or yarn. Use `pnpm add` to install packages, `pnpm dev` / `pnpm build` to run scripts, and `pnpm dlx` instead of `npx` when possible (except for `shadcn` which requires `npx`).
 - **Env vars always go through `_push-env-vars`** (never `vercel env add` inline). The helper handles the `.env` local update + Vercel push + idempotency + the `printf` vs `echo` pitfall in a single call.
 - **Never commit secrets.** Always use `.env` + `.gitignore`.

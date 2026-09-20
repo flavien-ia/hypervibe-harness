@@ -140,7 +140,16 @@ function ensureResendFullAccessKey() {
 // over its limit.
 async function fetchNeon() {
   let apiKey;
-  try { apiKey = getSecret("NEON", "api_key"); } catch { apiKey = readUserEnv("NEON_API_KEY"); }
+  let coffreFerme = false;
+  try {
+    apiKey = getSecret("NEON", "api_key");
+  } catch (e) {
+    // Un coffre verrouillé (2) ou une session expirée (3) n'est pas une clé absente : le dire,
+    // sinon la personne part créer une seconde clé pour un service déjà configuré.
+    coffreFerme = e?.code === 2 || e?.code === 3;
+    apiKey = readUserEnv("NEON_API_KEY");
+  }
+  if (!apiKey && coffreFerme) return svc("neon", "Neon (Postgres)", false, [], "Coffre-fort verrouillé : la clé Neon n'a pas pu être lue. Déverrouille-le puis réessaie (rien n'est à reconfigurer).");
   if (!apiKey) return svc("neon", "Neon (Postgres)", false, [], "Clé API Neon non configurée (coffre-fort `NEON` ou env). `/start` la met en place.");
 
   // Try to read the actual plan from the org endpoint so we can be honest

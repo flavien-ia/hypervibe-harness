@@ -141,7 +141,7 @@ Show a clear recap:
 > |---|---|---|
 > | Code + history | ✅ ok | <bundleBytes in MB>, uncommitted changes: <yes/no> |
 > | Env variables | ✅ ok | <production: X vars, preview: Y, dev: Z> |
-> | Database | ✅ ok | <driver>, <tableCount> tables, <totalRows> rows in total |
+> | Database | <✅ ok / ⚠️ partial> | <driver>, <tableCount> tables, <totalRows> rows in total<, NOT READ: N tables> |
 > | Cloudflare R2 | <✅ ok / ⚠️ partial / ➖ skipped> | <bucketsScanned> buckets, <totalObjects> objects (<totalSize>)<, MISSING: N objects> |
 > | Claude memory | ✅ ok | <matchedDirs> memory folder(s) copied |
 > | Configs | ✅ ok | <captured> |
@@ -160,6 +160,8 @@ Show a clear recap:
 If a step has `status: "error"`, mention it honestly with the error message - no need to hide it.
 
 If `r2-download` has `status: "partial"`, say so PROMINENTLY - this is a backup with holes in it, and the whole point of a backup is that the holes are found now, not the day it is needed. Give the number of missing objects and point to `storage/_MANQUANTS.txt` inside the zip, which lists every missing key. Each object was already retried three times with growing backoff, so what remains is not a transient cut: either the object disappeared from the bucket between the listing and the download, or something is genuinely wrong with the storage. Offer to re-run the backup (a new run starts from scratch; it does not resume this one).
+
+If `db-dump` has `status: "partial"`, say so just as PROMINENTLY: some tables could not be read (`failedTables` names them, `db/_summary.json` inside the zip gives the reason for each), so their rows are NOT in this backup. Usual causes: a role without the right on that table, a database that went to sleep or hit its quota mid-run. Offer to re-run, and never present this zip as a complete backup of the data. When no table at all could be read the step comes back `error`, not `partial`: the zip then holds no data.
 
 If the `git-bundle` step is skipped (not a git repo), insist: **without a git bundle, the source code is not in the snapshot**. Ask the user whether they still want to keep this zip or cancel everything.
 

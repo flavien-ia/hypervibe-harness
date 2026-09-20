@@ -14,7 +14,7 @@
 
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HOOK = join(dirname(fileURLToPath(import.meta.url)), "guard-bash.mjs");
 
@@ -343,6 +343,63 @@ expect("node x.mjs &> out.log", "pass");
 expect("echo ok >| out.txt", "pass");
 expect("(( x = 1 << 2 ))\ngit push origin main", "ask");
 expect("git push \\\n  origin main", "ask");
+
+console.log("\n── Les deux gardes du SQL destructeur disent la meme chose (correctif du 20/09/2026) ──");
+// Avant : le script connaissait DROP INDEX / VIEW / TYPE, pas cette regle. Refuse par le
+// script, relance avec --destructif comme son message y invite, et plus personne n'etait
+// interroge. Meme trou pour tout objet qu'aucune des deux listes ne nommait.
+expect('node run-sql.mjs "DROP TYPE humeur"', "deny");
+expect('node run-sql.mjs "DROP INDEX idx_clients_email"', "deny");
+expect('node run-sql.mjs "DROP FUNCTION purge()"', "deny");
+expect('node run-sql.mjs "DROP MATERIALIZED VIEW mv_ventes"', "deny");
+expect('node run-sql.mjs "DROP POLICY lecture ON clients"', "deny");
+expect('node run-sql.mjs --destructif "DROP TYPE humeur"', "ask");
+// Avec le drapeau, une personne confirme TOUJOURS, meme quand la regle ne voit rien du SQL :
+// une variable, un fichier, un bloc DO ne lui montrent rien, et "rien vu" n'est pas "rien a demander".
+expect('node run-sql.mjs --destructif "$SQL"', "ask");
+expect('node run-sql.mjs --destructif "SELECT 1"', "ask");
+expect("node run-sql.mjs --destructif \"DO \\$\\$ BEGIN EXECUTE 'DROP TABLE clients'; END \\$\\$\"", "ask");
+// Un WHERE qui ne borne rien vaut une absence de WHERE.
+expect('node run-sql.mjs "DELETE FROM sessions WHERE true"', "ask");
+expect('node run-sql.mjs "UPDATE users SET active = false WHERE 1=1"', "ask");
+// ... et ce qui y ressemble sans en etre.
+expect('node run-sql.mjs "SELECT dropped_at FROM imports"', "pass");
+expect('node run-sql.mjs "DELETE FROM sessions WHERE truc = 1"', "pass");
+expect('node run-sql.mjs "UPDATE users SET active = false WHERE true_flag = 1"', "pass");
+
+// Un appel nu a l'API du fournisseur de base qui detruit ou modifie demande une confirmation
+// (le nettoyage sur copie de /clean supprime sa copie ainsi) ; lire et creer passent.
+expect('curl -sf -X DELETE -H "Authorization: Bearer $K" https://console.neon.tech/api/v2/projects/p/branches/b', "ask");
+expect('curl -s --request PATCH https://console.neon.tech/api/v2/projects/p -d "{}"', "ask");
+expect('curl -s -H "Authorization: Bearer $K" https://console.neon.tech/api/v2/projects', "pass");
+expect('curl -s -X POST https://console.neon.tech/api/v2/projects/p/branches -d "{}"', "pass");
+expect("curl -s -X DELETE https://api.exemple.fr/v1/choses/3", "pass");
+
+{
+  // Parite : la meme instruction, vue par le script et par la regle. Les deux listes ont
+  // deja diverge une fois ; ce controle casse le jour ou l'une bouge sans l'autre.
+  const { statementsDestructrices } = await import(
+    pathToFileURL(join(dirname(HOOK), "..", "scripts", "neon", "run-sql.mjs")).href
+  );
+  const instructions = [
+    "DROP TABLE clients", "DROP TYPE humeur", "DROP INDEX i", "DROP VIEW v", "DROP MATERIALIZED VIEW mv",
+    "DROP FUNCTION f()", "DROP TRIGGER t ON c", "DROP POLICY p ON c", "DROP SEQUENCE s", "DROP EXTENSION vector",
+    "DROP SCHEMA public CASCADE", "TRUNCATE t", "ALTER TABLE t DROP COLUMN c", "ALTER TABLE t DROP CONSTRAINT k",
+    "DELETE FROM t", "DELETE FROM t WHERE true", "UPDATE t SET a = 1", "UPDATE t SET a = 1 WHERE 1=1",
+    "SELECT 1", "DELETE FROM t WHERE id = 3", "UPDATE t SET a = 1 WHERE id = 3", "INSERT INTO t (a) VALUES (1)",
+    "CREATE INDEX i ON t (a)", "CREATE TABLE t (id int)", "SELECT dropped_at FROM imports",
+  ];
+  const ecarts = instructions.filter((sql) => {
+    const script = statementsDestructrices(sql).length > 0;
+    const regle = (bash(`node run-sql.mjs "${sql}"`)?.permissionDecision ?? "pass") !== "pass";
+    return script !== regle;
+  });
+  checks += 1;
+  if (ecarts.length) failures += 1;
+  console.log(
+    `${ecarts.length ? "FAIL" : "OK  "} parite script / regle sur ${instructions.length} instructions${ecarts.length ? ` : ${ecarts.join(" | ")}` : ""}`,
+  );
+}
 
 const median = timings.sort((a, b) => a - b)[Math.floor(timings.length / 2)];
 checks += 1;

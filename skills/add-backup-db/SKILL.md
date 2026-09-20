@@ -75,7 +75,7 @@ The job list lives in a **git-versioned registry**: `~/.hypervibe-jobs/jobs.js`.
 | Rolling | On each run (every ~2 weeks) | Only the 2 most recent are kept | 2 |
 | Aging | When the most recent aging is > 3 months (90 days) old | When it exceeds 9 months (270 days) | 3 (in steady state) |
 
-**Total: 5 Neon branches max per project** (out of 20 on the free tier).
+**Total: 5 Neon branches max per project** (out of 10 on the free tier, the main one included: backups take half of what the plan allows).
 
 In steady state, the 3 aging branches cover the 0-3 months, 3-6 months and 6-9 months ranges. The oldest one (9 months) is deleted when a new one is created.
 
@@ -336,7 +336,7 @@ Invoke `_update-claude-md` with:
     Automatic backups of the Neon database via the unified shared Cloudflare Worker (`hypervibe-jobs`).
     - **Schedule**: 1st and 15th of the month at 3am UTC (~every 2 weeks), cadence shared by all backed-up projects
     - **Retention**: 2 rolling (last 2 weeks) + up to 3 aging (checkpoints ~3 months, kept 9 months max)
-    - **Neon branches**: 5 max per project (out of 20 on the free tier)
+    - **Neon branches**: 5 max per project (out of 10 on the free tier)
     - **Job registry**: `~/.hypervibe-jobs/jobs.js` (git-versioned; job name: `neon-backups`)
     - **Logs**: `cd ~/.hypervibe-jobs && npx wrangler tail`
     - **Run a backup now**: ask me to run a backup right now (I trigger the `neon-backups` job manually)

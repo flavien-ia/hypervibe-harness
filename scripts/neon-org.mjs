@@ -51,14 +51,20 @@ export async function resolveNeonOrg(apiKey, vaultGet) {
     // An organisation-scoped key cannot enumerate a user's organisations. It also does
     // not need to: it is already bound to one, so no parameter is the correct answer.
     if (!res.ok) {
-      cache = { orgId: null, source: res.status === 401 ? "injoignable" : "cle-org", orgs: [] };
+      // Only a REFUSAL of this endpoint means "organisation key". A throttled or failing
+      // API (408, 429, 5xx) and a rejected key (401) say nothing about the key: they used to
+      // be read as a determinate answer, and every caller then trusted the account's default
+      // organisation. An undecided answer is not memoised, the next call asks again.
+      const undecided = res.status === 401 || res.status === 408 || res.status === 429 || res.status >= 500;
+      if (undecided) return { orgId: null, source: "injoignable", orgs: [], httpStatus: res.status };
+      cache = { orgId: null, source: "cle-org", orgs: [] };
       return cache;
     }
     const data = await res.json();
     orgs = (data.organizations || []).map((o) => ({ id: o.id, name: o.name }));
   } catch {
-    cache = { orgId: null, source: "injoignable", orgs: [] };
-    return cache;
+    // Network failure: undecided, and not memoised either.
+    return { orgId: null, source: "injoignable", orgs: [] };
   }
 
   if (orgs.length === 1) cache = { orgId: orgs[0].id, source: "unique", orgs };

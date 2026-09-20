@@ -35,6 +35,10 @@ const SUITES = [
   ["map versions and worker", join(ROOT, "scripts", "tests", "test-map-pins.mjs")],
   ["shared worker check at update", join(ROOT, "scripts", "tests", "test-worker-check.mjs")],
   ["schema drift before db:push", join(ROOT, "scripts", "tests", "test-schema-drift.mjs")],
+  ["SQL helper: what it refuses, where it sends", join(ROOT, "scripts", "tests", "test-run-sql.mjs")],
+  ["database export never calls a holed backup ok", join(ROOT, "scripts", "tests", "test-dump-db.mjs")],
+  ["a connection string never sits in an argument", join(ROOT, "scripts", "tests", "test-push-env-stdin.mjs")],
+  ["database organisation: which answers are certain", join(ROOT, "scripts", "tests", "test-neon-org.mjs")],
 ];
 
 let failed = 0;

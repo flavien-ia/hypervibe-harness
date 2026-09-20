@@ -16,7 +16,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compare, normalizeType, parseExport, readFilters, tableMatches } from "../neon/schema-drift.mjs";
+import { allowsForce, compare, normalizeType, parseExport, readFilters, tableMatches } from "../neon/schema-drift.mjs";
 
 const RACINE = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -118,6 +118,12 @@ verifier("table hors filtre : push ne la touche pas", !r.dataLoss);
 
 r = compare(tables, [...baseLive, L("public", "app_legacy", "id", "integer")], { ...F, unreadable: ["tablesFilter"] });
 verifier("filtre illisible : pas de perte annoncée à tort, mais un avertissement", !r.dataLoss && r.warnings);
+// ... et cet avertissement-là retient --force : le contrôle n'a pas vu les tables que le push supprimerait.
+verifier("filtre illisible : --force est retenu", !allowsForce({ status: "warnings", report: r }));
+verifier("avertissement ordinaire (type qui change) : --force reste permis", allowsForce({ status: "warnings", report: { unreadableFilters: [] } }));
+verifier("base sûre : --force permis", allowsForce({ status: "safe", report: { unreadableFilters: [] } }));
+verifier("perte de données : --force refusé", !allowsForce({ status: "data-loss", report: { unreadableFilters: [] } }));
+verifier("contrôle impossible : --force refusé", !allowsForce({ status: "error" }));
 
 const sansTitre = baseLive.filter((x) => !(x.table === "app_post" && x.column === "title"));
 r = compare(tables, sansTitre, F, new Set(["public.app_post"]));

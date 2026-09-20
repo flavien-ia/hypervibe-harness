@@ -4,6 +4,13 @@
 //
 // Usage:
 //   node push-env-vars.mjs [--target=<env>[,<env>...]] KEY1=VALUE1 [KEY2=VALUE2 ...]
+//   node push-env-vars.mjs [--target=...] --stdin      # KEY=VALUE lines on the standard input
+//
+// --stdin is for a value that is a secret whole (a database connection string): an
+// argument can be read in the process list by anything running on the machine, the
+// standard input cannot. Both forms can be mixed. To push again a value already in .env
+// without it ever being typed or shown:
+//   grep '^DATABASE_URL=' .env | node push-env-vars.mjs --stdin
 //
 // --target options:
 //   - omitted (default): writes to "production" + "preview" for sensitive vars,
@@ -35,16 +42,21 @@ import { loadAuthToken } from "./_vercel-auth.mjs";
 const rawArgs = process.argv.slice(2);
 if (rawArgs.length === 0) {
   console.error(
-    "Usage: node push-env-vars.mjs [--target=<env>[,<env>...]] KEY=VALUE [KEY=VALUE ...]",
+    "Usage: node push-env-vars.mjs [--target=<env>[,<env>...]] [--stdin] KEY=VALUE [KEY=VALUE ...]",
   );
   process.exit(1);
 }
 
+let readStdin = false;
 const VALID_ENVS = ["production", "preview", "development"];
 let explicitTargets = null; // null = smart per-key default
 const pairs = [];
 
 for (const arg of rawArgs) {
+  if (arg === "--stdin") {
+    readStdin = true;
+    continue;
+  }
   if (arg.startsWith("--target=")) {
     const v = arg.slice("--target=".length);
     if (v === "all") {
@@ -68,6 +80,20 @@ for (const arg of rawArgs) {
     process.exit(1);
   }
   pairs.push({ key: arg.slice(0, idx), value: arg.slice(idx + 1) });
+}
+
+if (readStdin) {
+  // One KEY=VALUE per line. A line that is not one is refused WITHOUT being echoed: it may
+  // be half of a secret.
+  const lines = readFileSync(0, "utf8").split(/\r?\n/).filter((l) => l.trim() !== "");
+  for (const [n, line] of lines.entries()) {
+    const idx = line.indexOf("=");
+    if (idx <= 0 || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(line.slice(0, idx))) {
+      console.error(`Invalid line ${n + 1} on the standard input (expected KEY=VALUE).`);
+      process.exit(1);
+    }
+    pairs.push({ key: line.slice(0, idx), value: line.slice(idx + 1) });
+  }
 }
 
 if (pairs.length === 0) {

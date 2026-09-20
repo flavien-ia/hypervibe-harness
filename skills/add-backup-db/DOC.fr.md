@@ -25,7 +25,7 @@ Active les **sauvegardes automatiques** de votre base de données Neon. Une nouv
 4. **Politique de rétention** : pour chaque projet, le job de sauvegarde maintient un mix intelligent de sauvegardes :
   - **Rolling** (les 2 dernières) : créées à chaque run, on garde toujours les 2 plus récentes
   - **Aging** (jusqu’à 3 historiques) : un nouveau point de contrôle environ tous les 3 mois, conservé 9 mois max
-  - **Total** : 5 branches Neon max par projet (sur 20 du plan gratuit Neon)
+  - **Total** : 5 branches Neon max par projet (sur 10 du plan gratuit Neon : la moitié, le reste sert à tes propres copies de travail)
 
 ## Ce que ça crée pour vous
 

@@ -534,6 +534,22 @@ export function decide(command, inherited = new Map()) {
       continue;
     }
 
+    // 5b. A raw call to the database provider's API that destroys or rewrites (DELETE, PATCH,
+    // PUT): a project, a branch with its data, a key in service. The harness has scripts for
+    // these, which check their answers; a bare curl does not, and the id of the main branch
+    // in a DELETE is production gone with every backup. Reads (GET) and creations (POST) pass.
+    if (
+      /^curl\s/.test(seg) &&
+      /console\.neon\.tech/.test(seg) &&
+      /(?:-X|--request)\s*["']?(?:DELETE|PATCH|PUT)\b/i.test(seg)
+    ) {
+      keep(
+        ASK,
+        "This call deletes or rewrites something at the database provider (a project, a branch and its data, a key in service). Say exactly what is targeted, by name, and confirm with the user. Prefer the plugin's scripts, which check the provider's answers.",
+      );
+      continue;
+    }
+
     // 6. Destructive SQL. The hook only sees the command line, so run-sql.mjs
     //    carries the same check for SQL passed by file or heredoc.
     //    Only when a runtime LAUNCHES the script: `grep "DROP" run-sql.mjs` is
@@ -542,25 +558,35 @@ export function decide(command, inherited = new Map()) {
     //    wolf the note at the top of this file says to avoid.
     if (/^(?:node|bun|deno|tsx)\s/.test(seg) && /run-sql\.mjs/.test(seg)) {
       const sql = quotedPayloads(seg).join(" ");
-      const destructive = /\b(DROP\s+(TABLE|SCHEMA|DATABASE|COLUMN)|TRUNCATE)\b/i.test(sql) ||
-        /\bALTER\s+TABLE\b[\s\S]*\bDROP\b/i.test(sql);
+      // ANY drop, whatever the object: the same expression as run-sql.mjs
+      // (DROP_ANYTHING). The two lists used to differ (the script knew INDEX,
+      // VIEW and TYPE, this rule did not), so `--destructif "DROP TYPE x"` ran
+      // with nobody asked. test-hooks.mjs replays both guards side by side.
+      const destructive = /\bDROP\s+[A-Za-z_]/i.test(sql) || /\bTRUNCATE\b/i.test(sql);
       const unbounded =
         (/\bDELETE\s+FROM\b/i.test(sql) || /\bUPDATE\b[\s\S]*\bSET\b/i.test(sql)) &&
-        !/\bWHERE\b/i.test(sql);
+        (!/\bWHERE\b/i.test(sql) || /\bWHERE\s+(?:TRUE|1\s*=\s*1)\s*(?:;|$)/i.test(sql.trim()));
       // run-sql.mjs accepts both spellings of the flag; so does this rule,
       // or the alias its own usage documents is refused with a message that
       // tells the user to do what they just did (outside review, 3.0.4).
-      if (destructive && !/--destructi(?:f|ve)\b/.test(seg)) {
+      const flagged = /--destructi(?:f|ve)\b/.test(seg);
+      if (destructive && !flagged) {
         keep(
           DENY,
           "Destructive SQL refused (DROP / TRUNCATE). If it is genuinely intended, re-run the same command with the `--destructif` flag, which will ask the user to confirm.",
         );
         continue;
       }
-      if (destructive || unbounded) {
+      // The flag switches the script's own guard off, so a person confirms
+      // EVERY flagged run, whatever this rule could read of the SQL: a "$SQL"
+      // variable, a file or a DO block show it nothing, and "nothing seen"
+      // must never mean "nothing to ask".
+      if (flagged || destructive || unbounded) {
         keep(
           ASK,
-          "This statement rewrites or removes rows without a WHERE clause, or drops an object. Confirm with the user, and consider adding a WHERE clause.",
+          flagged
+            ? "This run-sql.mjs call carries `--destructif`, which turns the script's own guard against destructive SQL off. Show the user the exact SQL about to run and the database it reaches, and confirm."
+            : "This statement rewrites or removes rows without a WHERE clause, or drops an object. Confirm with the user, and consider adding a WHERE clause.",
         );
         continue;
       }

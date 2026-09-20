@@ -25,7 +25,7 @@ Enables **automatic backups** of your Neon database. A new backup every 2 weeks,
 4. **Retention policy**: for each project, the backup job maintains an intelligent mix of backups:
   - **Rolling** (the last 2): created on each run, the 2 most recent are always kept
   - **Aging** (up to 3 history points): a new checkpoint roughly every 3 months, kept for 9 months max
-  - **Total**: 5 Neon branches max per project (out of 20 on the Neon free plan)
+  - **Total**: 5 Neon branches max per project (out of 10 on the Neon free plan: half of them, the rest stays free for your own working copies)
 
 ## What it creates for you
 

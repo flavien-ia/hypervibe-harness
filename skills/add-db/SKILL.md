@@ -67,7 +67,7 @@ Wait for the answer.
 |---|---|
 | 1 (push schema only) | **Check first, read-only**: `cd <WEB_DIR> && node "${CLAUDE_SKILL_DIR}/../../scripts/neon/schema-drift.mjs"` (compares schema.ts with the live database, see below). Exit `0` or `4`: tell the user what will be added or changed, then `pnpm db:push` (or `pnpm drizzle-kit push`), never with `--force`. Exit `3`: do NOT push. Explain in plain words which tables or columns the push would delete (they exist in the database but not in the code) and ask: add them to `schema.ts` (the usual answer, they were created outside the code) or confirm they can go. Exit `1`: the check could not run, say why, and push without `--force` so drizzle-kit asks before any loss. Show the result. Skip to the final summary. |
 | 2 (migrate to a new DB) | Confirm with the user "do you confirm losing the current data?" then re-run `setup-db.mjs --name <project-name>` (it provisions a new Neon project and pushes the DATABASE_URL - it will overwrite the old one in `.env` and on Vercel). Mention that the old Neon project stays on the account (the user can delete it manually in dashboard.neon.tech if they want to free up a slot). |
-| 3 (reset schema) | Confirm with the user then try `cd <WEB_DIR> && npx drizzle-kit drop` (depending on the Drizzle version). If not available, list the existing tables via `psql` or the Neon console, then DROP each one via SQL, then `pnpm db:push`. |
+| 3 (reset schema) | **Every table and every row is lost.** Propose `/save-project` first, and get an explicit "yes, delete everything" (or an explicit refusal of the backup). Then list the tables with `node "${CLAUDE_SKILL_DIR}/../../scripts/neon/run-sql.mjs" "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"`, show the list to the user, and drop them through the same helper with its `--destructif` flag (`DROP TABLE ... CASCADE`), which asks for a confirmation of its own. Never through `psql` (the harness installs no such tool) nor any other client: they bypass the guard against destructive SQL. Then `pnpm db:push`. |
 | 4 (redo everything) | Abort: ask the user to remove `DATABASE_URL` from the `.env`, then re-run `/add-db`. |
 | 5 (something else) | Ask for details. Don't run the full flow by default. |
 
@@ -141,23 +141,20 @@ The `setup-db.mjs` script does not yet handle the monorepo case (which requires 
 
 5. Update `apps/web` (and other apps) to import the DB from the shared package instead of the local files.
 
-6. Provision the Neon project manually via the REST API (the Neon key comes from the vault):
+6. Provision the Neon project and deliver `DATABASE_URL` to the monorepo root, in ONE script call:
    ```bash
-   NEON_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON api_key)
-   NEON_ORG=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON org_id 2>/dev/null)
-   BODY='{"project":{"name":"<project-name>"}}'
-   [ -n "$NEON_ORG" ] && BODY="{\"project\":{\"name\":\"<project-name>\",\"org_id\":\"$NEON_ORG\"}}"
-   curl -X POST "https://console.neon.tech/api/v2/projects" \
-     -H "Authorization: Bearer $NEON_KEY" \
-     -H "Content-Type: application/json" \
-     -d "$BODY"
+   node "${CLAUDE_SKILL_DIR}/../../scripts/setup-db.mjs" \
+     --name "<project-name>" --web-dir "<monorepo-root>" --provision-only
    ```
-   Neon attaches a project to an organisation; without `org_id` it lands in the account's
-   **default** one. On an account that has none, `NEON_ORG` is empty and the request is
-   exactly the previous one.
-   Get the pooled `connection_uri` from the response.
+   It creates the database in **Frankfurt** (the same EU region as the single-project path: the
+   project's privacy policy promises it), in the right Neon organisation, writes `DATABASE_URL`
+   into `<monorepo-root>/.env` and pushes it to the hosting, and records the database in the
+   project manifest. It installs nothing and pushes no schema.
+   **Never provision with a bare `curl POST /projects`**: without `region_id` Neon creates the
+   database in the US, and the response prints the connection string, password included, into
+   the conversation. The connection string is a secret, whole: you never need to see it.
 
-7. Push `DATABASE_URL=<connection-uri>` to the monorepo root via `_push-env-vars`.
+7. Check the last line of the output (`{"success":true,"projectId":...,"region":"aws-eu-central-1",...}`). If `region` is anything else, or the script printed `NEON_REGION_MISMATCH`, stop and tell the user before going further.
 
 8. `cd packages/db && npx drizzle-kit push`.
 
@@ -190,7 +187,7 @@ The script displays in real time:
 - `✅ <result>` at the end of each one
 - `⚠️ <warning>` for non-blocking warnings (Neon quota near limit, name conflict)
 - At the end (success OR failure), a structured **handoff banner**
-- As the last line on success, a parseable JSON object: `{"success":true,"projectId":"...","host":"...","projectName":"..."}`
+- As the last line on success, a parseable JSON object: `{"success":true,"projectId":"...","host":"...","region":"aws-eu-central-1","projectName":"..."}`
 
 Let the output stream through live (no `> /tmp/...`, no capture). The user wants to see the progress.
 
@@ -210,8 +207,9 @@ If the banner contains warnings (e.g. `NEON_QUOTA_NEAR_LIMIT`, `NEON_PROJECT_NAM
    - `installDriver` failed then a pnpm error (network, registry). Retry by hand: `cd <WEB_DIR> && pnpm add @neondatabase/serverless`.
    - `swapDriver` failed then T3 may have moved `src/server/db/index.ts`. Patch the file manually, taking inspiration from the template in `setup-db.mjs` step `swapDriver`.
    - `pushSchema` failed with **"Schema NOT pushed"** then the database already held data that `schema.ts` does not declare, and the push would have deleted it (list printed just above, by `scripts/neon/schema-drift.mjs`). Show it to the user in plain words and follow choice 1 of the menu above.
-   - `pushSchema` failed otherwise then the schema probably has a problem (table already exists with another prefix, migration conflict). Read the drizzle-kit error, fix the schema, and retry: `cd <WEB_DIR> && DATABASE_URL='<connection-uri>' npx drizzle-kit push`.
-   - `pushEnvVars` failed then the Neon project is provisioned + schema pushed, but the env var is not in `.env`/Vercel. Get the connection URI from the script state (visible in the logs) and invoke `_push-env-vars DATABASE_URL=<uri>` manually.
+   - `pushSchema` failed otherwise then the schema probably has a problem (table already exists with another prefix, migration conflict). The script still wrote `DATABASE_URL` into `.env` and the hosting before stopping (it says so), so read the drizzle-kit error, fix the schema, and retry with `cd <WEB_DIR> && pnpm db:push`. Never type the connection string on a command line.
+   - `pushEnvVars` failed then the Neon project is provisioned + schema pushed, but the env var did not land everywhere. The helper writes `.env` FIRST, so the value is normally already there: push it again without ever showing it, `cd <WEB_DIR> && grep '^DATABASE_URL=' .env | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin`. The connection string is never printed by the script and must never be pasted into the conversation.
+   - `preflight` failed with `VAULT_LOCKED` then nothing is missing: open the vault (`_get-secret` pattern), and re-run. Do NOT send the user to create a new key.
 4. **Continue** the remaining steps manually, taking inspiration from the script's functions.
 
 ---
