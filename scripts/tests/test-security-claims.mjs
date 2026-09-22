@@ -14,7 +14,7 @@
 
 import { readFileSync, existsSync, readdirSync, statSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -219,6 +219,15 @@ check(
     "run-sql.mjs refuse le SQL destructeur sans --destructif",
     /--destructif/.test(sql) && /statementsDestructrices/.test(sql),
   );
+  // Revue externe de la 3.2.5 : la regle ecrite dans le CLAUDE.md de chaque projet proposait
+  // `--conn <url>`, la forme que tout le reste du code decourage. Ce texte entre dans le contexte
+  // du modele a chaque session, au meme titre qu'une consigne.
+  {
+    const regles = lire("scripts/rules/rules.mjs");
+    const debut = regles.indexOf('id: "neon-rest-vault"');
+    const texte = regles.slice(debut, regles.indexOf("previousTexts", debut));
+    check("la regle ecrite dans les projets ne propose plus la chaine de connexion en argument", debut > 0 && texte.includes("DATABASE_URL") && !texte.includes("--conn"));
+  }
   const del = lire("scripts/delete-project/execute-deletions.mjs");
   check(
     "execute-deletions.mjs exige --confirm <projet>",
@@ -227,10 +236,20 @@ check(
   // Revue du lot stockage (18/09/2026) : une ressource partagee restait dans l'inventaire
   // des qu'elle n'etait pas un worker, et la sauvegarde d'avant suppression sautait le
   // stockage en silence des que les cles manquaient dans le .env local.
-  check(
-    "discover-resources.mjs retire de la suppression toute ressource declaree partagee, pas seulement un worker",
-    /excludeShared\(\{ workers, r2, neon, render, stripe \}, r\)/.test(lire("scripts/delete-project/discover-resources.mjs")),
-  );
+  // Revue externe de la 3.2.4 : ce controle epinglait la liste litterale de cinq sections, si bien
+  // qu'il restait vert pendant que huit genres sur treize n'etaient pas proteges. Il lit desormais
+  // les regles elles-memes : chaque section qu'une regle de partage lit doit etre remise.
+  {
+    const { SHARED_SECTIONS } = await import(pathToFileURL(join(ROOT, "scripts/delete-project/_shared-exclusion.mjs")).href);
+    const appel = /excludeShared\(\{([^}]*)\}/.exec(lire("scripts/delete-project/discover-resources.mjs"));
+    const remises = appel ? appel[1].split(",").map((x) => x.trim()) : [];
+    const oubliees = SHARED_SECTIONS.filter((s) => !remises.includes(s));
+    check(
+      "discover-resources.mjs remet a excludeShared chaque section qu'une regle de partage lit",
+      appel !== null && oubliees.length === 0,
+      oubliees.join(", "),
+    );
+  }
   check(
     "la sauvegarde d'avant suppression ne saute le stockage que sur un refus explicite",
     /--skip-storage ONLY if the user explicitly answered/.test(lire("skills/delete-project/SKILL.md")) &&

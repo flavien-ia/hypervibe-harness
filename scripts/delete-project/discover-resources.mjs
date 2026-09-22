@@ -896,9 +896,10 @@ async function reconcileManifest() {
     if (r.shared) {
       entry.status = "shared";
       // A declared shared resource found by a name scan leaves the deletion
-      // inventory, whatever its kind: bucket, database, service, webhook or
-      // worker (only workers were taken out until 18/09/2026).
-      excludeShared({ workers, r2, neon, render, stripe }, r);
+      // inventory, whatever its kind (only workers until 18/09/2026, five kinds
+      // of thirteen until 3.2.6). Every section a sharing rule reads is handed
+      // over: test-security-claims.mjs checks it against the rules themselves.
+      excludeShared({ vercel, neon, workers, r2, dns, dbBackup, cronJobs, render, stripe, upstash, emailRouting, github }, r, { project: PROJECT_LOWER });
       out.resources.push(entry);
       continue;
     }

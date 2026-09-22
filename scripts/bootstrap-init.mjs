@@ -87,6 +87,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync
 import { resolve, dirname, join, basename, relative } from "node:path";
 import { homedir, platform } from "node:os";
 import { fileURLToPath } from "node:url";
+import { readIdentity, shapeOf } from "./git-identity.mjs";
 import { render } from "./_render.mjs";
 import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
 import { buildRuleSets } from "./rules/rules.mjs";
@@ -307,6 +308,35 @@ function run(cmd, cwd, opts = {}) {
   return res;
 }
 
+/** The identity the first commit will carry, checked by shape, never shown (git-identity.mjs):
+ *  a user.email that is not an address would go to GitHub with every commit. On 22/09/2026 a
+ *  machine had an address in user.name and what looked like a password in user.email. */
+function checkGitIdentity({ effective = false } = {}) {
+  let shape;
+  try {
+    shape = shapeOf(readIdentity({ effective, cwd: CWD }));
+  } catch {
+    fail("git is not installed. Run /start.");
+  }
+  const where = effective ? "git config" : "git config --global";
+  if (shape.swapped) {
+    fail(
+      `${where} user.name looks like an email address and user.email is not one: the two were probably swapped. ` +
+        "The value is not shown here; if a password was typed into user.email by mistake, change that password. " +
+        "Run /start, which repairs it, then retry.",
+    );
+  }
+  if (shape.email === "invalid") {
+    fail(
+      `${where} user.email is not an email address (its value is not shown here; if a password was typed into it by mistake, change that password). ` +
+        "Every commit carries it, and a push publishes it. Run /start, which repairs it, then retry.",
+    );
+  }
+  if (shape.name === "missing" || shape.email === "missing") {
+    fail(`${where} ${shape.name === "missing" ? "user.name" : "user.email"} is not set. Run /start, which sets it, then retry.`);
+  }
+}
+
 function capture(cmd, cwd, opts = {}) {
   return run(cmd, cwd, { capture: true, allowFail: true, ...opts });
 }
@@ -367,12 +397,7 @@ function preflight() {
   const vc = capture("vercel whoami", CWD);
   if (vc.status !== 0) fail("vercel is not authenticated. Run: vercel login");
 
-  for (const k of ["user.name", "user.email"]) {
-    const g = capture(`git config --global ${k}`, CWD);
-    if (g.status !== 0 || !g.stdout.trim()) {
-      fail(`git config --global ${k} is not set. Configure it and retry.`);
-    }
-  }
+  checkGitIdentity();
 
   // Detect pnpm major version and set build flags accordingly (see comment above).
   // pnpm 11+ is required by the bootstrap for two reasons:

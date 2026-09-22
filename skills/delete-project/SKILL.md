@@ -183,7 +183,7 @@ The resulting JSON has the form:
 }
 ```
 
-Any section may also carry an **`excluded`** array: resources whose name matched but that were re-attributed to a **more specific sibling project** (`street-cool` when deleting `street`), or recognized as **shared Hypervibe infrastructure** (the `hypervibe-jobs` worker). They are NEVER deleted; surface them in section 2.4 with their `excludedReason`.
+Any section may also carry an **`excluded`** array: resources whose name matched but that were re-attributed to a **more specific sibling project** (`street-cool` when deleting `street`), or recognized as **shared Hypervibe infrastructure** (the `hypervibe-jobs` worker), or **declared shared in the project's manifest**, whatever their kind (a database, a bucket, a DNS zone, an email route, a scheduled task, a Vercel project, a repository...). The two sections that hold a single resource say it by their flag: a shared backup target sets `dbBackup.isTarget` to false, a shared repository sets `github.exists` to false, and the resource moves into their `excluded` array. They are NEVER deleted; surface them in section 2.4 with their `excludedReason`.
 
 The block prints the inventory JSON directly (and echoes its absolute path as `INVENTORY_FILE=…`). Read the JSON from that output. Phase 3 recomputes the exact same `$INV` path with the identical one-liner, so the file bridges the two phases without you having to hardcode any path. Move on to Phase 2.
 
@@ -271,7 +271,7 @@ Any section carrying an `error` field (typically `vercel.error` or `r2.error`: v
 - Brevo / Resend (shared)
 - Parent Cloudflare zones (the subdomains/DNS are deleted, not the parent zone)
 - Stripe products (if found but rarely scoped to the project)
-- Every `excluded` entry from the inventory sections (resource attributed to a sibling project, or shared Hypervibe infrastructure like the `hypervibe-jobs` worker) - list each with its reason in plain language
+- Every `excluded` entry from the inventory sections (resource attributed to a sibling project, shared Hypervibe infrastructure like the `hypervibe-jobs` worker, or a resource the project's manifest declares shared) - list each with its reason in plain language
 - Every `vercel.homonyms` entry: *"a site with the same name exists in the team X, it is left untouched"*
 
 ### 2.5 Mandatory scope question

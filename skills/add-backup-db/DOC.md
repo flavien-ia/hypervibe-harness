@@ -46,6 +46,6 @@ Enables **automatic backups** of your Neon database. A new backup every 2 weeks,
 The backups no longer have their own dedicated machinery: they are one job among others on your **shared clock**, the single mutualized mechanism that also runs your scheduled tasks and your quota watch. You can have 30 Neon projects: it still consumes a single Cloudflare cron slot in total. And since the list of what gets backed up is versioned (git) on your computer, you can always see what changed, and when.
 {{/callout}}
 
-{{callout:warning|To restore a backup}}
-If you want to restore a backup, go to **console.neon.tech** → your project → **Branches** tab. There you will see your backup branches with their dates: `bk-<project>-r-*` for the rolling ones, `bk-<project>-a-*` for the quarterly checkpoints. You can open a branch to inspect it, or promote it as `main` if you want to roll back. If you are unsure how to proceed, ask Claude.
+{{callout:warning|To get data back from a backup}}
+Each backup is a branch of your Neon project (**console.neon.tech** → your project → **Branches** tab): `bk-<project>-r-*` for the rolling ones, `bk-<project>-a-*` for the quarterly checkpoints. It holds your data as it was that day, with its own connection string: open it to read what you need, production is not touched. Copying data back into production is a deliberate step, done with Claude. Neon's one-click restore only rewinds a main branch within the recent history your plan keeps, to undo a fresh mistake: it does not start from these backups.
 {{/callout}}

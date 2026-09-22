@@ -162,19 +162,21 @@ So the operations that cannot be undone are guarded, not merely discouraged:
 
 | Command | What happens | Why |
 |---|---|---|
-| `git add -A`, `git add .`, `git add -u`, `git commit -a`, `git commit --all` | **refused** | A sweeping stage once swept another session's uncommitted work into a commit. Stage nominatively: `git add <file>`. |
+| `git add -A`, `git add .`, `git add :/`, `git add ':(top)'`, `git add '*'`, `git add -u`, `git commit -a`, `git commit --all` | **refused** | A sweeping stage once swept another session's uncommitted work into a commit. Stage nominatively: `git add <file>`. |
 | `git push` | **confirmation** | Pushing publishes. Consent lives in the conversation, so a human confirms. |
 | `vercel --prod`, `--target production`, `promote`, `rollback` | **confirmation** | Deploys normally go through `git push`. `vercel build --prod` deploys nothing and is not asked. |
 | `wrangler deploy`, `wrangler secret put` (not `--dry-run`) | **confirmation** | The shared worker runs with the account's keys; a deploy publishes code that holds them. |
 | `pnpm db:push`, `pnpm --filter web db:push`, `drizzle-kit push` | **confirmation** | On this stack the database you reach IS production. |
 | `node execute-deletions.mjs` | **confirmation** | Irreversible cloud deletions. Reading the file is not one. |
-| `run-sql.mjs` with `DROP` / `TRUNCATE` | **refused** without `--destructif` | Between two backups, nothing brings a dropped table back. |
+| `run-sql.mjs` with `DROP` / `TRUNCATE` | **refused** without `--destructif` | Between two backups, nothing brings a dropped table back. The hook reads the same check as the script, in the same file: a keyword inside a string literal (`INSERT INTO log VALUES ('DROP TABLE')`) refuses nothing. |
 | `run-sql.mjs` with `DELETE`/`UPDATE` and no `WHERE` | **confirmation** | Rewrites every row. |
+| `curl -X DELETE` to a management API the plugin operates (Neon, Vercel, Cloudflare, GitHub, Render, Upstash, Stripe, Brevo, Resend, Bitwarden, Google), and `PUT` / `PATCH` where they overwrite (Neon, Vercel, Cloudflare) | **confirmation** | A project, a database branch with its data, a DNS record: the plugin's scripts check the provider's answers, a bare curl does not. Reads and creations pass. |
 | `git reset --hard`, `git checkout .`, `git clean -f` | **confirmation** | Discards uncommitted work, possibly someone else's. |
-| `git config hypervibe.hooks true`, `ensure-hooks-chain.mjs --trust` | **confirmation** | Trusting a checkout's versioned git hooks runs code that arrived with a clone. A person decides, per checkout. |
+| `git config hypervibe.hooks true`, `ensure-hooks-chain.mjs --trust` | **confirmation** | Trusting a checkout's versioned git hooks runs code that arrived with a clone. A person decides, per checkout. Withdrawing it (`false`, or `--unset`) stays free. |
+| `git config user.email <something that is not an address>` | **refused** | Every commit carries it, and a push publishes it: a password typed there by mistake would reach GitHub. The refusal never repeats the value. |
 | `shared-worker/ensure.mjs`, `worker-check.mjs` (without `--dry-run`) | **confirmation** | They can redeploy the shared clock, code that runs with the account's keys, like `wrangler deploy`. |
 
-The rules look at the command, not at its costume. `sudo`, `command`, `env`, `time`, a launcher (`npx`, `pnpm dlx`), a version pin (`wrangler@latest`), an absolute path (`/usr/bin/git`), a subshell or a block (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), a quoted head, and the payload of `sh -c` or `eval` are stripped or unfolded before any rule runs. Five such shapes walked past every rule on 3.0.4; closing the family, rather than the five, is what an outside review asked for.
+The rules look at the command, not at its costume. `sudo`, `command`, `env`, `time`, a launcher (`npx`, `pnpm dlx`), a version pin (`wrangler@latest`), an absolute path (`/usr/bin/git`), a subshell or a block (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), a quoted head, and the payload of `sh -c` or `eval` are stripped or unfolded before any rule runs. So is the script of a shell that reads it from elsewhere: `bash <<'EOF'`, `bash <<< '...'`, `echo '...' | bash`, `bash <(echo ...)` (a heredoc's body stays data for every other command). Five such shapes walked past every rule on 3.0.4; closing the family, rather than the five, is what an outside review asked for.
 
 Everything else passes untouched, and that half is tested as carefully as the other: `git add src/a.ts`, `git push --dry-run`, `git add -p`, a `DELETE ... WHERE`, even a commit message that merely mentions `git add -A` all go through (`node hooks/test-hooks.mjs`).
 

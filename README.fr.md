@@ -162,19 +162,21 @@ Les opérations irréversibles sont donc gardées, pas seulement déconseillées
 
 | Commande | Ce qui se passe | Pourquoi |
 |---|---|---|
-| `git add -A`, `git add .`, `git add -u`, `git commit -a`, `git commit --all` | **refus** | Un balayage a déjà emporté dans un commit le travail non commité d'une autre session. Indexer nommément : `git add <fichier>`. |
+| `git add -A`, `git add .`, `git add :/`, `git add ':(top)'`, `git add '*'`, `git add -u`, `git commit -a`, `git commit --all` | **refus** | Un balayage a déjà emporté dans un commit le travail non commité d'une autre session. Indexer nommément : `git add <fichier>`. |
 | `git push` | **confirmation** | Pousser publie. Le consentement vit dans la conversation, donc un humain confirme. |
 | `vercel --prod`, `--target production`, `promote`, `rollback` | **confirmation** | Les déploiements passent normalement par `git push`. `vercel build --prod` ne déploie rien et n'est pas demandé. |
 | `wrangler deploy`, `wrangler secret put` (pas `--dry-run`) | **confirmation** | Le worker partagé tourne avec les clés du compte ; un déploiement publie du code qui les détient. |
 | `pnpm db:push`, `pnpm --filter web db:push`, `drizzle-kit push` | **confirmation** | Sur cette stack, la base que vous atteignez EST la production. |
 | `node execute-deletions.mjs` | **confirmation** | Suppressions cloud irréversibles. Lire le fichier n'en est pas une. |
-| `run-sql.mjs` avec `DROP` / `TRUNCATE` | **refus** sans `--destructif` | Entre deux sauvegardes, rien ne ramène une table supprimée. |
+| `run-sql.mjs` avec `DROP` / `TRUNCATE` | **refus** sans `--destructif` | Entre deux sauvegardes, rien ne ramène une table supprimée. Le hook lit la même garde que le script, dans le même fichier : un mot-clé cité dans une chaîne (`INSERT INTO log VALUES ('DROP TABLE')`) ne refuse rien. |
 | `run-sql.mjs` avec `DELETE`/`UPDATE` sans `WHERE` | **confirmation** | Réécrit toutes les lignes. |
+| `curl -X DELETE` vers une API de gestion que le plugin pilote (Neon, Vercel, Cloudflare, GitHub, Render, Upstash, Stripe, Brevo, Resend, Bitwarden, Google), et `PUT` / `PATCH` là où ils écrasent (Neon, Vercel, Cloudflare) | **confirmation** | Un projet, une branche de base avec ses données, un enregistrement DNS : les scripts du plugin vérifient les réponses du fournisseur, un curl nu non. Lire et créer passent. |
 | `git reset --hard`, `git checkout .`, `git clean -f` | **confirmation** | Jette du travail non commité, peut-être celui d'un autre. |
-| `git config hypervibe.hooks true`, `ensure-hooks-chain.mjs --trust` | **confirmation** | Faire confiance aux hooks versionnés d'un dépôt, c'est exécuter du code arrivé avec un clone. Une personne décide, dépôt par dépôt. |
+| `git config hypervibe.hooks true`, `ensure-hooks-chain.mjs --trust` | **confirmation** | Faire confiance aux hooks versionnés d'un dépôt, c'est exécuter du code arrivé avec un clone. Une personne décide, dépôt par dépôt. Retirer l'accord (`false`, ou `--unset`) reste libre. |
+| `git config user.email <autre chose qu'une adresse>` | **refus** | Chaque commit la porte, et un push la publie : un mot de passe saisi là par erreur partirait sur GitHub. Le refus ne répète jamais la valeur. |
 | `shared-worker/ensure.mjs`, `worker-check.mjs` (sans `--dry-run`) | **confirmation** | Ils peuvent redéployer l'horloge partagée, du code qui tourne avec les clés du compte, comme `wrangler deploy`. |
 
-Les règles regardent la commande, pas son costume. `sudo`, `command`, `env`, `time`, un lanceur (`npx`, `pnpm dlx`), une version épinglée (`wrangler@latest`), un chemin absolu (`/usr/bin/git`), un sous-shell ou un bloc (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), une tête entre guillemets, et la charge d'un `sh -c` ou d'un `eval` sont retirés ou dépliés avant qu'une règle s'applique. Cinq formes de ce genre passaient devant toutes les règles en 3.0.4 ; fermer la famille plutôt que les cinq, c'est ce qu'une relecture extérieure a demandé.
+Les règles regardent la commande, pas son costume. `sudo`, `command`, `env`, `time`, un lanceur (`npx`, `pnpm dlx`), une version épinglée (`wrangler@latest`), un chemin absolu (`/usr/bin/git`), un sous-shell ou un bloc (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), une tête entre guillemets, et la charge d'un `sh -c` ou d'un `eval` sont retirés ou dépliés avant qu'une règle s'applique. De même pour le script d'un shell qui le lit ailleurs : `bash <<'EOF'`, `bash <<< '...'`, `echo '...' | bash`, `bash <(echo ...)` (le corps d'un heredoc reste une donnée pour toute autre commande). Cinq formes de ce genre passaient devant toutes les règles en 3.0.4 ; fermer la famille plutôt que les cinq, c'est ce qu'une relecture extérieure a demandé.
 
 Tout le reste passe sans encombre, et cette moitié-là est testée avec autant de soin que l'autre : `git add src/a.ts`, `git push --dry-run`, `git add -p`, un `DELETE ... WHERE`, et même un message de commit qui mentionne `git add -A` (`node hooks/test-hooks.mjs`).
 

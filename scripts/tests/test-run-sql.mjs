@@ -57,6 +57,9 @@ check("passe : DELETE borne", !refuse("DELETE FROM sessions WHERE expires_at < n
 check("passe : WHERE true AND id = 3", !refuse("DELETE FROM sessions WHERE true AND id = 3"));
 check("passe : UPDATE borne", !refuse("UPDATE users SET active = false WHERE id = 3"));
 check("passe : colonne true_flag", !refuse("UPDATE users SET a = 1 WHERE true_flag = 1"));
+check("passe : un upsert (ON CONFLICT DO UPDATE) ne reecrit que la ligne en conflit", !refuse("INSERT INTO t (a, b) VALUES (1, 2) ON CONFLICT (a) DO UPDATE SET b = 2, updated_at = now()"));
+check("passe : un MERGE ne reecrit que les lignes appariees", !refuse("MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET b = s.b"));
+check("refuse encore : un UPDATE nu apres un upsert", refuse("INSERT INTO t (a) VALUES (1) ON CONFLICT (a) DO UPDATE SET b = 2; UPDATE t SET c = 3"));
 
 console.log("\n── Un bloc DO s'execute tout de suite : son SQL dynamique est relu, ou refuse ──");
 check("DO ... EXECUTE 'DROP TABLE'", refuse("DO $$ BEGIN EXECUTE 'DROP TABLE clients'; END $$"));

@@ -39,6 +39,7 @@ const SUITES = [
   ["database export never calls a holed backup ok", join(ROOT, "scripts", "tests", "test-dump-db.mjs")],
   ["a connection string never sits in an argument", join(ROOT, "scripts", "tests", "test-push-env-stdin.mjs")],
   ["database organisation: which answers are certain", join(ROOT, "scripts", "tests", "test-neon-org.mjs")],
+  ["git identity: checked and repaired, never shown", join(ROOT, "scripts", "tests", "test-git-identity.mjs")],
 ];
 
 let failed = 0;

@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.2.6 (22 septembre 2026)
+
+### Améliorations
+- **Identité Git vérifiée au démarrage** : `/start` contrôle le nom et l'adresse qui signent vos commits, sans jamais afficher leur valeur. Une adresse qui n'en est pas une (un mot de passe saisi par erreur, un nom et une adresse inversés) est signalée avec sa réparation, et `/bootstrap` refuse de faire le premier commit avec elle.
+- **Garde-fou** : un shell qui reçoit son script par un heredoc, un tube ou un here-string est jugé comme un `bash -c` ; `git add :/` est refusé comme `git add .` ; une requête qui cite `DROP TABLE` dans une chaîne n'est plus refusée à tort ; les suppressions par `curl` chez Vercel, Cloudflare et les autres services que le plugin pilote demandent une confirmation ; retirer l'accord des hooks reste libre ; une adresse d'auteur Git qui n'est pas une adresse est refusée.
+- **`/delete-project`** : une ressource que le projet déclare partagée n'est plus jamais proposée à la suppression, quel que soit son genre.
+- **Sauvegardes** : la documentation dit enfin comment retrouver des données dans une sauvegarde.
+
+### Coulisses
+- Le mail d'alerte de l'horloge encadre le texte d'erreur du fournisseur comme une donnée et ne dicte plus de redéploiement ; la règle écrite dans vos projets ne propose plus de passer la chaîne de connexion en argument ; un `INSERT … ON CONFLICT DO UPDATE` n'est plus pris pour un `UPDATE` sans condition ; la recette du chaînage des hooks est valable sur macOS.
+
 ## v3.2.5 (20 septembre 2026)
 
 Une version de correction, centrée sur la base de données : plus sûre, plus discrète avec tes secrets, et plus honnête quand quelque chose échoue.

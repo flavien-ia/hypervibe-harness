@@ -197,6 +197,26 @@ Expected output (on stdout, 1 line):
 
 ⚠️ **Track the status in `STATUS_GITLEAKS`** (mental variable) to pass it as a flag in Step 9 (`--with-gitleaks` to `update-global-claude-md.mjs`).
 
+### Git identity - who signs your commits (cross-platform, idempotent)
+
+Every commit carries a name and an email address in its header, and a push publishes that header on GitHub. Check the machine's identity **by its shape, never by its value**:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/git-identity.mjs" check
+```
+
+⚠️ **Never run `git config --global user.email` or `git config --global user.name` to read them**: that prints the value into the conversation. On 22/09/2026 a machine's `user.email` held what looked like a password. The script answers with shapes only: `name` (`set`, `missing`, `email-like`), `email` (`valid`, `missing`, `invalid`), `swapped`, and `fix`:
+
+- `fix: "none"` → say nothing, continue.
+- `fix: "name"`, `"email"` or `"both"`, because something is missing → ask for it in one question: *"Which name and email address should sign your commits? They appear on every commit you publish on GitHub (GitHub can give you a private address, `…@users.noreply.github.com`, if you prefer not to show your own)."* Then set them:
+  ```bash
+  node "${CLAUDE_SKILL_DIR}/../../scripts/git-identity.mjs" set --name "<name>" --email "<address>"
+  ```
+- `email: "invalid"` → tell the user, **without ever showing the value**: *"Your Git configuration holds an author address that is not an email address. If you typed a password there by mistake, change that password: it may already be in the header of commits you published."* Then ask for the right address and set it with `set --email "<address>"`.
+- `swapped: true` → *"Your Git name looks like an email address, and your Git address is not one: the two were probably swapped. The value is not shown here; if a password ended up in the address, change that password."* Offer the repair, where the address found in the name becomes the address and the user gives their name: `set --email-from-name --name "<name>"`.
+
+`set` refuses (exit code 4) anything that is not an address, and never repeats a refused value: if that happens, ask again. It only writes the machine-wide configuration (`--global`).
+
 ---
 
 ## Step 3bis - Key vault (Bitwarden) - MANDATORY
@@ -246,6 +266,7 @@ Present a clear report:
 > ✅ Node.js - vX.X.X
 > ✅ pnpm - vX.X.X
 > ✅ Git - vX.X.X
+> ✅ Git identity - set (who signs your commits)
 > ❌ GitHub CLI - not installed
 > ❌ Vercel CLI - not installed
 > ❌ Wrangler CLI - not installed

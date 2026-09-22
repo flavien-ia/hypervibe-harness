@@ -163,8 +163,9 @@ export const CATALOG = [
     scope: "project",
     enabledBy: "--with-neon",
     text:
-      "Neon : provisioning + gestion via l'API REST `https://console.neon.tech/api/v2/...` avec la clé `NEON.api_key` rangée dans le coffre-fort (Bitwarden). Exécution de SQL via le helper `scripts/neon/run-sql.mjs` du plugin (SQL-over-HTTP, pas besoin de psql) : `node run-sql.mjs \"SELECT ...\"` (lit `DATABASE_URL` du `.env` du projet) ou `--conn <url>`. Le SQL destructeur (DROP, TRUNCATE, DELETE/UPDATE sans WHERE) est refusé sans le drapeau `--destructif`.",
+      "Neon : provisioning + gestion via l'API REST `https://console.neon.tech/api/v2/...` avec la clé `NEON.api_key` rangée dans le coffre-fort (Bitwarden). Exécution de SQL via le helper `scripts/neon/run-sql.mjs` du plugin (SQL-over-HTTP, pas besoin de psql) : `node run-sql.mjs \"SELECT ...\"` lit `DATABASE_URL` du `.env` du projet ; ne jamais passer la chaîne de connexion en argument, elle resterait dans la liste des processus et l'historique du shell. Le SQL destructeur (DROP, TRUNCATE, DELETE/UPDATE sans WHERE) est refusé sans le drapeau `--destructif`.",
     previousTexts: [
+      "Neon : provisioning + gestion via l'API REST `https://console.neon.tech/api/v2/...` avec la clé `NEON.api_key` rangée dans le coffre-fort (Bitwarden). Exécution de SQL via le helper `scripts/neon/run-sql.mjs` du plugin (SQL-over-HTTP, pas besoin de psql) : `node run-sql.mjs \"SELECT ...\"` (lit `DATABASE_URL` du `.env` du projet) ou `--conn <url>`. Le SQL destructeur (DROP, TRUNCATE, DELETE/UPDATE sans WHERE) est refusé sans le drapeau `--destructif`.",
       "Neon : provisioning + gestion via l'API REST `https://console.neon.tech/api/v2/...` avec la clé `NEON.api_key` rangée dans le coffre-fort (Bitwarden). Exécution de SQL via le helper `scripts/neon/run-sql.mjs` du plugin (SQL-over-HTTP, pas besoin de psql) : `node run-sql.mjs \"SELECT ...\"` (lit `DATABASE_URL` du `.env` du projet) ou `--conn <url>`.",
     ],
   },

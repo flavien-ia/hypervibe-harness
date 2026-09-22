@@ -378,6 +378,7 @@ Invoke `_update-claude-md` with:
   ```
   Never run `wrangler delete` for this: the worker is shared, other projects may still depend on it for their backups and for the other jobs (quota watch, cron pings). Deleting the whole `hypervibe-jobs` worker is an **account-wide decision** that kills every job for every project; only consider it if the user explicitly wants to dismantle the entire shared system, and say so clearly first.
 - **Manual test run**: the `ADMIN` + `curl .../trigger?name=neon-backups` pair from Step 6.
+- **Getting data back from a backup**: each backup is a Neon branch (`bk-<PROJECT_NAME>-r-<date>`, `bk-<PROJECT_NAME>-a-<date>`) holding the database as it was that day, with its own connection string. Reading from it never touches production; copying data back into production (in SQL, or an export imported again) is done with the user's agreement, saying what will be overwritten. Neon's one-click restore only rewinds a root branch within the history window of its plan: it does NOT start from these backups, which are child branches. Never promise a one-click restore from a backup.
 - **Live logs**: `cd ~/.hypervibe-jobs && npx wrangler tail`
 
 

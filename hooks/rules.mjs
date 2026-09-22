@@ -20,6 +20,8 @@
 // one that blocks everything, and a guardrail that cries wolf gets bypassed.
 // Style and architecture stay in CLAUDE.md, where they belong.
 
+import { statementsDestructrices } from "../scripts/db/sql-guard.mjs";
+
 /** Reads a command line the way a shell would, as far as judging it needs: the segments
  *  it runs one after the other (split on newlines, `;`, `&`, `&&`, `||`, `|`), each
  *  without its substitutions, and what those substitutions run, as command lines of
@@ -35,8 +37,13 @@
  *    and backticks, which are judged;
  *  - a comment runs to the end of its line, apostrophes included;
  *  - a backslash makes the next character literal (`\$(x)` in a commit message runs
- *    nothing), and at the end of a line it continues the command.
- *  Returns [{ text, inner }] in the order a shell would run them. */
+ *    nothing), and at the end of a line it continues the command;
+ *  - what a segment reads on its standard input when the command line writes it (a
+ *    heredoc's body, a here-string's word) stays with that segment (`stdin`), and so do
+ *    the commands of the `<(...)` it takes as files (`procIn`) and whether a pipe feeds
+ *    it (`piped`). Data for most commands, but the SCRIPT of a shell that reads one:
+ *    `bash <<'EOF'` runs its body (outside review, 3.2.4).
+ *  Returns [{ text, inner, stdin, procIn, piped }] in the order a shell would run them. */
 export function readCommandLine(command) {
   return scanShell(String(command), 0, null).parts;
 }
@@ -148,19 +155,67 @@ function expansions(text) {
   return found;
 }
 
-/** The body of a heredoc, from `start` to its delimiter line (or the end): skipped as
- *  data, except what it expands when the delimiter is unquoted. */
+/** The body of a heredoc, from `start` to its delimiter line (or the end): its text, the
+ *  standard input of the segment that opened it, and what it expands when the delimiter
+ *  is unquoted. */
 function readHeredocBody(src, start, { delim, quoted, stripTabs }) {
   const lines = [];
   let i = start;
   while (i < src.length) {
     const nl = src.indexOf("\n", i);
-    const line = src.slice(i, nl < 0 ? src.length : nl).replace(/\r$/, "");
+    const raw = src.slice(i, nl < 0 ? src.length : nl).replace(/\r$/, "");
+    const line = stripTabs ? raw.replace(/^\t+/, "") : raw;
     i = nl < 0 ? src.length : nl + 1;
-    if ((stripTabs ? line.replace(/^\t+/, "") : line) === delim) break;
+    if (line === delim) break;
     lines.push(line);
   }
-  return { inner: quoted ? [] : expansions(lines.join("\n")), end: i };
+  const text = lines.join("\n");
+  return { text, inner: quoted ? [] : expansions(text), end: i };
+}
+
+/** The word a here-string reads (`<<< word`): as the scanner keeps it in the segment's
+ *  text (a substitution never stays in the text), what the command receives (quotes and
+ *  escapes removed), and what its substitutions run. */
+function readWord(src, start) {
+  let i = start;
+  while (src[i] === " " || src[i] === "\t") i += 1;
+  let text = src.slice(start, i);
+  let value = "";
+  const inner = [];
+  while (i < src.length && !WORD_END.test(src[i])) {
+    const c = src[i];
+    if (c === "'") {
+      const close = src.indexOf("'", i + 1);
+      const stop = close < 0 ? src.length : close;
+      value += src.slice(i + 1, stop);
+      text += src.slice(i, stop + 1);
+      i = stop + 1;
+    } else if (c === '"') {
+      const quoted = readDoubleQuoted(src, i);
+      const closed = quoted.text.length > 1 && quoted.text.endsWith('"');
+      value += quoted.text.slice(1, closed ? -1 : undefined).replace(/\\([$`"\\])/g, "$1");
+      text += quoted.text;
+      inner.push(...quoted.inner);
+      i = quoted.end;
+    } else if (c === "\\") {
+      value += src[i + 1] ?? "";
+      text += src.slice(i, i + 2);
+      i += 2;
+    } else if (c === "$" && src[i + 1] === "(") {
+      const sub = readSubstitution(src, i);
+      inner.push(sub.content);
+      i = sub.end;
+    } else if (c === "`") {
+      const end = closingBacktick(src, i);
+      inner.push(src.slice(i + 1, end));
+      i = end + 1;
+    } else {
+      value += c;
+      text += c;
+      i += 1;
+    }
+  }
+  return { text, value, inner, end: Math.min(i, src.length) };
 }
 
 /** Scans `src` from `start` until an unbalanced `closer` (")" for a substitution) or the
@@ -169,14 +224,23 @@ function scanShell(src, start, closer) {
   const parts = [];
   let text = "";
   let inner = [];
+  let stdin = [];
+  let procIn = [];
+  let piped = false;
   let pending = [];
   let depth = 0;
   let i = start;
-  const cut = () => {
+  // `feeds`: the segment being closed pipes its output into the next one (`|`, `|&`).
+  const cut = (feeds = false) => {
     const runs = inner.map((x) => x.trim()).filter(Boolean);
-    if (text.trim() || runs.length) parts.push({ text: text.trim(), inner: runs });
+    const pushed = Boolean(text.trim() || runs.length || stdin.length || procIn.length);
+    if (pushed) parts.push({ text: text.trim(), inner: runs, stdin, procIn, piped });
     text = "";
     inner = [];
+    stdin = [];
+    procIn = [];
+    // A pipe followed by a newline still feeds the command on the next line.
+    piped = pushed ? feeds : piped || feeds;
   };
   const atWordStart = () => i === start || /[\s;&|()]/.test(src[i - 1]);
   while (i < src.length) {
@@ -201,6 +265,7 @@ function scanShell(src, start, closer) {
     } else if ((c === "$" || c === "<" || c === ">") && next === "(") {
       const sub = readSubstitution(src, i);
       inner.push(sub.content);
+      if (c === "<") procIn.push(sub.content);
       i = sub.end;
     } else if (c === "`") {
       const end = closingBacktick(src, i);
@@ -213,23 +278,32 @@ function scanShell(src, start, closer) {
       text += src.slice(i, stop);
       i = stop;
     } else if (c === "<" && next === "<" && src[i + 2] === "<") {
-      text += "<<<"; // a here-string: the word after it is data, read as such
-      i += 3;
+      // A here-string: the word after it is the segment's standard input.
+      const word = readWord(src, i + 3);
+      text += `<<<${word.text}`;
+      inner.push(...word.inner);
+      stdin.push(word.value);
+      i = word.end;
     } else if (c === "<" && next === "<") {
       const operator = readHeredocOperator(src, i);
-      if (operator.delim) pending.push(operator);
+      // The body comes after the line: remember which segment it feeds.
+      if (operator.delim) pending.push({ ...operator, part: parts.length });
       text += src.slice(i, operator.end);
       i = operator.end;
     } else if (c === "\n") {
       cut();
       i += 1;
-      // The bodies of the heredocs opened on that line come right after it.
+      // The bodies of the heredocs opened on that line come right after it, each one the
+      // standard input of the segment that opened it.
       for (const operator of pending) {
         const body = readHeredocBody(src, i, operator);
         const runs = body.inner.map((x) => x.trim()).filter(Boolean);
-        if (runs.length) {
-          if (!parts.length) parts.push({ text: "", inner: [] });
-          parts[parts.length - 1].inner.push(...runs);
+        const owner = parts[operator.part] ?? parts[parts.length - 1];
+        if (owner) {
+          owner.inner.push(...runs);
+          owner.stdin.push(body.text);
+        } else if (runs.length) {
+          parts.push({ text: "", inner: runs, stdin: [body.text], procIn: [], piped: false });
         }
         i = body.end;
       }
@@ -249,7 +323,8 @@ function scanShell(src, start, closer) {
       cut();
       i += 1;
     } else if (c === "|" && src[i - 1] !== ">") {
-      cut();
+      // `|` and `|&` feed the next segment; `||` runs it only when this one fails.
+      cut(next !== "|");
       i += next === "|" || next === "&" ? 2 : 1;
     } else if (c === "&" && next === "&") {
       cut();
@@ -280,8 +355,8 @@ function withoutEnv(segment) {
   return { env, rest };
 }
 
-/** The quoted payload of a command, unquoted. Used to look at the SQL a
- *  run-sql.mjs call is about to run, not at the command that carries it. */
+/** The quoted payload of a command, unquoted. Used to look at the command
+ *  string a shell is handed (`sh -c "..."`), not at the shell that runs it. */
 function quotedPayloads(segment) {
   const out = [];
   const re = /"((?:[^"\\]|\\.)*)"|'([^']*)'/g;
@@ -370,6 +445,275 @@ function normalise(raw) {
   return { env, seg: s.trim() };
 }
 
+/** The words of a segment, each as typed (`raw`) and as the command receives it (`value`:
+ *  quotes and escapes removed). */
+function words(seg) {
+  const out = [];
+  let i = 0;
+  while (i < seg.length) {
+    while (i < seg.length && /\s/.test(seg[i])) i += 1;
+    if (i >= seg.length) break;
+    let raw = "";
+    let value = "";
+    while (i < seg.length && !/\s/.test(seg[i])) {
+      const c = seg[i];
+      if (c === "'") {
+        const close = seg.indexOf("'", i + 1);
+        const stop = close < 0 ? seg.length : close;
+        value += seg.slice(i + 1, stop);
+        raw += seg.slice(i, stop + 1);
+        i = stop + 1;
+      } else if (c === '"') {
+        let j = i + 1;
+        while (j < seg.length && seg[j] !== '"') j += seg[j] === "\\" ? 2 : 1;
+        value += seg.slice(i + 1, Math.min(j, seg.length)).replace(/\\([$`"\\])/g, "$1");
+        raw += seg.slice(i, j + 1);
+        i = j + 1;
+      } else if (c === "\\") {
+        value += seg[i + 1] ?? "";
+        raw += seg.slice(i, i + 2);
+        i += 2;
+      } else {
+        value += c;
+        raw += c;
+        i += 1;
+      }
+    }
+    out.push({ raw, value });
+  }
+  return out;
+}
+
+// A redirection as typed: `> out`, `2>&1`, `&> log`, `< in`, a heredoc operator with its
+// delimiter, a here-string with its word. Alone, its target is the next word.
+const REDIRECTION = /^(?:\d*|&)(?:<<<|<<-?|<>|>>|>\||>&|<&|>|<)/;
+
+function redirection(raw) {
+  const m = REDIRECTION.exec(raw);
+  return m ? { alone: m[0].length === raw.length } : null;
+}
+
+/** The words that are arguments, redirections and their targets left out. */
+function operandsOf(list) {
+  const out = [];
+  for (let w = 0; w < list.length; w += 1) {
+    const r = redirection(list[w].raw);
+    if (r) {
+      if (r.alone) w += 1;
+      continue;
+    }
+    out.push(list[w]);
+  }
+  return out;
+}
+
+/** `\n` and `\t` as `echo -e` and `printf` would print them. Read that way whatever the
+ *  flags: judging a script as more lines than it has can only ask more, never less. */
+function escapesOf(text) {
+  return text.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+}
+
+/** What segment `k` prints, when the command line says it: `echo` or `printf` of literal
+ *  words, `cat` of its heredoc or here-string, and what `cat` or `tee` pass through from
+ *  the segment piped into them. null when it cannot be read from the command line (a
+ *  file, a program, the network): nothing can be judged then. */
+function producedBy(parts, k, depth = 0) {
+  const part = parts[k];
+  if (!part || depth > 8) return null;
+  const list = words(normalise(part.text).seg);
+  const head = list[0]?.value;
+  const args = operandsOf(list.slice(1)).map((w) => w.value);
+  if (head === "echo") {
+    while (args.length && /^-[neE]+$/.test(args[0])) args.shift();
+    return escapesOf(args.join(" "));
+  }
+  if (head === "printf") {
+    if (args[0] === "--") args.shift();
+    // Everything it could print, the format and its arguments alike.
+    return args.map(escapesOf).join("\n");
+  }
+  const passesInput = (head === "cat" && args.every((a) => a === "-")) || head === "tee";
+  if (!passesInput) return null;
+  if (part.stdin.length) return part.stdin.join("\n");
+  return part.piped ? producedBy(parts, k - 1, depth + 1) : null;
+}
+
+/** What a command line prints (the content of a `<(...)`): the output of the last segment
+ *  of each of its pipelines, when every one of them can be read. */
+function outputOf(commandLine) {
+  const parts = readCommandLine(commandLine);
+  const printed = [];
+  for (let k = 0; k < parts.length; k += 1) {
+    if (parts[k + 1]?.piped) continue;
+    const out = producedBy(parts, k);
+    if (out === null) return null;
+    printed.push(out);
+  }
+  return printed.length ? printed.join("\n") : null;
+}
+
+const SHELLS = /^(?:sh|bash|zsh|dash|ksh|mksh|fish)$/;
+const SOURCING = /^(?:source|\.)$/;
+const FROM_STDIN = /^(?:-|\/dev\/stdin|\/dev\/fd\/0|\/proc\/self\/fd\/0)$/;
+
+/** The scripts a shell segment runs from elsewhere than a `-c` string: its standard input
+ *  (a heredoc, a here-string, what a pipe brings) or the `<(...)` given as its script
+ *  file; `source` and `.` likewise. Returns the scripts that can be read, [] when none can
+ *  (a script file, a program's output), and null when the segment is no such command. */
+function scriptsOf(parts, k, seg) {
+  const list = words(seg);
+  const head = list[0]?.value ?? "";
+  const shell = SHELLS.test(head);
+  if (!shell && !SOURCING.test(head)) return null;
+  let readsStdin = false;
+  let script = null;
+  const rest = list.slice(1);
+  for (let w = 0; w < rest.length; w += 1) {
+    const r = redirection(rest[w].raw);
+    if (r) {
+      if (r.alone) w += 1;
+      continue;
+    }
+    const v = rest[w].value;
+    if (shell && /^[-+][A-Za-z]/.test(v)) {
+      if (/^-[A-Za-z]*c/.test(v)) return null; // a -c string: read by the rule above
+      if (/^-[A-Za-z]*s/.test(v)) readsStdin = true;
+      if (/^[-+][oO]$/.test(v)) w += 1; // `-o pipefail`
+      continue;
+    }
+    if (shell && v.startsWith("--")) {
+      if (/^--(?:rcfile|init-file)$/.test(v)) w += 1;
+      continue;
+    }
+    script = v;
+    break;
+  }
+  const part = parts[k];
+  const fromInput = () => {
+    if (part.stdin.length) return part.stdin;
+    const piped = part.piped ? producedBy(parts, k - 1) : null;
+    return piped === null ? [] : [piped];
+  };
+  if (script === null && part.procIn.length) {
+    const printed = outputOf(part.procIn[0]);
+    return printed === null ? [] : [printed];
+  }
+  if (script === null) return shell ? fromInput() : [];
+  if (FROM_STDIN.test(script) || readsStdin) return fromInput();
+  return [];
+}
+
+/** `git add` given a pathspec that means the whole tree: `.`, `*`, or the top magic with
+ *  nothing after it (`:/`, `':(top)'`), which from a subfolder stages MORE than the refused
+ *  `.` does (outside review, 3.2.4); or nothing but exclusions (`':!secret'`), which stage
+ *  everything else. */
+function sweepingPathspecs(seg) {
+  if (!/^git\s+add\b/.test(seg)) return false;
+  const specs = [];
+  let options = true;
+  for (const w of operandsOf(words(seg).slice(2))) {
+    if (options && w.value === "--") {
+      options = false;
+      continue;
+    }
+    if (options && w.value.startsWith("-")) continue;
+    specs.push(w.value);
+  }
+  if (!specs.length) return false;
+  const kinds = specs.map(pathspecKind);
+  return kinds.includes("whole") || kinds.every((kind) => kind === "exclude");
+}
+
+/** "whole", "exclude" or "part", from git's pathspec magic: the short form (`:/`, `:!x`,
+ *  `:^x`) and the long one (`:(top,glob)x`). */
+function pathspecKind(spec) {
+  let rest = spec;
+  let top = false;
+  let exclude = false;
+  const long = /^:\(([^)]*)\)/.exec(rest);
+  if (long) {
+    const magic = long[1].split(",").map((x) => x.trim().toLowerCase());
+    top = magic.includes("top");
+    exclude = magic.includes("exclude");
+    rest = rest.slice(long[0].length);
+  } else if (rest.startsWith(":")) {
+    let j = 1;
+    for (; j < rest.length && "/!^".includes(rest[j]); j += 1) {
+      if (rest[j] === "/") top = true;
+      else exclude = true;
+    }
+    if (rest[j] === ":") j += 1;
+    rest = rest.slice(j);
+  }
+  if (exclude) return "exclude";
+  const everything = top ? ["", ".", "./", "*", "./*"] : [".", "./", "*", "./*"];
+  return everything.includes(rest) ? "whole" : "part";
+}
+
+/** The shape of an email address, the same one the licence server and the organisation's
+ *  dashboard accept. */
+export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** The value `git config` is given for a key found at `key` in the segment: undefined when
+ *  none (a read), null when it cannot be read from the command line (a variable, a
+ *  substitution), the literal value otherwise. */
+function configValue(seg, key, inner) {
+  const after = operandsOf(words(seg.slice(key.index + key[0].length)));
+  if (!after.length) return inner.length ? null : undefined;
+  const word = after[0];
+  if (/^["']?\$/.test(word.raw)) return null;
+  return word.value.trim();
+}
+
+/** The management APIs the plugin's own scripts call. test-hooks.mjs checks that every one
+ *  of them is here: the rule then covers what the harness knows how to operate, without
+ *  being reopened provider by provider (outside review, 3.2.5). */
+export const MANAGED_API_HOSTS = [
+  "console.neon.tech",
+  "api.vercel.com",
+  "api.cloudflare.com",
+  "api.github.com",
+  "api.render.com",
+  "api.upstash.com",
+  "api.stripe.com",
+  "api.brevo.com",
+  "api.resend.com",
+  "api.bitwarden.com",
+  "api.bitwarden.eu",
+  "www.googleapis.com",
+];
+// Where a PUT or a PATCH overwrites what exists (a project's settings, a DNS record, a
+// branch): elsewhere the plugin's skills PUT to create (a site in Search Console, a sender).
+const OVERWRITING_API_HOSTS = ["console.neon.tech", "api.vercel.com", "api.cloudflare.com"];
+
+/** A raw curl that destroys at a managed API (DELETE), or overwrites where that can lose
+ *  data or take a site down (PUT, PATCH). */
+function destructiveApiCall(seg) {
+  if (!/^curl\s/.test(seg)) return false;
+  const method = /(?:-X|--request)[\s=]*["']?(DELETE|PATCH|PUT)\b/i.exec(seg)?.[1]?.toUpperCase();
+  if (!method) return false;
+  const hosts = method === "DELETE" ? MANAGED_API_HOSTS : OVERWRITING_API_HOSTS;
+  return hosts.some((host) => new RegExp(`https?://${host.replace(/\./g, "\\.")}(?=[/:?"'\\s]|$)`, "i").test(seg));
+}
+
+/** The SQL a run-sql.mjs call is about to run, read as the script reads its arguments: the
+ *  first one that is neither a flag nor the value of --conn. */
+function sqlOf(seg) {
+  const list = operandsOf(words(seg));
+  const at = list.findIndex((w) => /run-sql\.mjs$/.test(w.value));
+  if (at < 0) return quotedPayloads(seg).join(" ");
+  for (let a = at + 1; a < list.length; a += 1) {
+    const v = list[a].value;
+    if (v === "--conn") {
+      a += 1;
+      continue;
+    }
+    if (v.startsWith("--")) continue;
+    return v;
+  }
+  return "";
+}
+
 const DENY = "deny";
 const ASK = "ask";
 
@@ -387,7 +731,9 @@ export function decide(command, inherited = new Map()) {
     }
   };
 
-  for (const { text: outer, inner } of readCommandLine(command)) {
+  const parts = readCommandLine(command);
+  for (let index = 0; index < parts.length; index += 1) {
+    const { text: outer, inner } = parts[index];
     // What a substitution runs is judged first, as a command line of its own;
     // the segment is then read without it (`x=$(git push)` leaves `x=`).
     const { env, seg } = normalise(outer);
@@ -414,12 +760,31 @@ export function decide(command, inherited = new Map()) {
       continue;
     }
 
+    // A shell that reads its script from elsewhere runs it just the same: `bash <<'EOF'`
+    // runs the heredoc's body, `bash <<< '...'` its word, `echo '...' | bash` what the echo
+    // prints, `bash <(echo ...)` what the substitution prints. A heredoc's body is data for
+    // every other command, and the scanner reads it as such; here it IS the script, and it
+    // goes through the same decision (outside review, 3.2.4: once the scanner stopped
+    // cutting heredoc bodies into segments, `bash <<'EOF'` then `git push` walked past).
+    // Where the script cannot be read from the command line (a file, curl, a program),
+    // nothing is judged: this guard reads commands, it does not run them.
+    const scripts = scriptsOf(parts, index, seg);
+    if (scripts !== null) {
+      for (const script of scripts) {
+        const verdict = decide(script, env);
+        if (verdict) keep(verdict.decision, verdict.reason);
+      }
+      continue;
+    }
+
     // 1. Sweeping stage. No legitimate use in a repository where another
     //    session may be working, and the alternative is one word longer.
     //    One documented exception: an operation that restructures the whole
     //    tree (monorepo conversion) after a `git status` proved nothing
     //    foreign is pending. The prefix makes that intent explicit and
     //    visible in the command itself.
+    //    `git add :/` and `git add ':(top)'` are the same sweep, and from a
+    //    subfolder they take MORE than the refused `.` (outside review, 3.2.4).
     //    The prefix is documented in the README and in the skills that need
     //    it, and deliberately NOT in the reason below: that text is read by
     //    the model, which is also who can type the prefix. A refusal that
@@ -428,6 +793,7 @@ export function decide(command, inherited = new Map()) {
     if (
       /^git\s+add\s+(-[a-zA-Z]*[Au][a-zA-Z]*\b|--all\b|--update\b|\.(\s|$))/.test(seg) ||
       /^git\s+add\s+[^|&]*\s(-[a-zA-Z]*[Au][a-zA-Z]*|--all|--update|\.)(\s|$)/.test(seg) ||
+      sweepingPathspecs(seg) ||
       /^git\s+commit\s+(-[a-zA-Z]*a[a-zA-Z]*|--all)(\s|$)/.test(seg)
     ) {
       if (env.get("HYPERVIBE_GUARD_ALLOW_SWEEP") === "1") continue;
@@ -534,18 +900,17 @@ export function decide(command, inherited = new Map()) {
       continue;
     }
 
-    // 5b. A raw call to the database provider's API that destroys or rewrites (DELETE, PATCH,
-    // PUT): a project, a branch with its data, a key in service. The harness has scripts for
-    // these, which check their answers; a bare curl does not, and the id of the main branch
-    // in a DELETE is production gone with every backup. Reads (GET) and creations (POST) pass.
-    if (
-      /^curl\s/.test(seg) &&
-      /console\.neon\.tech/.test(seg) &&
-      /(?:-X|--request)\s*["']?(?:DELETE|PATCH|PUT)\b/i.test(seg)
-    ) {
+    // 5b. A raw call that destroys or rewrites at a provider this plugin operates (DELETE,
+    //     and PUT or PATCH where they overwrite): a project, a database branch with its data,
+    //     a DNS record, a key in service. The harness has scripts for these, which check the
+    //     provider's answers; a bare curl does not. First written for the database provider
+    //     alone, now every management API the plugin's own scripts call (outside review,
+    //     3.2.5: a Vercel project and a Cloudflare DNS record went unasked). Reads (GET) and
+    //     creations (POST) pass.
+    if (destructiveApiCall(seg)) {
       keep(
         ASK,
-        "This call deletes or rewrites something at the database provider (a project, a branch and its data, a key in service). Say exactly what is targeted, by name, and confirm with the user. Prefer the plugin's scripts, which check the provider's answers.",
+        "This call deletes or rewrites something at a provider the plugin manages (a project, a database and its data, a DNS record, a key in service). Say exactly what is targeted, by name, and confirm with the user. Prefer the plugin's scripts, which check the provider's answers.",
       );
       continue;
     }
@@ -557,15 +922,15 @@ export function decide(command, inherited = new Map()) {
     //    file name and a quoted keyword (outside review, 2.9.5). Exactly the
     //    wolf the note at the top of this file says to avoid.
     if (/^(?:node|bun|deno|tsx)\s/.test(seg) && /run-sql\.mjs/.test(seg)) {
-      const sql = quotedPayloads(seg).join(" ");
-      // ANY drop, whatever the object: the same expression as run-sql.mjs
-      // (DROP_ANYTHING). The two lists used to differ (the script knew INDEX,
-      // VIEW and TYPE, this rule did not), so `--destructif "DROP TYPE x"` ran
-      // with nobody asked. test-hooks.mjs replays both guards side by side.
-      const destructive = /\bDROP\s+[A-Za-z_]/i.test(sql) || /\bTRUNCATE\b/i.test(sql);
-      const unbounded =
-        (/\bDELETE\s+FROM\b/i.test(sql) || /\bUPDATE\b[\s\S]*\bSET\b/i.test(sql)) &&
-        (!/\bWHERE\b/i.test(sql) || /\bWHERE\s+(?:TRUE|1\s*=\s*1)\s*(?:;|$)/i.test(sql.trim()));
+      // The SAME check as run-sql.mjs, read from the same file (scripts/db/sql-guard.mjs).
+      // This rule used to keep its own expressions and to look inside the string literals the
+      // script neutralises: an INSERT that logged the words 'DROP TABLE' was refused here and
+      // run there, and a refusal of a harmless statement teaches the --destructif flag, the
+      // one thing it must never teach (outside review, 3.2.5). test-hooks.mjs still replays
+      // both, statement by statement.
+      const found = statementsDestructrices(sqlOf(seg));
+      const destructive = found.some((what) => !/sans WHERE/.test(what));
+      const unbounded = found.some((what) => /sans WHERE/.test(what));
       // run-sql.mjs accepts both spellings of the flag; so does this rule,
       // or the alias its own usage documents is refused with a message that
       // tells the user to do what they just did (outside review, 3.0.4).
@@ -573,7 +938,7 @@ export function decide(command, inherited = new Map()) {
       if (destructive && !flagged) {
         keep(
           DENY,
-          "Destructive SQL refused (DROP / TRUNCATE). If it is genuinely intended, re-run the same command with the `--destructif` flag, which will ask the user to confirm.",
+          `Destructive SQL refused (${found.join(", ")}), by the same check run-sql.mjs makes: outside string literals, whatever the object. If it is genuinely intended, re-run the same command with the \`--destructif\` flag, which will ask the user to confirm.`,
         );
         continue;
       }
@@ -611,15 +976,22 @@ export function decide(command, inherited = new Map()) {
     //    machine: code that arrived with a clone. A person decides that, per
     //    checkout. The hook's own notice reaches the model in the output of a
     //    commit, so the model must not be the one typing the opt-in (outside
-    //    review, 3.1.6). Reads and the removal of the opt-in stay free.
+    //    review, 3.1.6). Reads and the removal of the opt-in (`--unset`, or a
+    //    value git reads as false) stay free.
     //    Git reads key names case-insensitively (`HYPERVIBE.HOOKS` sets the
     //    same value), so does the match; and a read is a read only when its
     //    option or subcommand comes BEFORE the key, not in a trailing comment
     //    (outside review, 3.1.8).
     const trustKey = /^git\s+config\b/.test(seg) ? /\bhypervibe\.hooks\b/i.exec(seg) : null;
-    const trustWrite =
+    const trustRead =
       trustKey !== null &&
-      !/\s(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|get|unset|list)(?=\s|$)/.test(seg.slice(0, trustKey.index));
+      /\s(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|get|unset|list)(?=\s|$)/.test(seg.slice(0, trustKey.index));
+    // What is written decides: a value git reads as false withdraws the agreement, and the
+    // key given alone is a read. A value that can be true asks, and so does one this hook
+    // cannot read (a variable, a substitution). Outside review, 3.2.5: `false` asked,
+    // although the comment above promised that the removal stays free.
+    const trustValue = trustKey !== null && !trustRead ? configValue(seg, trustKey, inner) : undefined;
+    const trustWrite = trustValue === null || (typeof trustValue === "string" && !/^(?:false|no|off|0|)$/i.test(trustValue));
     if (
       trustWrite ||
       (/^(?:node|bun|deno|tsx)\s/.test(seg) && /ensure-hooks-chain\.mjs/.test(seg) && /--trust\b/.test(seg))
@@ -629,6 +1001,26 @@ export function decide(command, inherited = new Map()) {
         "Trusting this checkout's versioned git hooks means running code that arrived with a clone. A person decides that, per checkout: confirm with the user first.",
       );
       continue;
+    }
+
+    // 8b. An author address that is not an address. Every commit carries user.email in its
+    //     header, and a push publishes it: on 22/09/2026 a machine's user.email held what
+    //     looked like a password, and the Team licence had sent it to the server. A literal
+    //     value that is not an address is refused; a variable, which this hook cannot read,
+    //     is not. The refusal never repeats the value.
+    const emailKey = /^git\s+config\b/.test(seg) ? /(?:^|\s)user\.email(?=\s|$)/i.exec(seg) : null;
+    if (
+      emailKey !== null &&
+      !/\s(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|get|unset|list)(?=\s|$)/.test(seg.slice(0, emailKey.index))
+    ) {
+      const address = configValue(seg, emailKey, inner);
+      if (typeof address === "string" && !EMAIL_SHAPE.test(address)) {
+        keep(
+          DENY,
+          "git's user.email must be an email address (a throwaway test repository can use `test@example.com`): it goes into the header of every commit, and a push publishes it. For a real identity, ask the user which address they sign their commits with (never a password), then set it with `git config --global user.email <address>`.",
+        );
+        continue;
+      }
     }
 
     // 9. Redeploying the shared clock through one of the plugin's own

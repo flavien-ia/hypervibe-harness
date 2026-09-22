@@ -16,7 +16,7 @@
 //   node scripts/tests/test-hooks-chain.mjs
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -37,13 +37,22 @@ function check(name, ok, detail = "") {
 const git = (dir, args, extra = {}) =>
   spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", ...extra });
 
+// A hook git will run: on macOS and Linux git IGNORES, silently, a hook that is not executable
+// (only a hint on stderr). Written without the bit, nothing ran, and the checks of the safe
+// direction below passed on nothing (outside review, 3.2.4, on a Mac).
+function writeHook(file, content) {
+  writeFileSync(file, content, { mode: 0o755 });
+  chmodSync(file, 0o755);
+}
+const announces = (run) => /ships a \.hooks\/pre-commit/.test(run.stderr);
+
 // A throwaway "hooks directory" holding the real pre-commit chain block, as
 // setup-gitleaks-global.mjs would write it (minus the scan, which needs the
 // binary and is not what is under test).
 const base = mkdtempSync(join(tmpdir(), "hypervibe-chain-"));
 const hooksDir = join(base, "global-hooks");
 mkdirSync(hooksDir);
-writeFileSync(join(hooksDir, "pre-commit"), `#!/usr/bin/env sh\n${chainBlock("pre-commit")}exit 0\n`);
+writeHook(join(hooksDir, "pre-commit"), `#!/usr/bin/env sh\n${chainBlock("pre-commit")}exit 0\n`);
 const hooksPathPosix = hooksDir.replace(/\\/g, "/");
 
 // The "cloned" repository: its versioned .hooks/pre-commit writes a witness.
@@ -59,8 +68,11 @@ const witness = join(repo, "WITNESS");
 
 // 1. Without the opt-in: the hook is announced, not run.
 const first = git(repo, ["-c", `core.hooksPath=${hooksPathPosix}`, "commit", "-q", "-m", "first"]);
-check("un clone ne voit pas ses hooks versionnes executes (sans opt-in local)", first.status === 0 && !existsSync(witness), `exit ${first.status}`);
-check("le hook annonce ce que le depot transporte, sur stderr, sans dicter la commande de l'accord", /ships a \.hooks\/pre-commit/.test(first.stderr) && /a person decides/.test(first.stderr) && !/hypervibe\.hooks true/.test(first.stderr));
+// The safe direction is only proven if the block RAN: without its notice, the absent witness
+// would mean nothing (a hook git ignored would give exactly that).
+check("le hook global a bien tourne (son annonce est la), sinon rien de ce qui suit ne prouve quoi que ce soit", announces(first), first.stderr.slice(0, 200));
+check("un clone ne voit pas ses hooks versionnes executes (sans opt-in local)", first.status === 0 && announces(first) && !existsSync(witness), `exit ${first.status}`);
+check("le hook annonce ce que le depot transporte, sur stderr, sans dicter la commande de l'accord", announces(first) && /a person decides/.test(first.stderr) && !/hypervibe\.hooks true/.test(first.stderr));
 
 // 2. The opt-in is local config, and it is never cloned.
 git(repo, ["config", "--local", TRUST_KEY, "true"]);
@@ -109,8 +121,8 @@ fi
 # -----------------------------------------------------------------------------
 exit 0
 `;
-writeFileSync(join(oldDir, "pre-commit"), oldEnglish);
-writeFileSync(join(oldDir, "pre-push"), oldFrench);
+writeHook(join(oldDir, "pre-commit"), oldEnglish);
+writeHook(join(oldDir, "pre-push"), oldFrench);
 const refreshed = refreshChainBlocks(oldDir);
 const newCommit = readFileSync(join(oldDir, "pre-commit"), "utf8");
 const newPush = readFileSync(join(oldDir, "pre-push"), "utf8");
@@ -132,7 +144,7 @@ writeFileSync(join(repo2, ".hooks", "pre-commit"), '#!/bin/sh\necho executed > "
 writeFileSync(join(repo2, "a.txt"), "a\n");
 git(repo2, ["add", "a.txt", ".hooks/pre-commit"]);
 const fourth = git(repo2, ["-c", `core.hooksPath=${oldDir.replace(/\\/g, "/")}`, "commit", "-q", "-m", "first"]);
-check("le hook rafraichi n'execute pas non plus un clone non approuve", fourth.status === 0 && !existsSync(join(repo2, "WITNESS")), `exit ${fourth.status}`);
+check("le hook rafraichi n'execute pas non plus un clone non approuve", fourth.status === 0 && announces(fourth) && !existsSync(join(repo2, "WITNESS")), `exit ${fourth.status}`);
 
 console.log(`\n${checks - failures}/${checks} verifications`);
 if (failures) {

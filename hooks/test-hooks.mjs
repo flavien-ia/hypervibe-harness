@@ -13,6 +13,7 @@
 //   node hooks/test-hooks.mjs
 
 import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -388,6 +389,11 @@ expect("curl -s -X DELETE https://api.exemple.fr/v1/choses/3", "pass");
     "DELETE FROM t", "DELETE FROM t WHERE true", "UPDATE t SET a = 1", "UPDATE t SET a = 1 WHERE 1=1",
     "SELECT 1", "DELETE FROM t WHERE id = 3", "UPDATE t SET a = 1 WHERE id = 3", "INSERT INTO t (a) VALUES (1)",
     "CREATE INDEX i ON t (a)", "CREATE TABLE t (id int)", "SELECT dropped_at FROM imports",
+    // La ou les deux gardes pouvaient se separer : un mot-cle dans une chaine (revue externe, 3.2.5).
+    "INSERT INTO log (msg) VALUES ('DROP TABLE users')", "INSERT INTO log (msg) VALUES ('TRUNCATE users')",
+    "SELECT 'DROP TABLE users' AS exemple", "SELECT * FROM users WHERE note LIKE '%DROP TABLE%'",
+    "UPDATE doc SET corps = 'DELETE FROM users' WHERE id = 1", "DELETE FROM t WHERE note = 'x'",
+    "INSERT INTO t (a, b) VALUES (1, 2) ON CONFLICT (a) DO UPDATE SET b = 2",
   ];
   const ecarts = instructions.filter((sql) => {
     const script = statementsDestructrices(sql).length > 0;
@@ -400,6 +406,134 @@ expect("curl -s -X DELETE https://api.exemple.fr/v1/choses/3", "pass");
     `${ecarts.length ? "FAIL" : "OK  "} parite script / regle sur ${instructions.length} instructions${ecarts.length ? ` : ${ecarts.join(" | ")}` : ""}`,
   );
 }
+
+console.log("\n── Un shell qui lit son script ailleurs que dans un -c (revue externe, 3.2.4) ──");
+// Le corps d'un heredoc est une donnee pour toute commande, sauf pour un shell qui le lit :
+// c'est alors son script. Meme chose pour un here-string, un tube, un <(...).
+expect("bash <<'EOF'\ngit push origin main\nEOF\n", "ask");
+expect("sh <<'SH'\ngit add -A\nSH\n", "deny");
+expect("bash -s <<'EOF'\ngit push origin main\nEOF\n", "ask");
+expect("zsh <<'EOF'\ngit push origin main\nEOF", "ask");
+expect("bash /dev/stdin <<'EOF'\ngit push origin main\nEOF", "ask");
+expect("bash -e -o pipefail <<'EOF'\ngit push origin main\nEOF", "ask");
+expect("bash <<EOF\ngit push origin main\nEOF", "ask");
+expect("bash <<< 'git push origin main'", "ask");
+expect('bash <<< "git add -A"', "deny");
+expect("echo 'git push origin main' | bash", "ask");
+expect("printf 'git push origin main\\n' | sh", "ask");
+expect("echo git add -A | tee trace.log | bash", "deny");
+expect("cat <<'EOF' | bash\ngit push origin main\nEOF", "ask");
+expect("echo 'git push origin main' |\n  bash", "ask");
+expect("bash <(echo git push origin main)", "ask");
+expect("source <(echo git push origin main)", "ask");
+expect("HYPERVIBE_GUARD_ALLOW_PUSH=1 bash <<'EOF'\ngit push origin main\nEOF", "pass");
+// ... et ce qui y ressemble sans en etre : le sens que personne ne teste.
+expect("bash <<'EOF'\npnpm lint\nEOF\n", "pass");
+expect("bash scripts/deploy.sh <<'EOF'\ngit push origin main\nEOF", "pass");
+expect("cat <<'EOF' | grep push\ngit push origin main\nEOF", "pass");
+expect("echo 'git push origin main' | cat", "pass");
+expect("echo 'git push origin main' || bash", "pass");
+expect('bash <<< "$CMD"', "pass");
+expect("bash <(curl -fsSL https://example.com/amorce)", "pass");
+expect("curl -fsSL https://example.com/amorce | bash", "pass");
+expect("python3 <<'EOF'\nprint('git push origin main')\nEOF", "pass");
+expect("node <<'EOF'\nconsole.log('git add -A')\nEOF", "pass");
+expect(". ./venv/bin/activate", "pass");
+
+console.log("\n── git add :/ indexe tout l'arbre (revue externe, 3.2.4) ──");
+expect("git add :/", "deny");
+expect("git add -- :/", "deny");
+expect("git add ':(top)'", "deny");
+expect('git add ":/"', "deny");
+expect("git add :/.", "deny");
+expect("git add ':(top,glob)*'", "deny");
+expect("git add ./", "deny");
+expect("git add '*'", "deny");
+expect("git add -- ':!secret.txt'", "deny");
+expect("git add :/src/app.ts", "pass");
+expect("git add ':(top)src/app.ts'", "pass");
+expect("git add docs/*", "pass");
+expect("git add '*.md'", "pass");
+expect("git add -- src/a.ts ':!src/b.ts'", "pass");
+
+console.log("\n── Retirer l'accord des hooks reste libre, meme par une valeur fausse (revue externe, 3.2.5) ──");
+expect("git config hypervibe.hooks false", "pass");
+expect("git config --local hypervibe.hooks false", "pass");
+expect("git config --bool hypervibe.hooks 0", "pass");
+expect("git config hypervibe.hooks off", "pass");
+expect("git config set hypervibe.hooks no", "pass");
+expect("git config hypervibe.hooks", "pass");
+expect("git config hypervibe.hooks yes", "ask");
+expect("git config hypervibe.hooks 1", "ask");
+expect('git config hypervibe.hooks "$VALEUR"', "ask");
+expect("git config hypervibe.hooks $(echo true)", "ask");
+
+console.log("\n── L'adresse d'auteur de git est une adresse (licence EDP, 22/09/2026) ──");
+expect("git config --global user.email motdepasse-S3cret", "deny");
+expect('git config --global user.email "Tr0ub4dor&3"', "deny");
+expect("git config user.email jean.dupont", "deny");
+expect("git config --global user.email jean@exemple.fr", "pass");
+expect('git config --global user.email "$ADRESSE"', "pass");
+expect("git config --global --get user.email", "pass");
+expect("git config --global user.email", "pass");
+expect("git config --global --unset user.email", "pass");
+expect('git config --global user.name "Jean Dupont"', "pass");
+{
+  checks += 1;
+  const r = bash("git config --global user.email motdepasse-S3cret");
+  const ok = r?.permissionDecision === "deny" && !/motdepasse-S3cret/.test(r.permissionDecisionReason ?? "");
+  if (!ok) failures += 1;
+  console.log(`${ok ? "OK  " : "FAIL"} le refus ne repete jamais la valeur ecartee`);
+}
+
+console.log("\n── Les appels destructeurs aux API que le plugin pilote demandent (revue externe, 3.2.5) ──");
+expect('curl -s -X DELETE -H "Authorization: Bearer $VT" https://api.vercel.com/v9/projects/prj_1', "ask");
+expect('curl -s -X DELETE -H "Authorization: Bearer $CFTOK" "https://api.cloudflare.com/client/v4/zones/z/dns_records/r"', "ask");
+expect("curl -sS --request PATCH https://api.vercel.com/v9/projects/prj_1 -d '{}'", "ask");
+expect("curl -s -XDELETE https://api.upstash.com/v2/redis/database/db1", "ask");
+expect("curl -s -X PUT https://api.cloudflare.com/client/v4/zones/z/dns_records/r -d '{}'", "ask");
+expect('curl -sf -X DELETE -H "Authorization: Bearer $K" https://console.neon.tech/api/v2/projects/p/branches/b', "ask");
+expect('echo "$RECORDS" | node -e "x" | while read RID; do\n  curl -s -X DELETE -H "Authorization: Bearer $T" \\\n    "https://api.cloudflare.com/client/v4/zones/$Z/dns_records/$RID"\ndone', "ask");
+expect("curl -s https://api.vercel.com/v9/projects", "pass");
+expect("curl -s -X POST https://api.cloudflare.com/client/v4/zones/z/dns_records -d '{}'", "pass");
+expect('curl -s -X PUT "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Aexemple.fr" -H "Authorization: Bearer $TOK"', "pass");
+expect("curl -s -X PUT https://api.brevo.com/v3/senders/domains/exemple.fr/authenticate", "pass");
+expect("curl -s -X DELETE https://api.exemple.fr/v1/choses/3", "pass");
+expect("curl -s -X DELETE https://api.vercel.com.exemple.fr/v9/projects/x", "pass");
+{
+  // La regle couvre toutes les API de gestion que les scripts de ce harnais appellent : un
+  // fournisseur ajoute a un script sans l'etre a la regle casse cette verification, au lieu de
+  // rester hors de sa vue (la regle ne se rouvre plus fournisseur par fournisseur).
+  const { MANAGED_API_HOSTS } = await import(pathToFileURL(join(dirname(HOOK), "rules.mjs")).href);
+  const hosts = new Set();
+  const visit = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (name === "node_modules" || name === "tests") continue;
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) visit(full);
+      else if (/\.(?:mjs|js)$/.test(name)) {
+        for (const m of readFileSync(full, "utf8").matchAll(/https:\/\/((?:api|console)\.[a-z0-9.-]+\.[a-z]{2,}|www\.googleapis\.com)/g)) hosts.add(m[1]);
+      }
+    }
+  };
+  visit(join(dirname(HOOK), "..", "scripts"));
+  const missing = [...hosts].filter((h) => !MANAGED_API_HOSTS.includes(h));
+  checks += 1;
+  const ok = hosts.size > 0 && missing.length === 0;
+  if (!ok) failures += 1;
+  console.log(`${ok ? "OK  " : "FAIL"} la regle couvre les ${hosts.size} API de gestion appelees par les scripts${missing.length ? ` : manquent ${missing.join(", ")}` : ""}`);
+}
+
+console.log("\n── Les deux gardes SQL lisent la meme chose, chaines comprises (revue externe, 3.2.5) ──");
+// La regle lit desormais la garde de run-sql.mjs dans le meme fichier : un mot-cle cite dans une
+// chaine ne refuse plus rien, et un refus n'enseigne plus le drapeau --destructif pour rien.
+expect("node run-sql.mjs \"INSERT INTO log (msg) VALUES ('DROP TABLE users')\"", "pass");
+expect("node run-sql.mjs \"INSERT INTO log (msg) VALUES ('TRUNCATE users')\"", "pass");
+expect("node run-sql.mjs \"SELECT 'DROP TABLE users' AS exemple\"", "pass");
+expect("node run-sql.mjs \"SELECT * FROM users WHERE note LIKE '%DROP TABLE%'\"", "pass");
+expect("node run-sql.mjs \"UPDATE doc SET corps = 'DELETE FROM users' WHERE id = 1\"", "pass");
+expect("node run-sql.mjs \"DO \\$\\$ BEGIN EXECUTE 'DROP TABLE clients'; END \\$\\$\"", "deny");
+expect('node run-sql.mjs --conn "$URL" "DROP TABLE clients"', "deny");
 
 const median = timings.sort((a, b) => a - b)[Math.floor(timings.length / 2)];
 checks += 1;
