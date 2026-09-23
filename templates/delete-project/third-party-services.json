@@ -105,13 +105,6 @@
       "label": "GitHub Personal Access Token (PAT)",
       "actionUrl": "https://github.com/settings/tokens",
       "instructions": "Va sur github.com → Settings → Developer settings → Personal access tokens. Si un PAT est dédié à ce projet (nom contient le projet), révoque-le."
-    },
-    {
-      "pattern": "^GOOGLE_FORMS_REFRESH_TOKEN$|^YOUTUBE_REFRESH_TOKEN$|^SHOPIFY_|^OPUSCLIP_|^PENNYLANE_|^WIKIDATA_|^BLUESKY_|^LINKEDIN_|^HOSTINGER_|^ZOOM_",
-      "service": "Service personnel de l'utilisateur",
-      "label": "Compte personnel (potentiellement partagé entre projets, à NE PAS supprimer)",
-      "actionUrl": null,
-      "instructions": "Ces variables correspondent à des comptes personnels mutualisés entre projets (documentés dans ~/.claude/CLAUDE.md global). Ne PAS supprimer la clé / le compte. Le projet supprimé arrête juste de les utiliser."
     }
   ]
 }

@@ -366,11 +366,16 @@ added the AI provider to the subprocessor registry when it installed the brick.
 
 If the workflow sends end-user data to any OTHER third party of its own (a
 storage service, an enrichment API, a mailer the project did not have yet),
-declare that one:
+declare that one. A service of the catalogue (`--catalog` lists them) takes its
+key:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add <service>
+node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add <key>
 ```
+
+Any other service is not in the catalogue, and `--add` refuses it: tell the
+person, and run `/rgpd-audit` once the workflow is written. It finds the new
+service and documents it with them, from the provider's official pages.
 
 ## Step 8 - Final summary
 

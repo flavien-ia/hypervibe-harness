@@ -140,9 +140,17 @@ pnpm audit --prod --json 2>&1
 
 ### 1h - Rate limiting and abuse protection
 
-- **Public API routes**: check whether rate limiting is in place (via middleware or a service like Vercel Edge).
+- **Public API routes**: check whether rate limiting is in place (the plugin's `rateLimitedProcedure`, or a middleware).
 - **Forms**: check for the presence of anti-spam protection (honeypot, rate limiting, or captcha).
 - **Authentication**: check for protection against brute force (rate limit on login, delay after X attempts).
+
+**The plugin's own limiter is a deliberate choice, not a finding.** `src/lib/rate-limit.ts` (put in place by /bootstrap, /add-auth, /add-2fa and the fix of Step 3) counts attempts in the server's memory: 5 per 15 minutes per address. On a serverless host, several copies of the server can run at once, each keeps its own count, and a restart resets it: under a real attack, a limit of 5 can let a few more attempts through. That was accepted on purpose. It needs no service, no key and no account; at the scale of the sites built with the plugin it still makes guessing a password or a code impractical; and no per-address limit, shared or not, stops an attack spread over many addresses (the defences against that one are strong passwords and /add-2fa).
+
+So, when you find it:
+- Mark the point ✅ *"in place (in-memory counter, a deliberate choice)"* and state its limit in one plain sentence. Never report it as ⚠️ or 🔴, and never list it among the fixes.
+- **Never add an external service for it on your own initiative** (Upstash, Redis, a hosted key-value store, an integration from the host's marketplace): that is a new account, a new key and a new subprocessor to declare in the privacy policy, for a gain nobody asked for. It happened twice on the same participant's project before this rule was written.
+- Offer the **shared counter** only when the person reports a real attack (failed logins piling up in the logs, waves of spam through a form) or asks for it. It keeps the count in the project's own database, with no new service: Step 3, "Shared counter".
+- A project without a database keeps the in-memory counter: say so, and stop there.
 
 ### 1i - Data exposure
 
@@ -252,6 +260,16 @@ If yes, fix in this order of priority:
    - The script writes the `rateLimitedProcedure` error message in English: if the project's audience is not English-speaking, translate that message in `src/server/api/trpc.ts` into the site's language.
 6. **Vulnerable dependencies** → parse the JSON output of the audit run in 1g (`pnpm audit --prod --json`, or `npm audit --omit=dev --json` on an npm project) to identify the affected packages, then `pnpm update <pkg>@<safe-version>` for each. Do not rely on `pnpm audit --fix`: it does not update anything, it writes blanket `overrides` into package.json, which pins transitive versions indefinitely and hides the problem instead of fixing it.
 7. **Remaining problems** identified in the audit.
+
+### Shared counter (only at the person's request)
+
+The only upgrade of the rate limiter this plugin makes, and only in the cases of 1h (a real attack reported, or an explicit request). It moves the count into the project's own database, so every copy of the server shares it: no new service, key or account.
+
+1. **The project needs a database**: `src/server/db/index.ts` and `src/server/db/schema.ts` (or `packages/db/src/` in a monorepo). Without them, keep the in-memory counter and say why.
+2. **The table**: insert `${CLAUDE_SKILL_DIR}/../../templates/security/rate-limit-schema-snippet.ts` into the schema, following the file's own conventions (its imports and its `createTable`), then push the schema the way the project does (`pnpm db:push`).
+3. **The limiter**: replace `src/lib/rate-limit.ts` with `${CLAUDE_SKILL_DIR}/../../templates/security/rate-limit-shared.ts`, as is. Same export, same limits, same answer; tried for real on PostgreSQL (five attempts pass, the sixth is refused, ten simultaneous calls let exactly five through).
+4. **The calls**: `checkRateLimit` is now asynchronous. Put `await` in front of every call (`grep -rn "checkRateLimit(" src/`), then run `pnpm tsc --noEmit`: a forgotten `await` is a type error, so the compiler finds any call left behind. A brick added later that calls the limiter itself (`/add-2fa` does) writes its call without `await`: the same check flags it, and the fix is the same.
+5. **Say what changed**, in plain words: the count is now shared by every copy of the server and survives a restart; each check adds one small query to the database; the addresses are forgotten after a day.
 
 **After the fixes, before reporting**: run `pnpm tsc --noEmit && pnpm lint` and fix any error they raise. Never leave the project in a state that does not compile or lint (never use `pnpm build` for this check).
 

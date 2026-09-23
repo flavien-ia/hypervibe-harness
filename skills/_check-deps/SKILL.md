@@ -123,7 +123,7 @@ Fields returned : `{ ok, reason, bucket?: string|null, publicUrl?: string|null, 
 
 ### `analytics` - Google Analytics (GA4) configured
 
-`ok: true` if `NEXT_PUBLIC_GA_ID` is present, non-placeholder, and starts with `G-` (GA4 format).
+`ok: true` if `NEXT_PUBLIC_GA_MEASUREMENT_ID` (the name `/add-analytics` writes; the older `NEXT_PUBLIC_GA_ID` is still accepted) is present, non-placeholder, and starts with `G-` (GA4 format).
 
 Fields returned : `{ ok, reason, gaId? }`.
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.3.0 (23 septembre 2026)
+
+### Nouveautés
+- **Audit RGPD de tous les services** : `/rgpd-audit` repère désormais tous les services branchés à votre projet, y compris ceux que le plugin ne connaît pas encore (une variable qui ressemble à une clé, le paquet d'un service connu, une adresse que votre code contacte). Il vous les signale « à identifier », puis, avec vous, rédige la fiche du service à partir des pages officielles du fournisseur, ou note pourquoi aucune donnée personnelle n'y passe.
+- **Sentry, Upstash et Vercel Speed Insights** rejoignent le catalogue de la politique de confidentialité.
+
+### Améliorations
+- **Audit de sécurité** : `/security` ne prend plus la limitation anti-abus intégrée pour un défaut, et n'ajoute plus de service externe de lui-même. Face à une vraie attaque, il propose un compteur partagé qui vit dans la base de votre projet, sans nouveau compte ni nouvelle clé.
+- **Politique de confidentialité** : OpenRouter, que le plugin déclare lui-même, n'est plus proposé au retrait.
+- **Domaine** : `/add-domain` reconnaît Google Analytics sous le nom de variable qu'écrit `/add-analytics`.
+
+### Coulisses
+- La liste des comptes à ne jamais proposer à la suppression ne fait plus partie du plugin : `/delete-project` la lit sur la machine de chacun.
+- Nouvelles recettes pour l'audit RGPD, le limiteur et la suppression de projet.
+
 ## v3.2.6 (22 septembre 2026)
 
 ### Améliorations

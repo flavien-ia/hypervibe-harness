@@ -21,8 +21,9 @@ Audite la conformité RGPD de votre projet et met à jour votre politique de con
   - Paiements (Stripe)
   - Stockage (Cloudflare R2)
   - Analytics (Google Analytics)
-  - IA (Anthropic)
-  - Et tous les autres détectables
+  - IA (OpenRouter, Anthropic)
+  - Suivi des erreurs (Sentry), cache et limitation des requêtes (Upstash), mesure de performance (Vercel Speed Insights)
+  - **Et ceux qu'il ne connaît pas encore** : une variable qui ressemble à une clé ou à une adresse, le paquet d'un service connu, une adresse que votre code contacte. Hypervibe vous les signale « à identifier » au lieu de les ignorer.
 
 3. **Comparaison avec le registre** : Hypervibe lit `src/lib/subprocessors.json` (le registre central des sous-traitants RGPD du projet) et compare avec ce qui est détecté dans le code.
 
@@ -30,6 +31,7 @@ Audite la conformité RGPD de votre projet et met à jour votre politique de con
   - **Détectés dans le code** : la liste complète des services tiers actuellement utilisés (avec la preuve : `package.json`, env var, ou pattern de code)
   - **Manquants** : services détectés mais **absents du registre** (à ajouter)
   - **Obsolètes** : services présents dans le registre mais **plus détectés** dans le code (à supprimer ou justifier)
+  - **À identifier** : les signes d'un service qu'Hypervibe n'a pas pu nommer. Avec vous, il établit ce que c'est et si des données personnelles y passent. Si oui, il rédige sa fiche depuis les pages officielles du fournisseur, et vous la validez. Si non, il note la raison, et ne vous repose plus la question.
 
 5. **Corrections proposées** : Hypervibe vous propose :
   - **Mettre à jour le registre** `subprocessors.json` avec les manquants et / ou retirer les obsolètes

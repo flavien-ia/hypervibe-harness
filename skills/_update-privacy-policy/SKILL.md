@@ -56,8 +56,13 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add neon --
 | `anthropic` | a project that deliberately calls Anthropic directly | |
 | `render` | `/add-automation` (Render variant), `_create-agent` | Free web service or paid worker, same legal entity either way |
 | `openfreemap` | `/add-map` | The visitor's own browser fetches the tiles, so a third party gets their IP on every page carrying a map |
-| `cloudflare` | `/new-email-address`, `/add-domain` | DNS and email relay. **Distinct from `cloudflare-r2`**: same company, different processing. Flagged `manuallyDeclared` |
+| `cloudflare` | `/new-email-address`, and `/rgpd-audit` asks for it | Email relay: the messages sent to the domain's addresses pass through it. **Distinct from `cloudflare-r2`**: same company, different processing. Flagged `manuallyDeclared` |
 | `web-push` | `/add-push-notification` | The browser vendor's push service carries the payload. Encrypted (VAPID), so it cannot read it |
+| `sentry` | none: `/rgpd-audit` finds it | Error monitoring, when a project adds it on its own. Its DPA applies only once accepted in the Sentry organisation's settings (Legal & Compliance): tell the person |
+| `upstash` | none: `/rgpd-audit` finds it | Serverless Redis (rate limiting, cache), often installed from the host's marketplace |
+| `vercel-speed-insights` | none: `/rgpd-audit` finds it | Performance measured in the visitors' browsers |
+
+A service outside this table is documented for one project with `--entry <file.json>`: a full entry, researched from the provider's official pages and validated by the person (`/rgpd-audit`, Step 4b).
 
 ### `manuallyDeclared` - the subprocessors the audit cannot see
 
@@ -77,7 +82,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --catalog
 - The helper is **idempotent**: re-adding an existing key replaces the entry (so catalog updates propagate). Adding then removing is safe.
 - If the `subprocessors.json` file doesn't exist yet, the helper creates it (along with the TS wrapper). This means `/add-*` skills can call it even on projects that pre-date this system - but those projects won't have the rendering page until `/rgpd-audit` is run.
 - If the script exits non-zero, relay the failure message to the caller - don't retry inline.
-- Calling with an **unknown key** is a hard error (exit 2) - pass an existing catalog key, or extend the catalog in the script first.
+- Calling with an **unknown key** is a hard error (exit 2) - pass an existing catalog key, or document the service with `--entry <file.json>` (`/rgpd-audit`, Step 4b).
 
 ## Other operations
 

@@ -1,6 +1,6 @@
 ---
 name: rgpd-audit
-description: Audit a Next.js project's RGPD compliance. Scans the code, env vars, and dependencies to detect every third-party data processor (subprocessor) actually used, compares it with the project's privacy policy registry (`src/lib/subprocessors.json`), and reports gaps. Offers to fix the registry, generate the privacy policy page if missing, and link it from the mentions légales. Use when bootstrap was done before the registry-driven privacy policy existed, when refactoring an existing site for RGPD compliance, or to verify nothing has drifted between the code and the legal documentation.
+description: Audit a Next.js project's RGPD compliance. Scans the code, env vars, and dependencies to detect every third-party service the project is connected to, including services the plugin does not know yet, compares them with the project's privacy policy registry (`src/lib/subprocessors.json`), and reports gaps. Offers to fix the registry, generate the privacy policy page if missing, and link it from the mentions légales. Use when bootstrap was done before the registry-driven privacy policy existed, when refactoring an existing site for RGPD compliance, or to verify nothing has drifted between the code and the legal documentation.
 allowed-tools: Bash Read Edit Write Glob Grep
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---
@@ -49,6 +49,10 @@ The script returns a JSON object with:
 - `evidence` - for each detected key, the evidence (package, env var, or source pattern)
 - `missing` - keys detected BUT absent from the registry (to add)
 - `stale` - keys present in the registry BUT no longer detected (to remove or justify)
+- `unidentified` - signs of a remote service the audit could not name for sure, each `{ kind, value, where?, service? }`: a variable named like a key or an address (`variable`), a package of a service outside the catalogue (`package`, with the service's name in `service`), a host the code reaches (`host`, with the file in `where`). Plain links, JSON-LD `sameAs`, comments, the project's own domain and the web's standards are already left out.
+- `reviewed` - signs the person already set aside, with their reason (not to raise again)
+- `notProcessors` - hosts reached without anyone's personal data (placeholder images), with the reason
+- `customKeys` - registry entries the project documented for itself, recognised by their own `detect` signs
 
 Capture the output. You will reason about it in the following Steps.
 
@@ -73,7 +77,12 @@ Present the diagnosis clearly. Format:
 > **Registry vs code diff:**
 > - ❌ Missing from the registry: `<missing keys>` (to add)
 > - ⚠️ Stale in the registry: `<stale keys>` (to remove if truly no longer used)
-> - ✅ Everything is aligned (if missing.length === 0 && stale.length === 0)
+> - ✅ Everything is aligned (if missing, stale and unidentified are all empty)
+>
+> **To identify (X):** one line per service, not per sign (a package, its variable and its host are often the same service)
+> - <what it is, in plain words> - <the signs: package, variable, address reached>
+
+Mention `reviewed` in one line ("already looked at, set aside: …") and `notProcessors` in one line, without asking anything about them.
 
 ## Step 2 (bis) - Les sous-traitants que le code ne peut pas révéler
 
@@ -85,6 +94,7 @@ au registre.
 | Ce qu'il faut demander | Clé à ajouter si la réponse est oui |
 |---|---|
 | Le domaine de ce projet reçoit-il des emails redirigés, une adresse du type contact@ ou support@ dont les messages arrivent dans une autre boîte ? | `cloudflare` |
+| Un service de suivi ou de journaux est-il branché dans la console de l'hébergeur (une intégration installée depuis sa boutique, un envoi des journaux vers un autre outil, une surveillance de disponibilité) ? | aucune clé toute faite : le documenter comme au Step 4b, avec `manuallyDeclared: true` à la place de `detect` |
 
 Formule-la en langage courant, jamais en jargon :
 
@@ -98,12 +108,26 @@ Ces fiches portent `manuallyDeclared` : aux passages suivants, l'audit ne les
 proposera **jamais** à la suppression, alors même qu'il ne les détecte pas. La
 question ne se pose donc qu'une fois dans la vie du projet.
 
+## Step 2 (ter) - What the audit could not name
+
+For each service behind the `unidentified` signs, one at a time:
+
+1. **Name it.** The package's page on the npm registry, the variable's name, the owner of the host: say plainly what the service is and what the project uses it for. Group the signs of one service together.
+2. **Decide with the person whether anyone's personal data reaches it**: visitors, users, customers (an IP address counts, and so does an email sent through it). Never decide alone when it is not obvious: ask.
+   - **Not a subprocessor** (a token used at build time, a public API the server reads without sending anyone's data, a link the audit took for a call): set it aside, with the person's agreement and the reason in a full sentence:
+     ```bash
+     node "${CLAUDE_SKILL_DIR}/../../scripts/privacy/review.mjs" add --kind <variable|package|host> --value "<value>" --reason "<why no personal data reaches it>"
+     ```
+     The reason is kept in the project (`.hypervibe/privacy-review.json`, versioned with it) and the next audit does not ask again.
+   - **No longer used** (a leftover variable or package): propose removing it from the project rather than setting it aside.
+   - **A subprocessor**: it goes into the policy (Step 4b).
+
 ## Step 3 - Propose actions
 
 Ask the user which actions to run, as a menu:
 
 > Would you like to:
-> 1. **Synchronize the registry** (add `missing`, remove `stale`)
+> 1. **Synchronize the registry** (add `missing`, document what Step 2 ter identified, remove `stale`)
 > 2. **Generate / refresh the page** of the privacy policy
 > 3. **Update the legal notices** to point to the privacy policy
 > 4. **Do everything** (1 + 2 + 3)
@@ -127,7 +151,22 @@ If yes:
 node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --remove <key>
 ```
 
-If the detected key is not in the helper's catalog (rare - it would mean we invented a new subprocessor), the helper rejects with an error. In that case, alert the user - the catalog must be extended in `scripts/update-privacy-policy.mjs` on the plugin side.
+## Step 4b - Document a service outside the catalogue
+
+The catalogue covers the services the plugin installs and the most common others. Any other subprocessor is documented for this project, with an entry supplied whole. It is published as a legal statement on the site, so the facts come from the provider itself:
+
+1. **Research from the provider's official pages only**: its privacy policy, its data processing agreement (DPA), its legal notice, its trust or security centre, its documentation on where data is stored. Never from memory, a blog or an AI engine's answer.
+2. **Write the entry in a temporary file** (the session's scratch directory, never in the repository), with every field of a catalogue entry: `key` (kebab-case), `name` (the legal entity that contracts), `address` (as the provider states it), `country`, `purpose`, `dataTypes`, `retention`, `legalBasis`, `isEUResident`, `transferMechanism` (null inside the EU), `privacyUrl`, `dpaUrl` when one exists; French at the root and English under `i18n.en`, like the catalogue (`--catalog` shows examples). Add:
+   - `"custom": true`;
+   - `"detect"`: the signs that revealed it, in the shape `{ "deps": [...], "env": [...], "envPrefixes": [...], "hosts": [...] }`, so the next audit recognises it. Hand-declared services with no trace in the code (Step 2 bis) take `"manuallyDeclared": true` instead;
+   - `"sources"`: the official pages actually opened;
+   - `"checkedAt"`: today's date (`YYYY-MM-DD`).
+3. **A fact you could not verify is never filled with a guess.** Say what is missing and let the entry wait.
+4. **Show the entry to the person in plain words** (who receives what, where it is kept, what protects a transfer outside the EU), then apply it only with their agreement:
+   ```bash
+   node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --entry <file.json>
+   ```
+   The helper checks every required field and refuses a half-filled entry.
 
 ## Step 5 - Generate or refresh the policy page (if requested)
 
@@ -215,7 +254,7 @@ Present a short recap:
 > **To do manually**:
 > - Replace `contact@example.com` in the page with your real contact address
 > - Check the legal content of sections 5 (rights) and 6 (cookies) - the template provides standard wording, but your case may require adjustments (minors vs adults, health data, etc.)
-> - If you added an unusual subprocessor not covered by the catalog, extend `scripts/update-privacy-policy.mjs` on the Hypervibe plugin side
+> - The services documented for this project only (outside the catalogue) were checked on the date each entry carries: re-check them about once a year, providers move
 
 ---
 
@@ -223,4 +262,4 @@ Present a short recap:
 
 - **Project without any subprocessor** (purely static site): only Vercel will be detected. That is OK - the page must still exist to comply with the LCEN.
 - **False positive detected**: if the script reports a subprocessor that is not actually used (for example, `@vercel/analytics` installed but never imported in the layout), inform the user - they can `pnpm remove` the dependency, or you can extract the key from the registry via `--remove`.
-- **Out-of-catalog subprocessor**: the `_update-privacy-policy` helper rejects unknown keys. This is intentional, to avoid inventing legal data. If a project uses an exotic service (Mailjet, OVH Object Storage, …), extend the catalog in the plugin's `scripts/update-privacy-policy.mjs` with the correct legal info (legal name, registered office address, legal basis, mechanism for transfers outside the EU where applicable).
+- **Out-of-catalog subprocessor**: `--add` still rejects unknown keys, on purpose: nothing may invent legal data. A service outside the catalogue goes through Step 4b, researched from its official pages and validated by the person. When the same service keeps coming back across projects, it deserves a catalogue entry on the plugin side.

@@ -15,6 +15,8 @@
 //   node update-privacy-policy.mjs --add stripe
 //   node update-privacy-policy.mjs --add neon --add resend
 //   node update-privacy-policy.mjs --remove brevo
+//   node update-privacy-policy.mjs --entry <file.json>   (a full entry, for a service outside the
+//        catalogue that a project documents for itself after /rgpd-audit)
 //   node update-privacy-policy.mjs --list
 //   node update-privacy-policy.mjs --catalog
 //
@@ -443,6 +445,96 @@ const CATALOG = {
       },
     },
   },
+  // Documentée le 23/09/2026 : sentry.io/privacy (v3.3.2), DPA v5.1.0 (Schedule 3 : DPF, puis CCT),
+  // docs.sentry.io (data-storage-location, data-retention-periods, data-collected pour Next.js),
+  // fiche Data Privacy Framework n° 5869. Son DPA ne s'applique qu'une fois accepté dans les réglages
+  // de l'organisation Sentry (Legal & Compliance).
+  sentry: {
+    name: "Functional Software, Inc. (Sentry)",
+    address: "45 Fremont Street, 8th Floor, San Francisco, CA 94105, USA",
+    country: "US",
+    purpose: "Suivi des erreurs et des performances de l'application",
+    dataTypes: [
+      "Adresses IP",
+      "Détails des erreurs (pile d'appels, URL, navigateur, système)",
+      "En-têtes, cookies et corps des requêtes (valeurs sensibles masquées)",
+      "Identifiant et email de l'utilisateur (si l'application les renseigne)",
+      "Enregistrements de session masqués (si Session Replay est activé)",
+    ],
+    retention: "Erreurs et enregistrements de session : 30 jours (offre Developer) ou 90 jours (offres payantes) ; traces et journaux : 30 jours",
+    legalBasis: "Intérêt légitime (art. 6.1.f RGPD)",
+    isEUResident: false,
+    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée), clauses contractuelles types en secours. Région de stockage choisie à la création de l'organisation (UE, Francfort, disponible), comptes et métadonnées d'organisation aux États-Unis",
+    privacyUrl: "https://sentry.io/privacy/",
+    dpaUrl: "https://sentry.io/legal/dpa/",
+    i18n: {
+      en: {
+        purpose: "Application error and performance monitoring",
+        dataTypes: [
+          "IP addresses",
+          "Error details (stack trace, URL, browser, OS)",
+          "Request headers, cookies and bodies (sensitive values scrubbed)",
+          "User ID and email (if set by the application)",
+          "Masked session recordings (if Session Replay is enabled)",
+        ],
+        retention: "Errors and session replays: 30 days (Developer plan) or 90 days (paid plans); spans and logs: 30 days",
+        legalBasis: "Legitimate interest (Art. 6.1.f GDPR)",
+        transferMechanism: "EU-US Data Privacy Framework (certified entity), Standard Contractual Clauses as fallback. Storage region chosen when the organization is created (EU, Frankfurt, available), accounts and organization metadata stay in the US",
+      },
+    },
+  },
+  // Documentée le 23/09/2026 : conditions et DPA d'avril 2025 (upstash.com/trust, DPA §3.2(B) : DPF,
+  // puis CCT), régions (docs Upstash, global-replication), fiche Data Privacy Framework n° 9423.
+  // Adresse : seule cette fiche DPF en donne une, et elle semble être un domicile ; on n'en publie que
+  // la ville. L'option analytics de @upstash/ratelimit (désactivée par défaut) garde 90 jours.
+  upstash: {
+    name: "Upstash, Inc.",
+    address: "San Jose, CA, USA",
+    country: "US",
+    purpose: "Base de données Redis : limitation du nombre de requêtes et cache",
+    dataTypes: ["Adresses IP (clés de limitation du nombre de requêtes)", "Données mises en cache par l'application"],
+    retention: "Durée d'expiration fixée par l'application (les clés de limitation disparaissent à la fin de leur fenêtre), au plus la durée de vie de la base ; 90 jours pour les statistiques si l'option analytics est activée",
+    legalBasis: "Intérêt légitime (art. 6.1.f RGPD)",
+    isEUResident: false,
+    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée), clauses contractuelles types en secours. Région de la base configurable (eu-central-1 Francfort et eu-west-1 Irlande disponibles), entité juridique américaine",
+    privacyUrl: "https://upstash.com/trust/privacy.pdf",
+    dpaUrl: "https://upstash.com/trust/dpa.pdf",
+    i18n: {
+      en: {
+        purpose: "Redis database: rate limiting and caching",
+        dataTypes: ["IP addresses (rate limiting keys)", "Data cached by the application"],
+        retention: "Expiry set by the application (rate limiting keys are deleted at the end of their window), at most the database lifetime; 90 days for statistics if the analytics option is enabled",
+        legalBasis: "Legitimate interest (Art. 6.1.f GDPR)",
+        transferMechanism: "EU-US Data Privacy Framework (certified entity), Standard Contractual Clauses as fallback. Database region configurable (eu-central-1 Frankfurt and eu-west-1 Ireland available), US legal entity",
+      },
+    },
+  },
+  // Documentée le 23/09/2026 : la documentation officielle de Speed Insights (données collectées,
+  // non rattachées à un visiteur ni à une adresse IP ; historique consultable), la notice de
+  // confidentialité du 01/06/2026 et le DPA de l'hébergeur (DPF et CCT), fiche Data Privacy
+  // Framework n° 6847. Ni la durée de conservation ni le lieu de stockage ne sont publiés : la fiche le dit.
+  "vercel-speed-insights": {
+    name: "Vercel Inc. (Speed Insights)",
+    address: "440 N Barranca Ave #4133, Covina, CA 91723, USA",
+    country: "US",
+    purpose: "Mesure anonyme des performances réelles du site (Core Web Vitals)",
+    dataTypes: ["Page visitée (URL et route)", "Mesures de performance (Core Web Vitals)", "Navigateur, système et type d'appareil", "Type de connexion réseau", "Pays"],
+    retention: "Durée non publiée par le fournisseur ; historique consultable 7 jours (offre gratuite), jusqu'à 30 ou 90 jours (Speed Insights Plus)",
+    legalBasis: "Intérêt légitime (art. 6.1.f RGPD)",
+    isEUResident: false,
+    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée) et clauses contractuelles types (CCT). Lieu de stockage non précisé par le fournisseur, traitement principal aux États-Unis",
+    privacyUrl: "https://vercel.com/legal/privacy-policy",
+    dpaUrl: "https://vercel.com/legal/dpa",
+    i18n: {
+      en: {
+        purpose: "Anonymous real-user performance measurement (Core Web Vitals)",
+        dataTypes: ["Page visited (URL and route)", "Performance metrics (Core Web Vitals)", "Browser, OS and device type", "Network connection type", "Country"],
+        retention: "Not published by the provider; history viewable for 7 days (free tier), up to 30 or 90 days (Speed Insights Plus)",
+        legalBasis: "Legitimate interest (Art. 6.1.f GDPR)",
+        transferMechanism: "EU-US Data Privacy Framework (certified entity) and Standard Contractual Clauses (SCC). Storage location not specified by the provider, primary processing in the US",
+      },
+    },
+  },
 };
 
 // ─── Args parsing ─────────────────────────────────────────────────────────
@@ -450,6 +542,7 @@ const args = process.argv.slice(2);
 const adds = [];
 const removes = [];
 const i18nLocales = [];
+const entryFiles = [];
 let action = "update";
 
 for (let i = 0; i < args.length; i++) {
@@ -458,6 +551,8 @@ for (let i = 0; i < args.length; i++) {
     adds.push(args[++i]);
   } else if (a === "--remove") {
     removes.push(args[++i]);
+  } else if (a === "--entry") {
+    entryFiles.push(args[++i]);
   } else if (a === "--list") {
     action = "list";
   } else if (a === "--catalog") {
@@ -486,6 +581,7 @@ if (action === "help") {
   console.log(`Usage:
   node update-privacy-policy.mjs --add <key> [--add <key>...]
   node update-privacy-policy.mjs --remove <key>
+  node update-privacy-policy.mjs --entry <file.json>   (a full entry, checked field by field)
   node update-privacy-policy.mjs --list
   node update-privacy-policy.mjs --catalog
   node update-privacy-policy.mjs --add-i18n <locale>[,<locale>...]
@@ -569,6 +665,14 @@ export type Subprocessor = {
   /** Sous-traitant sans trace dans le code (DNS, relais d'emails...) : declare
    *  a la main, l'audit ne doit jamais proposer de le retirer. */
   manuallyDeclared?: boolean;
+  /** Fiche propre au projet (hors catalogue), documentee apres /rgpd-audit. */
+  custom?: boolean;
+  /** Les signes qui trahissent ce service dans le projet : l'audit le reconnait. */
+  detect?: { deps?: string[]; depPrefixes?: string[]; env?: string[]; envPrefixes?: string[]; hosts?: string[]; code?: string[]; files?: string[] };
+  /** Les pages officielles du fournisseur d'ou viennent les faits de la fiche. */
+  sources?: string[];
+  /** Date de verification de ces faits (AAAA-MM-JJ). */
+  checkedAt?: string;
   i18n?: Record<string, SubprocessorTranslation>;
 };
 
@@ -632,6 +736,7 @@ for (const key of adds) {
   if (!CATALOG[key]) {
     console.error(`[update-privacy-policy] Unknown key: ${key}`);
     console.error(`Known: ${Object.keys(CATALOG).join(", ")}`);
+    console.error("A service outside this list is documented with --entry <file.json>: a full entry, researched from the provider's official pages (see /rgpd-audit).");
     process.exit(2);
   }
   const entry = { key, ...CATALOG[key] };
@@ -655,8 +760,38 @@ for (const key of removes) {
   }
 }
 
-if (adds.length === 0 && removes.length === 0) {
-  console.error("Nothing to do. Use --add, --remove, --list or --catalog.");
+// Entries supplied whole: a service outside the catalogue, documented for one project after
+// /rgpd-audit. Checked field by field: a registry entry is published as a legal statement, a
+// half-filled one is refused rather than written.
+const REQUIRED_TEXT = ["key", "name", "address", "country", "purpose", "retention", "legalBasis", "privacyUrl"];
+for (const file of entryFiles) {
+  let entry;
+  try {
+    entry = JSON.parse(readFileSync(file, "utf8"));
+  } catch (e) {
+    console.error(`[update-privacy-policy] Cannot read the entry ${file}: ${e.message}`);
+    process.exit(2);
+  }
+  const missingFields = REQUIRED_TEXT.filter((f) => typeof entry?.[f] !== "string" || !entry[f].trim());
+  if (!Array.isArray(entry?.dataTypes) || entry.dataTypes.length === 0) missingFields.push("dataTypes");
+  if (typeof entry?.isEUResident !== "boolean") missingFields.push("isEUResident");
+  if (!(typeof entry?.transferMechanism === "string" || entry?.transferMechanism === null)) missingFields.push("transferMechanism");
+  if (missingFields.length) {
+    console.error(`[update-privacy-policy] Incomplete entry in ${file}: ${missingFields.join(", ")}`);
+    process.exit(2);
+  }
+  const idx = registry.findIndex((e) => e.key === entry.key);
+  if (idx >= 0) {
+    registry[idx] = entry;
+    reports.push(`replaced  ${entry.key} (supplied whole)`);
+  } else {
+    registry.push(entry);
+    reports.push(`added     ${entry.key} (supplied whole)`);
+  }
+}
+
+if (adds.length === 0 && removes.length === 0 && entryFiles.length === 0) {
+  console.error("Nothing to do. Use --add, --remove, --entry, --list or --catalog.");
   process.exit(2);
 }
 

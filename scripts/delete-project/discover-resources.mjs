@@ -26,6 +26,7 @@ import { getSecret, sessionStatus } from "../vault/vault.mjs";
 import { spawnSpec } from "../_spawn.mjs";
 import { indexLinesFor } from "./_memory-index.mjs";
 import { excludeShared } from "./_shared-exclusion.mjs";
+import { keepRules } from "./_keep-rules.mjs";
 import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
 import { readLinkedProject, teamIdFromOrgId } from "../_vercel-auth.mjs";
 import { vercelContext, listAllProjects, getProject, pickTargets } from "../_vercel-projects.mjs";
@@ -526,7 +527,9 @@ async function scanEnvVars(localDirPath) {
   const servicesPath = join(TEMPLATES_DIR, "third-party-services.json");
   const knownVars = JSON.parse(readFileSync(knownVarsPath, "utf8")).vars;
   const knownSet = new Set(knownVars);
-  const servicesList = JSON.parse(readFileSync(servicesPath, "utf8")).services;
+  // The person's own shared accounts first (~/.hypervibe/delete-project-keep.json): their
+  // choice to keep one wins over the generic entry of the same service.
+  const servicesList = [...keepRules(), ...JSON.parse(readFileSync(servicesPath, "utf8")).services];
 
   // Try to pull env vars from Vercel (production scope)
   let envVarNames = new Set();

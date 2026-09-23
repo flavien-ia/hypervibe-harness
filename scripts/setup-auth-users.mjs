@@ -407,7 +407,14 @@ async function ensureRateLimitInfra() {
     mkdirSync(dirname(rateLimitPath), { recursive: true });
     writeFileSync(
       rateLimitPath,
-      `const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+      `// In-memory rate limiter, on purpose. Every running copy of the server keeps
+// its own count and a restart resets it: under a real attack, a limit of 5 can
+// let a few more attempts through. At this site's scale that still makes
+// guessing a password or a code impractical, with no service, key or account
+// to add. The security audit reports it as a known limit, not as a flaw. If a
+// real attack ever shows up, its "Shared counter" moves the count into this
+// project's own database: no new service.
+const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_ATTEMPTS = 5;
 
 const attempts = new Map<string, { count: number; firstAttempt: number }>();

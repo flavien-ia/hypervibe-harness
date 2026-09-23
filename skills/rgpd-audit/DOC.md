@@ -21,8 +21,9 @@ Audits your project's RGPD compliance and updates your privacy policy. Hypervibe
   - Payments (Stripe)
   - Storage (Cloudflare R2)
   - Analytics (Google Analytics)
-  - AI (Anthropic)
-  - And all the others that can be detected
+  - AI (OpenRouter, Anthropic)
+  - Error monitoring (Sentry), cache and rate limiting (Upstash), performance measurement (Vercel Speed Insights)
+  - **And the ones it does not know yet**: a variable that looks like a key or an address, the package of a known service, an address your code contacts. Hypervibe flags them "to identify" instead of ignoring them.
 
 3. **Comparison with the registry**: Hypervibe reads `src/lib/subprocessors.json` (the project's central registry of RGPD subprocessors) and compares it with what is detected in the code.
 
@@ -30,6 +31,7 @@ Audits your project's RGPD compliance and updates your privacy policy. Hypervibe
   - **Detected in the code**: the full list of third-party services currently used (with the evidence: `package.json`, env var, or code pattern)
   - **Missing**: services detected but **absent from the registry** (to add)
   - **Obsolete**: services present in the registry but **no longer detected** in the code (to remove or justify)
+  - **To identify**: the signs of a service Hypervibe could not name. With you, it works out what it is and whether personal data goes through it. If so, it writes its entry from the provider's official pages, and you validate it. If not, it records the reason and does not ask again.
 
 5. **Proposed fixes**: Hypervibe proposes to:
   - **Update the registry** `subprocessors.json` with the missing ones and / or remove the obsolete ones
