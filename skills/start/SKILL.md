@@ -217,6 +217,8 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/git-identity.mjs" check
 
 `set` refuses (exit code 4) anything that is not an address, and never repeats a refused value: if that happens, ask again. It only writes the machine-wide configuration (`--global`).
 
+The name has no shape to check: a password typed there by mistake passes as `name: "set"`, where the same slip in the address is caught. So whenever this step asks for the identity, the question says that the name is published on every commit. And if the user mentions having typed something wrong into Git, offer `set --name "<name>"` without ever reading the old value, and advise changing that password.
+
 ---
 
 ## Step 3bis - Key vault (Bitwarden) - MANDATORY

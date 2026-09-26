@@ -20,7 +20,20 @@
 // one that blocks everything, and a guardrail that cries wolf gets bypassed.
 // Style and architecture stay in CLAUDE.md, where they belong.
 
-import { statementsDestructrices } from "../scripts/db/sql-guard.mjs";
+// The SQL check lives beside run-sql.mjs, which applies it too. Loaded inside a safety net:
+// a hooks/ folder copied alone must keep every other rule and say that this one is off,
+// rather than fail to load and let everything through (outside review, 3.2.6). Without the
+// file, run-sql.mjs cannot run either, so rule 6 has nothing left to guard.
+let statementsDestructrices = null;
+try {
+  ({ statementsDestructrices } = await import("../scripts/db/sql-guard.mjs"));
+} catch (e) {
+  process.stderr.write(
+    `[Hypervibe] the SQL rule of the guard is off, scripts/db/sql-guard.mjs could not be loaded: ${
+      e instanceof Error ? e.message : String(e)
+    }\n`,
+  );
+}
 
 /** Reads a command line the way a shell would, as far as judging it needs: the segments
  *  it runs one after the other (split on newlines, `;`, `&`, `&&`, `||`, `|`), each
@@ -603,6 +616,56 @@ function scriptsOf(parts, k, seg) {
   return [];
 }
 
+/** The command lines `xargs` would run: the command after its options, with what the
+ *  segment piped into it prints when the command line says it (`producedBy`), put in place
+ *  of the replacement string (`-I{}`, `-i`, `--replace`) or appended as arguments. Without
+ *  a readable input, the command as written: `xargs git push` is still a push. */
+function xargsCommands(parts, k, seg) {
+  const list = words(seg);
+  let replace = null;
+  let fromFile = false;
+  let w = 1;
+  for (; w < list.length; w += 1) {
+    const v = list[w].value;
+    if (v === "--") {
+      w += 1;
+      break;
+    }
+    if (!v.startsWith("-") || v === "-") break;
+    if (/^-[IEdnLPsa]$/.test(v) || /^--(?:max-args|max-lines|max-procs|max-chars|delimiter|arg-file|eof|process-slot-var)$/.test(v)) {
+      if (v === "-I") replace = list[w + 1]?.value ?? null;
+      if (v === "-a" || v === "--arg-file") fromFile = true;
+      w += 1;
+      continue;
+    }
+    if (v.startsWith("-I")) replace = v.slice(2);
+    else if (/^-i/.test(v)) replace = v.slice(2) || "{}";
+    else if (/^--replace(?:=|$)/.test(v)) replace = v.includes("=") ? v.slice(v.indexOf("=") + 1) : "{}";
+    else if (/^(?:-a.|--arg-file=)/.test(v)) fromFile = true;
+  }
+  const command = list
+    .slice(w)
+    .map((x) => x.raw)
+    .join(" ");
+  if (!command) return [];
+  const part = parts[k];
+  let input = null;
+  if (!fromFile) {
+    if (part.stdin.length) input = part.stdin.join("\n");
+    else if (part.piped) input = producedBy(parts, k - 1);
+  }
+  if (input === null) return [command];
+  if (replace) {
+    const lines = input
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    return lines.length ? lines.map((l) => command.split(replace).join(l)) : [command];
+  }
+  const args = input.split(/\s+/).filter(Boolean).join(" ");
+  return [args ? `${command} ${args}` : command];
+}
+
 /** `git add` given a pathspec that means the whole tree: `.`, `*`, or the top magic with
  *  nothing after it (`:/`, `':(top)'`), which from a subfolder stages MORE than the refused
  *  `.` does (outside review, 3.2.4); or nothing but exclusions (`':!secret'`), which stage
@@ -744,6 +807,19 @@ export function decide(command, inherited = new Map()) {
     }
     if (!seg) continue;
 
+    // `xargs` runs the command that follows its options, with what its input brings:
+    // `echo main | xargs git push origin` is a push, and `echo 'git push' | xargs -I{} bash
+    // -c '{}'` rebuilds the line it runs, one step further than `tee` (outside review,
+    // 3.2.6). Judged as xargs would build it when the input is on the command line, and as
+    // written otherwise.
+    if (/^xargs(?:\s|$)/.test(seg)) {
+      for (const line of xargsCommands(parts, index, seg)) {
+        const verdict = decide(line, env);
+        if (verdict) keep(verdict.decision, verdict.reason);
+      }
+      continue;
+    }
+
     // A shell handed a command string runs it: `sh -c "git push"` is a push,
     // `bash -lc "git add -A && git push"` is both. The payload is a command
     // line of its own and goes through the same decision, with the
@@ -768,6 +844,11 @@ export function decide(command, inherited = new Map()) {
     // cutting heredoc bodies into segments, `bash <<'EOF'` then `git push` walked past).
     // Where the script cannot be read from the command line (a file, curl, a program),
     // nothing is judged: this guard reads commands, it does not run them.
+    // That frontier is chosen, not missed: `bash <<< "$(echo git push)"` runs what the
+    // substitution PRINTS. The substitution itself is judged (an echo, nothing to say), its
+    // output is not, because it only exists at run time, like a variable expanded as a
+    // command or a downloaded script. The scripts' own checks hold beyond it (outside
+    // review, 3.2.6).
     const scripts = scriptsOf(parts, index, seg);
     if (scripts !== null) {
       for (const script of scripts) {
@@ -921,7 +1002,7 @@ export function decide(command, inherited = new Map()) {
     //    a read, and it used to be refused because the segment carried the
     //    file name and a quoted keyword (outside review, 2.9.5). Exactly the
     //    wolf the note at the top of this file says to avoid.
-    if (/^(?:node|bun|deno|tsx)\s/.test(seg) && /run-sql\.mjs/.test(seg)) {
+    if (statementsDestructrices && /^(?:node|bun|deno|tsx)\s/.test(seg) && /run-sql\.mjs/.test(seg)) {
       // The SAME check as run-sql.mjs, read from the same file (scripts/db/sql-guard.mjs).
       // This rule used to keep its own expressions and to look inside the string literals the
       // script neutralises: an INSERT that logged the words 'DROP TABLE' was refused here and

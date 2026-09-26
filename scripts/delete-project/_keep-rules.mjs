@@ -21,13 +21,19 @@ import { join } from "node:path";
 
 export const KEEP_FILE = join(homedir(), ".hypervibe", "delete-project-keep.json");
 
-/** The person's keep rules, shaped like third-party-services.json entries; [] without a usable file. */
+/** The person's keep rules, shaped like third-party-services.json entries; [] without a usable file.
+ *  "Nothing declared" and "your file is malformed" give the same empty list, which is right for
+ *  the run (never crash), but not silent: in a flow whose output is a proposal to delete, the
+ *  person must know their keep list was not read (outside review, 3.3.0). */
 export function keepRules(file = KEEP_FILE) {
   if (!existsSync(file)) return [];
   let data;
   try {
     data = JSON.parse(readFileSync(file, "utf8"));
-  } catch {
+  } catch (e) {
+    process.stderr.write(
+      `[delete-project] Your keep list ${file} could not be read (${String(e?.message ?? e).split("\n")[0]}): it protects no account in this run. Fix the file, or tell Claude which accounts to keep.\n`,
+    );
     return [];
   }
   const rules = [];
@@ -36,7 +42,9 @@ export function keepRules(file = KEEP_FILE) {
     try {
       new RegExp(rule.pattern);
     } catch {
-      continue; // an unreadable pattern keeps nothing rather than everything
+      // an unreadable pattern keeps nothing rather than everything, and says so
+      process.stderr.write(`[delete-project] A rule of your keep list ${file} is not a valid pattern and protects nothing: ${rule.pattern}\n`);
+      continue;
     }
     rules.push({
       pattern: rule.pattern,

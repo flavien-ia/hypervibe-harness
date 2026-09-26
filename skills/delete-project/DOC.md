@@ -83,6 +83,10 @@ At the end, a report shows you:
 
 ## Tips
 
+{{callout:info|Protect the accounts shared between your projects}}
+If several of your projects use the same personal account (an API key, a CRM), list it once in `~/.hypervibe/delete-project-keep.json` on your computer: `/delete-project` will then always keep it, whichever project you delete. Claude can write the rule for you. If this file becomes unreadable, the deletion says so before proposing anything.
+{{/callout}}
+
 {{callout:warning|The operation is strictly irreversible}}
 Once the deletion is launched, **no data can be recovered**. If your project contains important information (real orders, user accounts, photos uploaded by clients...), first take a manual backup (DB export, copy of the local folder, dump of the R2 files) before launching the skill. The double confirmation exists precisely for that.
 {{/callout}}

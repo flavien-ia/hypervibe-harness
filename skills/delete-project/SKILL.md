@@ -130,11 +130,13 @@ Then compare the user's next reply to `<PROJECT_NAME>` **exactly** (case-sensiti
 **Open the vault first**: invoke `_ensure-vault` before the inventory. The scan reads the Neon and Cloudflare keys from the vault, and with the vault locked or expired every cloud section comes back `unknown` behind a message that reads like a missing key (reported on 3.1.5). A scope must never be built on a sleeping vault.
 
 ```bash
-# Portable temp path (Windows + macOS): os.tmpdir() normalized to forward slashes,
-# so bash redirection, node, and the Read tool all resolve the SAME file.
-# NEVER hardcode /tmp/... here: on Windows Git Bash, `> /tmp/x` and node's readFileSync('/tmp/x')
-# point at different places (C:\tmp), which fails with ENOENT.
-INV="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/delete-project-inventory.json'")"
+# A folder of its own for THIS run (mkdtemp: unique name, created atomically), in the
+# system temp dir, forward slashes so bash, node and the Read tool resolve the same path.
+# Never a fixed file name: on 25/09/2026 two deletions running at the same time wrote the
+# same inventory file, and one of them read a JSON mixed with the other project's.
+# Never /tmp/... either: on Windows Git Bash it is not where node looks.
+RUN_DIR="$(node -e "const fs=require('fs'),os=require('os'),p=require('path');console.log(fs.mkdtempSync(p.join(os.tmpdir(),'hv-delete-<PROJECT_NAME>-')).replaceAll(String.fromCharCode(92),'/'))")"
+INV="$RUN_DIR/inventory.json"
 node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/discover-resources.mjs" \
   --project "<PROJECT_NAME>" \
   --project-dir "<detected-project-path>" > "$INV"
@@ -185,7 +187,7 @@ The resulting JSON has the form:
 
 Any section may also carry an **`excluded`** array: resources whose name matched but that were re-attributed to a **more specific sibling project** (`street-cool` when deleting `street`), or recognized as **shared Hypervibe infrastructure** (the `hypervibe-jobs` worker), or **declared shared in the project's manifest**, whatever their kind (a database, a bucket, a DNS zone, an email route, a scheduled task, a Vercel project, a repository...). The two sections that hold a single resource say it by their flag: a shared backup target sets `dbBackup.isTarget` to false, a shared repository sets `github.exists` to false, and the resource moves into their `excluded` array. They are NEVER deleted; surface them in section 2.4 with their `excludedReason`.
 
-The block prints the inventory JSON directly (and echoes its absolute path as `INVENTORY_FILE=…`). Read the JSON from that output. Phase 3 recomputes the exact same `$INV` path with the identical one-liner, so the file bridges the two phases without you having to hardcode any path. Move on to Phase 2.
+The block prints the inventory JSON directly (and echoes its absolute path as `INVENTORY_FILE=…`). Read the JSON from that output. **Keep the `INVENTORY_FILE=…` path**: Phase 3 is given that exact path, pasted as is. The run folder has a unique name, so it cannot be rebuilt by hand, and no other deletion running at the same time can write into it. Move on to Phase 2.
 
 ---
 
@@ -301,9 +303,10 @@ Build the `scope` JSON array from the Phase 2.5 choices. Possible categories:
 If the user chose "Delete everything", pass `["all"]`. Otherwise remove the categories they want to keep.
 
 ```bash
-# Same portable temp paths as Phase 1 (recomputed identically; shell state does not persist between calls).
-INV="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/delete-project-inventory.json'")"
-REPORT="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/delete-project-report.json'")"
+# The EXACT path Phase 1 printed as INVENTORY_FILE=..., pasted as is (shell state does not
+# persist between calls, and the run folder has a unique name: never rebuild it by hand).
+INV="<INVENTORY_FILE printed by Phase 1>"
+REPORT="$(dirname "$INV")/report.json"
 # --confirm names the target: the script refuses to run unless it matches the
 # inventory. Substitute the real project name (the one confirmed above).
 node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/execute-deletions.mjs" \
@@ -311,7 +314,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/execute-deletions.mjs" \
   --confirm "<project-name>" \
   --scope '["all"]' > "$REPORT"
 cat "$REPORT"
-rm -f "$INV" "$REPORT"
+rm -f "$INV" "$REPORT" && rmdir "$(dirname "$INV")"
 ```
 
 When Phase 2 had the user pick among Vercel sites (`vercel.ambiguous`), add `--vercel-project` followed by the ids picked, comma-separated, to that command. Sites designated by the folder's link or by the manifest are always included; without the flag, an ambiguous inventory deletes nothing on Vercel (`failed.vercel.needsChoice`, with the `choices`).
@@ -433,6 +436,15 @@ The backups (`backup-*` branches) live **in the Neon project itself**. When you 
 
 ### Google OAuth
 No MCP / CLI lets you delete a Google Cloud Console OAuth client. Always manual (URL provided in Phase 4.2).
+
+### Accounts shared between projects (keep list)
+An account the person uses for several projects (a personal API key, a shared CRM) must never be offered for deletion: removing it for one project cuts all the others. The person lists those accounts on their machine, in `~/.hypervibe/delete-project-keep.json`, never in the plugin:
+
+```json
+{ "keep": [{ "pattern": "^MYCRM_", "label": "My CRM, shared by my projects" }] }
+```
+
+Each pattern matches environment variable names; a match is reported as "keep", ahead of the generic entry of the same service. **If the discovery prints that this file could not be read, or that a rule is not a valid pattern, say so to the user before Phase 2**: the list protects nothing in this run, so ask which shared accounts to keep, and suggest fixing the file. When the user mentions an account shared between projects, offer to add its rule to the file.
 
 ### Detected third-party services
 The env vars scan (Phase 1, env vars sub-step) is **conservative**: any non-whitelisted var is flagged. Better a false positive (the user says "oh no, that one is fine") than a false negative (a third-party service keeps billing). The whitelist lives in `templates/delete-project/known-env-vars.json`. To add a new var to the standard stack, edit this file.

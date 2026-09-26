@@ -276,11 +276,15 @@ export const notProcessor = (host) => NOT_PROCESSORS.find((n) => hostMatches(hos
 
 // ─── Hosts in the code ───────────────────────────────────────────────────────
 
-const URL_IN_CODE = /https?:\/\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)/gi;
+// With its scheme, or protocol-relative (`"//cdn.example/a.js"`, the classic form of a tag
+// pasted from a provider's documentation) right after a quote or a parenthesis, which a
+// comment's `// ` never is (outside review, 3.3.0).
+const URL_IN_CODE = /(?:https?:|(?<=["'`(]))\/\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)/gi;
 
-/** The text of a source file without its comments (a `//` after a colon is a URL, not a comment). */
+/** The text of a source file without its comments (a `//` after a colon, a quote or a parenthesis
+ *  is a URL, not a comment: `url(//cdn.example/x.png)`). */
 export function withoutComments(text) {
-  return text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
+  return text.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:"'`(\\])\/\/[^\n]*/g, "$1");
 }
 
 /**

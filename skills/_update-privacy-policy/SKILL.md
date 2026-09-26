@@ -58,7 +58,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/update-privacy-policy.mjs" --add neon --
 | `openfreemap` | `/add-map` | The visitor's own browser fetches the tiles, so a third party gets their IP on every page carrying a map |
 | `cloudflare` | `/new-email-address`, and `/rgpd-audit` asks for it | Email relay: the messages sent to the domain's addresses pass through it. **Distinct from `cloudflare-r2`**: same company, different processing. Flagged `manuallyDeclared` |
 | `web-push` | `/add-push-notification` | The browser vendor's push service carries the payload. Encrypted (VAPID), so it cannot read it |
-| `sentry` | none: `/rgpd-audit` finds it | Error monitoring, when a project adds it on its own. Its DPA applies only once accepted in the Sentry organisation's settings (Legal & Compliance): tell the person |
+| `sentry` | none: `/rgpd-audit` finds it | Error monitoring, when a project adds it on its own. Its DPA applies only once accepted in the Sentry organisation's settings (Legal & Compliance), and its storage region is final once the organisation exists (the EU one has to be picked at creation): tell the person |
 | `upstash` | none: `/rgpd-audit` finds it | Serverless Redis (rate limiting, cache), often installed from the host's marketplace |
 | `vercel-speed-insights` | none: `/rgpd-audit` finds it | Performance measured in the visitors' browsers |
 

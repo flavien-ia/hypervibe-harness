@@ -535,6 +535,45 @@ expect("node run-sql.mjs \"UPDATE doc SET corps = 'DELETE FROM users' WHERE id =
 expect("node run-sql.mjs \"DO \\$\\$ BEGIN EXECUTE 'DROP TABLE clients'; END \\$\\$\"", "deny");
 expect('node run-sql.mjs --conn "$URL" "DROP TABLE clients"', "deny");
 
+console.log("\n── xargs, et la frontiere de la commande fabriquee (revue externe, 3.2.6) ──");
+expect("echo 'git push origin main' | xargs -I{} bash -c '{}'", "ask");
+expect("echo 'git add -A' | xargs -I % sh -c '%'", "deny");
+expect("echo main | xargs git push origin", "ask");
+expect("xargs git push < branches.txt", "ask");
+expect("xargs -0 -n1 git push origin", "ask");
+// ... et ce qui y ressemble sans en etre.
+expect("printf 'a.ts\\nb.ts\\n' | xargs git add", "pass");
+expect("git diff --name-only | xargs git add", "pass");
+expect("echo 'git push' | xargs -I{} echo {}", "pass");
+expect("find src -name '*.ts' | xargs grep -l TODO", "pass");
+// La frontiere choisie : ce que la substitution IMPRIME n'existe qu'a l'execution.
+expect('bash <<< "$(echo git push origin main)"', "pass");
+
+console.log("\n── Un dossier hooks/ recopie seul garde ses regles (revue externe, 3.2.6) ──");
+{
+  const { spawnSync } = await import("node:child_process");
+  const { copyFileSync, mkdirSync, mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const seul = mkdtempSync(join(tmpdir(), "hv-hooks-seuls-"));
+  mkdirSync(join(seul, "hooks"));
+  for (const f of ["guard-bash.mjs", "rules.mjs"]) copyFileSync(join(dirname(HOOK), f), join(seul, "hooks", f));
+  const r = spawnSync(process.execPath, [join(seul, "hooks", "guard-bash.mjs")], {
+    input: JSON.stringify({ tool_name: "Bash", tool_input: { command: "git add -A" }, hook_event_name: "PreToolUse" }),
+    encoding: "utf8",
+  });
+  rmSync(seul, { recursive: true, force: true });
+  let decision = "pass";
+  try {
+    decision = JSON.parse(r.stdout).hookSpecificOutput.permissionDecision;
+  } catch {
+    /* rien sur stdout */
+  }
+  checks += 1;
+  const ok = r.status === 0 && decision === "deny" && !/node:internal/.test(r.stderr);
+  if (!ok) failures += 1;
+  console.log(`${ok ? "OK  " : "FAIL"} hooks/ seul : exit ${r.status}, decision ${decision}${ok ? "" : `, stderr ${r.stderr.trim().split("\n")[0]}`}`);
+}
+
 const median = timings.sort((a, b) => a - b)[Math.floor(timings.length / 2)];
 checks += 1;
 const rapide = median < 150;

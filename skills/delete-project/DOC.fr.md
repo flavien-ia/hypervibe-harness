@@ -83,6 +83,10 @@ Hypervibe enchaîne les suppressions en parallèle où c'est possible (Vercel, R
 
 ## Astuces
 
+{{callout:info|Protégez les comptes partagés entre vos projets}}
+Si plusieurs de vos projets utilisent le même compte personnel (une clé d’API, un CRM), inscrivez-le une fois dans `~/.hypervibe/delete-project-keep.json` sur votre ordinateur : `/delete-project` le gardera alors toujours, quel que soit le projet supprimé. Claude peut écrire la règle pour vous. Si ce fichier devient illisible, la suppression le signale avant de proposer quoi que ce soit.
+{{/callout}}
+
 {{callout:warning|L'opération est strictement irréversible}}
 Une fois la suppression lancée, **aucune donnée ne peut être récupérée**. Si votre projet contient des informations importantes (vraies commandes, comptes utilisateurs, photos uploadées par des clients...), prenez d'abord une sauvegarde manuelle (export DB, copie du dossier local, dump des fichiers R2) avant de lancer la skill. La double confirmation existe précisément pour ça.
 {{/callout}}

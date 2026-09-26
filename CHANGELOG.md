@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.3.1 (26 septembre 2026)
+
+### Améliorations
+- **Suppression d'un projet** : deux suppressions lancées en même temps ne se mélangent plus. Chaque exécution range son inventaire à part, et la suppression refuse un inventaire illisible ou celui d'un autre projet. La liste des comptes que vous partagez entre vos projets est expliquée dans la documentation de `/delete-project`, et elle prévient quand elle est illisible.
+- **Audit RGPD** : un service que vous documentez vous-même n'est plus déclaré « périmé » au passage suivant, car sa fiche exige désormais la règle qui permet de le reconnaître, ses sources et sa date. Un fichier illisible (un `package.json` abîmé) suspend toute proposition de retrait au lieu de passer pour une absence. L'audit lit tout le code du site, même sans dossier `src`, et voit les adresses écrites sans `https:`.
+- **Garde-fou** : il garde ses règles même si l'un de ses fichiers voisins manque, et reconnaît les commandes relancées par `xargs`.
+- **Démarrage** : `/start` rappelle que le nom Git est publié avec chaque commit.
+- **Politique de confidentialité** : la fiche de l'hébergeur distingue ce que couvre son contrat de traitement (offres Pro et Enterprise) de sa certification, et la fiche Sentry précise que le choix de la région est définitif.
+
+### Coulisses
+- Des dossiers temporaires propres à chaque exécution partout où un nom fixe traînait, un index pour le compteur partagé de l'anti-abus, et les recettes enrichies des essais d'un relecteur extérieur.
+
 ## v3.3.0 (23 septembre 2026)
 
 ### Nouveautés

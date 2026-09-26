@@ -61,7 +61,7 @@ Then run the `get` from Step 1 again.
 ```bash
 # Portable temp path (Windows + macOS): os.tmpdir() normalized to forward slashes.
 # Never hardcode /tmp/... : on Windows Git Bash, curl -o /tmp/hns.json writes to C:\tmp (missing) and fails.
-HNS="$(node -p "require('os').tmpdir().replaceAll(String.fromCharCode(92),'/')+'/hns.json'")"
+HNS="$(node -e "const fs=require('fs'),os=require('os'),p=require('path');console.log(fs.mkdtempSync(p.join(os.tmpdir(),'hv-hostinger-')).replaceAll(String.fromCharCode(92),'/')+'/hns.json')")"
 curl -s -o "$HNS" -w "%{http_code}" -X PUT \
   -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
   "https://developers.hostinger.com/api/domains/v1/portfolio/<domain>/nameservers" \

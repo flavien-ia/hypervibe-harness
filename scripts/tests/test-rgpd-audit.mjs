@@ -229,6 +229,83 @@ console.log("\n── The catalogue covers every service the audit names, and ta
   rmSync(dir, { recursive: true, force: true });
 }
 
+console.log("\n── What an outside review of 3.3.0 measured ──");
+{
+  const UPP = join(ROOT, "scripts", "update-privacy-policy.mjs");
+  const base = {
+    key: "openai", name: "OpenAI, L.L.C.", address: "San Francisco, États-Unis", country: "US",
+    purpose: "Génération de texte", dataTypes: ["Texte saisi"], retention: "30 jours",
+    legalBasis: "Exécution du contrat (art. 6.1.b RGPD)", isEUResident: false,
+    transferMechanism: "Clauses contractuelles types", privacyUrl: "https://openai.com/policies/privacy-policy",
+    custom: true, sources: ["https://openai.com/policies/privacy-policy"], checkedAt: "2026-09-24",
+  };
+  const dir = project({ "package.json": { dependencies: { next: "15.0.0", openai: "5.0.0" } } });
+  const tryEntry = (entry) => {
+    const f = join(dir, "entry.json");
+    writeFileSync(f, JSON.stringify(entry));
+    return spawnSync(process.execPath, [UPP, "--entry", f], { cwd: dir, encoding: "utf8" });
+  };
+  const noDetect = tryEntry(base);
+  check("an entry with neither detect nor manuallyDeclared is refused, and says why", noDetect.status === 2 && /detect \(or manuallyDeclared\)/.test(noDetect.stderr) && /detection rule to write/.test(noDetect.stderr), noDetect.stderr);
+  const noSources = tryEntry({ ...base, detect: { deps: ["openai"] }, sources: undefined, checkedAt: undefined });
+  check("an entry without sources and date is refused", noSources.status === 2 && /sources/.test(noSources.stderr) && /checkedAt/.test(noSources.stderr), noSources.stderr);
+  const placeholder = tryEntry({ ...base, detect: { deps: ["openai"] }, privacyUrl: "à compléter" });
+  check("a placeholder privacy address is refused", placeholder.status === 2 && /privacyUrl/.test(placeholder.stderr), placeholder.stderr);
+  const good = tryEntry({ ...base, detect: { deps: ["openai"], env: ["OPENAI_API_KEY"] } });
+  check("the same entry with its detection rule is written", good.status === 0, good.stderr);
+  const kept = audit(dir);
+  check("... and the next audit recognises it instead of calling it stale", kept.detectedKeys?.includes("openai") && !kept.stale?.includes("openai"), JSON.stringify(kept.stale));
+  rmSync(dir, { recursive: true, force: true });
+
+  // An entry written before this check, without its rule: never stale while a signal names it.
+  const old = project({
+    "package.json": { dependencies: { next: "15.0.0", openai: "5.0.0" } },
+    ".env": "OPENAI_API_KEY=x\n",
+    "src/lib/subprocessors.json": [base],
+  });
+  const r = audit(old);
+  check("a registered service that a signal names is not stale", !r.stale?.includes("openai"), JSON.stringify(r.stale));
+  check("... it is reported as needing its detection rule, with its signals", r.unrecognised?.[0]?.key === "openai" && r.unrecognised[0].signals.length === 2, JSON.stringify(r.unrecognised));
+  check("... and those signals are not also 'to identify'", !values(r.unidentified, "package").includes("openai") && !values(r.unidentified, "variable").includes("OPENAI_API_KEY"), JSON.stringify(r.unidentified));
+  rmSync(old, { recursive: true, force: true });
+}
+{
+  const neon = { key: "neon", name: "Neon" };
+  const ok = project({
+    "package.json": { dependencies: { next: "15.0.0", "drizzle-orm": "0.40.0", "@neondatabase/serverless": "1.0.0" } },
+    "src/lib/subprocessors.json": [neon],
+  });
+  const control = audit(ok);
+  check("control: a valid package.json, the database is detected", control.detectedKeys?.includes("neon") && control.stale?.length === 0);
+  writeFileSync(join(ok, "package.json"), '{ "dependencies": { "next": "15.0.0", "drizzle-orm": "0.40.0", "@neondatabase/serverless": "1.0.0", } }');
+  const broken = audit(ok);
+  check("a package.json that cannot be read proposes no removal", broken.stale?.length === 0 && broken.staleWithheld?.includes("neon"), JSON.stringify(broken.stale));
+  check("... and the report names the file", broken.unreadable?.some((u) => u.file === "package.json"), JSON.stringify(broken.unreadable));
+  rmSync(ok, { recursive: true, force: true });
+}
+{
+  const call = 'export async function send() { await fetch("https://api.tracking-tiers.example/v1/hit"); }';
+  const inSrc = audit(project({ "package.json": { dependencies: { next: "15.0.0" } }, "src/app/lib.ts": call }));
+  const atRoot = audit(project({ "package.json": { dependencies: { next: "15.0.0" } }, "app/lib.ts": call }));
+  check("control: the call is seen in src/app", values(inSrc.unidentified, "host").includes("api.tracking-tiers.example"));
+  check("the same call in app/ at the root (no src folder) is seen", values(atRoot.unidentified, "host").includes("api.tracking-tiers.example"), JSON.stringify(atRoot.unidentified));
+  const inScripts = audit(project({ "package.json": { dependencies: { next: "15.0.0" } }, "scripts/backfill.mjs": call }));
+  check("the maintenance scripts at the root are not the site's code", !values(inScripts.unidentified, "host").includes("api.tracking-tiers.example"));
+}
+{
+  const code = [
+    '<script src="//cdn.tiers-un.example/a.js" />',
+    '<link rel="stylesheet" href="//fonts.tiers-deux.example/css" />',
+    '<img src="//pixel.tiers-trois.example/p.gif" />',
+    "const u = url(//img.tiers-quatre.example/x.png);",
+    "// cdn.commentaire.example is only mentioned",
+    "//pas.un.hote.example au debut d'un commentaire",
+  ].join("\n");
+  const hosts = hostsInCode(code);
+  check("protocol-relative addresses are seen (script, link, img, url())", ["cdn.tiers-un.example", "fonts.tiers-deux.example", "pixel.tiers-trois.example", "img.tiers-quatre.example"].every((h) => hosts.has(h)), [...hosts].join(","));
+  check("... and a comment still is not one", !hosts.has("cdn.commentaire.example") && !hosts.has("pas.un.hote.example"), [...hosts].join(","));
+}
+
 console.log(`\n${checks - failures}/${checks} checks`);
 if (failures) {
   console.error(`${failures} FAILURE(S)`);

@@ -40,7 +40,9 @@ export async function checkRateLimit(ip: string): Promise<{ allowed: boolean; re
 
   // A new count has just started: the moment to forget every address not
   // counted for a day. An IP address is personal data, kept no longer than it
-  // serves.
+  // serves. The sweep only runs when a request arrives: an address is therefore
+  // forgotten at the latest a day after the NEXT request, which is what the
+  // privacy policy may say, not "after a day" (outside review, 3.3.0).
   if (row?.count === 1) {
     await db.delete(rateLimits).where(lt(rateLimits.windowStartedAt, new Date(now.getTime() - FORGET_AFTER_MS)));
   }

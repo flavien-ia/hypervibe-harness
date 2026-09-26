@@ -46,7 +46,7 @@ const CATALOG = {
     retention: "30 jours pour les logs",
     legalBasis: "Intérêt légitime (art. 6.1.f RGPD)",
     isEUResident: false,
-    transferMechanism: "Clauses contractuelles types (CCT). Fonctions exécutées en UE (Frankfurt) mais entité juridique américaine",
+    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée). Clauses contractuelles types (CCT) en plus avec le DPA du fournisseur, réservé aux offres Pro et Enterprise. Fonctions exécutées en UE (Frankfurt) mais entité juridique américaine",
     privacyUrl: "https://vercel.com/legal/privacy-policy",
     dpaUrl: "https://vercel.com/legal/dpa",
     i18n: {
@@ -55,7 +55,7 @@ const CATALOG = {
         dataTypes: ["IP addresses", "Server logs", "Session cookies"],
         retention: "30 days for logs",
         legalBasis: "Legitimate interest (Art. 6.1.f GDPR)",
-        transferMechanism: "Standard Contractual Clauses (SCC). Functions run in the EU (Frankfurt) but legal entity is US-based",
+        transferMechanism: "EU-US Data Privacy Framework (certified entity). Standard Contractual Clauses (SCC) in addition through the provider's DPA, available on the Pro and Enterprise plans only. Functions run in the EU (Frankfurt) but legal entity is US-based",
       },
     },
   },
@@ -228,7 +228,7 @@ const CATALOG = {
     retention: "Données agrégées, pas de données identifiantes stockées",
     legalBasis: "Intérêt légitime, mesure d'audience anonyme dispensée de consentement (recommandation CNIL)",
     isEUResident: false,
-    transferMechanism: "Clauses contractuelles types (CCT)",
+    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée). Clauses contractuelles types (CCT) en plus avec le DPA du fournisseur, réservé aux offres Pro et Enterprise",
     privacyUrl: "https://vercel.com/legal/privacy-policy",
     i18n: {
       en: {
@@ -236,7 +236,7 @@ const CATALOG = {
         dataTypes: ["Pages visited", "Country (approximate geolocation)", "User-Agent"],
         retention: "Aggregated data, no identifying data stored",
         legalBasis: "Legitimate interest, anonymous audience measurement exempt from consent (CNIL guidance)",
-        transferMechanism: "Standard Contractual Clauses (SCC)",
+        transferMechanism: "EU-US Data Privacy Framework (certified entity). Standard Contractual Clauses (SCC) in addition through the provider's DPA, available on the Pro and Enterprise plans only",
       },
     },
   },
@@ -448,7 +448,8 @@ const CATALOG = {
   // Documentée le 23/09/2026 : sentry.io/privacy (v3.3.2), DPA v5.1.0 (Schedule 3 : DPF, puis CCT),
   // docs.sentry.io (data-storage-location, data-retention-periods, data-collected pour Next.js),
   // fiche Data Privacy Framework n° 5869. Son DPA ne s'applique qu'une fois accepté dans les réglages
-  // de l'organisation Sentry (Legal & Compliance).
+  // de l'organisation Sentry (Legal & Compliance). Le choix de la région est définitif
+// (docs.sentry.io, data-storage-location) : la fiche le dit, puisqu'elle est lue au moment du choix.
   sentry: {
     name: "Functional Software, Inc. (Sentry)",
     address: "45 Fremont Street, 8th Floor, San Francisco, CA 94105, USA",
@@ -464,7 +465,7 @@ const CATALOG = {
     retention: "Erreurs et enregistrements de session : 30 jours (offre Developer) ou 90 jours (offres payantes) ; traces et journaux : 30 jours",
     legalBasis: "Intérêt légitime (art. 6.1.f RGPD)",
     isEUResident: false,
-    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée), clauses contractuelles types en secours. Région de stockage choisie à la création de l'organisation (UE, Francfort, disponible), comptes et métadonnées d'organisation aux États-Unis",
+    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée), clauses contractuelles types en secours. Région de stockage choisie à la création de l'organisation (UE, Francfort, disponible), et définitive : en changer demande une nouvelle organisation. Comptes et métadonnées d'organisation aux États-Unis",
     privacyUrl: "https://sentry.io/privacy/",
     dpaUrl: "https://sentry.io/legal/dpa/",
     i18n: {
@@ -479,7 +480,7 @@ const CATALOG = {
         ],
         retention: "Errors and session replays: 30 days (Developer plan) or 90 days (paid plans); spans and logs: 30 days",
         legalBasis: "Legitimate interest (Art. 6.1.f GDPR)",
-        transferMechanism: "EU-US Data Privacy Framework (certified entity), Standard Contractual Clauses as fallback. Storage region chosen when the organization is created (EU, Frankfurt, available), accounts and organization metadata stay in the US",
+        transferMechanism: "EU-US Data Privacy Framework (certified entity), Standard Contractual Clauses as fallback. Storage region chosen when the organization is created (EU, Frankfurt, available), and final: changing it takes a new organization. Accounts and organization metadata stay in the US",
       },
     },
   },
@@ -522,7 +523,7 @@ const CATALOG = {
     retention: "Durée non publiée par le fournisseur ; historique consultable 7 jours (offre gratuite), jusqu'à 30 ou 90 jours (Speed Insights Plus)",
     legalBasis: "Intérêt légitime (art. 6.1.f RGPD)",
     isEUResident: false,
-    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée) et clauses contractuelles types (CCT). Lieu de stockage non précisé par le fournisseur, traitement principal aux États-Unis",
+    transferMechanism: "Data Privacy Framework UE-États-Unis (entité certifiée). Clauses contractuelles types (CCT) en plus avec le DPA du fournisseur, réservé aux offres Pro et Enterprise. Lieu de stockage non précisé par le fournisseur, traitement principal aux États-Unis",
     privacyUrl: "https://vercel.com/legal/privacy-policy",
     dpaUrl: "https://vercel.com/legal/dpa",
     i18n: {
@@ -531,7 +532,7 @@ const CATALOG = {
         dataTypes: ["Page visited (URL and route)", "Performance metrics (Core Web Vitals)", "Browser, OS and device type", "Network connection type", "Country"],
         retention: "Not published by the provider; history viewable for 7 days (free tier), up to 30 or 90 days (Speed Insights Plus)",
         legalBasis: "Legitimate interest (Art. 6.1.f GDPR)",
-        transferMechanism: "EU-US Data Privacy Framework (certified entity) and Standard Contractual Clauses (SCC). Storage location not specified by the provider, primary processing in the US",
+        transferMechanism: "EU-US Data Privacy Framework (certified entity). Standard Contractual Clauses (SCC) in addition through the provider's DPA, available on the Pro and Enterprise plans only. Storage location not specified by the provider, primary processing in the US",
       },
     },
   },
@@ -776,8 +777,33 @@ for (const file of entryFiles) {
   if (!Array.isArray(entry?.dataTypes) || entry.dataTypes.length === 0) missingFields.push("dataTypes");
   if (typeof entry?.isEUResident !== "boolean") missingFields.push("isEUResident");
   if (!(typeof entry?.transferMechanism === "string" || entry?.transferMechanism === null)) missingFields.push("transferMechanism");
+  // The fields that keep an entry alive and traceable (outside review, 3.3.0). Without detect
+  // or manuallyDeclared, the next audit calls a service the project really uses stale, and
+  // proposes to remove it from the policy. Without sources and a date, the yearly re-check the
+  // final summary promises has nothing to start from.
+  const detectSigns = ["deps", "depPrefixes", "env", "envPrefixes", "hosts", "code", "files"];
+  const hasDetect =
+    entry?.detect && typeof entry.detect === "object" && detectSigns.some((k) => Array.isArray(entry.detect[k]) && entry.detect[k].length > 0);
+  if (!hasDetect && entry?.manuallyDeclared !== true) missingFields.push("detect (or manuallyDeclared)");
+  const isHttps = (u) => {
+    try {
+      return new URL(u).protocol === "https:";
+    } catch {
+      return false;
+    }
+  };
+  if (!Array.isArray(entry?.sources) || entry.sources.length === 0 || !entry.sources.every(isHttps)) missingFields.push("sources");
+  const checked = typeof entry?.checkedAt === "string" && /^\d{4}-\d{2}-\d{2}$/.test(entry.checkedAt) ? new Date(`${entry.checkedAt}T00:00:00Z`) : null;
+  if (!checked || Number.isNaN(checked.getTime()) || checked.getTime() > Date.now() + 86400000) missingFields.push("checkedAt");
+  if (typeof entry?.privacyUrl === "string" && entry.privacyUrl.trim() && !isHttps(entry.privacyUrl)) missingFields.push("privacyUrl (not an https address)");
+  if (entry?.dpaUrl != null && !isHttps(entry.dpaUrl)) missingFields.push("dpaUrl (not an https address)");
   if (missingFields.length) {
     console.error(`[update-privacy-policy] Incomplete entry in ${file}: ${missingFields.join(", ")}`);
+    if (missingFields.some((f) => f.startsWith("detect"))) {
+      console.error(
+        "  An entry that could be detected but is not is a detection rule to write, not a flag to set: give `detect` the signs that revealed the service (deps, env, envPrefixes, hosts). `manuallyDeclared: true` only when it leaves no trace in the code.",
+      );
+    }
     process.exit(2);
   }
   const idx = registry.findIndex((e) => e.key === entry.key);

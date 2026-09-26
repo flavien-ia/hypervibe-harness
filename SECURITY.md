@@ -85,12 +85,15 @@ git hooks run. The rules never see the
 raw head of a command: `sudo`, `command`, `env`, `time`, a launcher (`npx`,
 `pnpm dlx`), a version pin, an absolute path, a subshell or a `sh -c` payload
 are stripped or unfolded first, so a shape the rules did not foresee does not
-hide what they forbid. The full table is in the README.
+hide what they forbid. `xargs` is unfolded too, with the line it rebuilds from
+its input when that input is on the command line. The full table is in the README.
 
 Two properties matter here:
 
 - **Fail-open.** The hook runs before every shell command. If it ever fails, it
   lets the command through and says so on stderr: a seatbelt, not an airlock.
+  It loads its rules inside that net: a file missing beside it leaves the other
+  rules in force and names the one that is off.
 - **The scripts carry their own checks.** A hook only sees a command line, so
   `run-sql.mjs` refuses `DROP`/`TRUNCATE` without `--destructif`, and
   `execute-deletions.mjs` requires the project name typed again. On a host
@@ -98,6 +101,11 @@ Two properties matter here:
   `--destructif` flag that lifts the refusal is confirmed by a human only where
   the hook exists. Without a hook, passing the flag runs the statement: treat
   the flag as the confirmation, because nothing else will ask.
+
+One frontier is chosen, not missed: the hook judges what a command line shows,
+substitutions included, not what they will print. `bash <<< "$(...)"`, a variable
+expanded as a command, a downloaded script run as it arrives: these commands only
+exist at run time, and the scripts' own checks are what hold there.
 
 Both directions are tested (`node hooks/test-hooks.mjs`): that a forbidden
 command is refused, **and** that a legitimate one goes through. A guardrail that

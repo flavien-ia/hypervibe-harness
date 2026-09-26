@@ -77,7 +77,23 @@ if (!existsSync(INVENTORY_PATH)) {
   console.error(`Inventory file not found: ${INVENTORY_PATH}`);
   process.exit(1);
 }
-const inventory = JSON.parse(readFileSync(INVENTORY_PATH, "utf8"));
+// An inventory that does not parse, or does not say which project it describes, is refused
+// before anything else: on 25/09/2026 two deletions running at once wrote the same file, and
+// one inventory ended with a fragment of the other project's. Nothing here is guessed.
+let inventory;
+try {
+  inventory = JSON.parse(readFileSync(INVENTORY_PATH, "utf8"));
+} catch (e) {
+  console.error(
+    `Refuse : l'inventaire ${INVENTORY_PATH} est illisible (${e.message}). Rien n'est supprime.\n` +
+      "Relancer la phase d'inventaire, puis cette commande avec le chemin qu'elle affiche.",
+  );
+  process.exit(7);
+}
+if (!inventory || typeof inventory !== "object" || typeof inventory.project !== "string" || !inventory.project.trim()) {
+  console.error(`Refuse : l'inventaire ${INVENTORY_PATH} ne dit pas quel projet il decrit. Rien n'est supprime.`);
+  process.exit(7);
+}
 let scope;
 try {
   scope = JSON.parse(SCOPE_JSON);

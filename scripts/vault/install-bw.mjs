@@ -94,7 +94,8 @@ async function installWindows() {
   // (data residency is set at login via --server), so the download host is irrelevant.
   // The URL is the resolved GitHub release asset, not the redirector: PowerShell only
   // follows GitHub's own hop to its download CDN.
-  const zip = join(tmpdir(), "bw-cli.zip");
+  // A name of its own for this run, like the script beside it: two installs never share a file.
+  const zip = join(tmpdir(), `_bw_cli_${process.pid}.zip`);
   const ps1 = join(tmpdir(), `_bw_install_${process.pid}.ps1`);
   const script = `$ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -149,7 +150,7 @@ async function installUnixStandalone(platformSlug) {
   // validate on a real macOS/Linux box before relying on it.
   if (!existsSync(BIN_DIR)) mkdirSync(BIN_DIR, { recursive: true });
   const { url, version } = await resolveRelease(platformSlug);
-  const zip = join(homedir(), ".hypervibe", "bw-cli.zip");
+  const zip = join(homedir(), ".hypervibe", `bw-cli-${process.pid}.zip`);
   // The resolved GitHub asset URL, not the redirector: curl only follows GitHub's own
   // hop to its download CDN.
   execSync(`curl -fsSL "${url}" -o "${zip}"`, { stdio: ["ignore", "pipe", "pipe"] });

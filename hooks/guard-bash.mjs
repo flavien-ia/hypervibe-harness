@@ -20,8 +20,12 @@
 // really cannot be bypassed lives in the scripts themselves (run-sql.mjs,
 // execute-deletions.mjs), which is also what protects hosts that have no hooks
 // at all, Codex included.
-
-import { decide } from "./rules.mjs";
+//
+// The rules are loaded INSIDE the safety net, never by a static import: a
+// static import is resolved before any line of this file runs, so a missing
+// neighbour (a hooks/ folder copied alone, an interrupted install, a synced
+// folder that prunes) let every command through behind a Node stack trace
+// instead of this file's own line (outside review, 3.2.6).
 
 /** The tools whose `command` is executed by a shell. */
 const SHELL_TOOLS = new Set(["Bash", "Monitor"]);
@@ -50,6 +54,7 @@ try {
   const payload = JSON.parse(raw);
   if (!SHELL_TOOLS.has(payload?.tool_name)) process.exit(0);
 
+  const { decide } = await import("./rules.mjs");
   const verdict = decide(payload?.tool_input?.command ?? "");
   if (!verdict) process.exit(0);
 

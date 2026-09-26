@@ -57,7 +57,8 @@ check(
   imports.join(", "),
 );
 check("one atomic statement counts (insert, or update on conflict)", /\.onConflictDoUpdate\(/.test(shared) && /target: rateLimits\.key/.test(shared));
-check("the table it uses is the one the snippet declares", /export const rateLimits = createTable\("rate_limit",/.test(snippet));
+check("the table it uses is the one the snippet declares", /export const rateLimits = createTable\(\s*"rate_limit",/.test(snippet));
+check("the sweep reads window_started_at through an index (outside review, 3.3.0)", /index\("rate_limit_window_idx"\)\.on\(table\.windowStartedAt\)/.test(snippet));
 
 console.log("\n── /security says it, and points at what exists ──");
 const skill = read("skills/security/SKILL.md");
