@@ -183,13 +183,16 @@ grep -q "^CRON_SECRET=" .env 2>/dev/null && echo "exists" || echo "missing"
 ```
 
 ### If missing
-Invoke `_generate-secret` with `format=hex`, `length=32`. Capture the value.
+Generate it and send it to the project in one command: the value goes from the generator into `.env` and Vercel, never into the conversation nor into a process argument (`printf` is a shell builtin):
 
-Invoke `_push-env-vars` with:
-- `CRON_SECRET=<value>`
+```bash
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/generate-secret.mjs" --format hex --length 32) && [ -n "$NEW_VALUE" ] \
+  || { echo "The generator failed: nothing was written."; exit 1; }
+printf 'CRON_SECRET=%s\n' "$NEW_VALUE" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
+```
 
 ### If present
-Read the value from `.env` for the following steps.
+Nothing to do here. The commands below read it from `.env` themselves (`env-value.mjs`), into a shell variable: the value never appears in the conversation.
 
 ---
 
@@ -202,7 +205,9 @@ WEB_DIR_FLAG=""
 [ "$IS_MONOREPO" = "yes" ] && WEB_DIR_FLAG="--web-dir apps/web"
 [ "$IS_MONOREPO" = "no" ] && WEB_DIR_FLAG="--web-dir ."
 
-result=$(CRON_SECRET_VALUE="<CRON_SECRET>" node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" \
+CRON_SECRET_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" CRON_SECRET) \
+  || { echo "CRON_SECRET is not in the project's .env: see Step 5."; exit 1; }
+result=$(CRON_SECRET_VALUE="$CRON_SECRET_VALUE" node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" \
   --kind ping \
   --task-name "<TASK_NAME>" \
   --cron "<CRON_EXPR>" \
@@ -232,8 +237,10 @@ Add `--web-dir apps/web` if monorepo.
 
 Upload the secret + deploy:
 ```bash
+V=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" CRON_SECRET) \
+  || { echo "CRON_SECRET is not in the project's .env: see Step 5."; exit 1; }
 cd cron-workers/<TASK_NAME>
-echo "<CRON_SECRET>" | wrangler secret put CRON_SECRET
+printf '%s' "$V" | wrangler secret put CRON_SECRET
 wrangler deploy
 cd ../..
 ```
@@ -270,7 +277,11 @@ If absent → abort, ask the user to push the project to GitHub first.
 
 #### 6c. Push the GitHub secrets
 ```bash
-gh secret set CRON_SECRET --body "<CRON_SECRET>"
+# The secret goes to gh on its standard input (no --body): never in the conversation, never as an argument.
+V=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" CRON_SECRET) \
+  || { echo "CRON_SECRET is not in the project's .env: see Step 5."; exit 1; }
+printf '%s' "$V" | gh secret set CRON_SECRET
+# The address is public: an argument is fine.
 gh secret set CRON_APP_URL --body "<NEXT_PUBLIC_APP_URL>"
 ```
 
@@ -414,10 +425,14 @@ On the shared clock, the registry job name is `JOB_NAME` = `<PROJECT_NAME>-<TASK
 
 - **"run the task right now"** (shared clock): trigger it manually through the worker's control endpoint:
   ```bash
-  ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN)
-  curl -s -X POST -H "Authorization: Bearer $ADMIN" "<WORKER_URL>/trigger?name=<JOB_NAME>"
+  ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN) \
+    && printf 'Authorization: Bearer %s\n' "$ADMIN" | curl -s -X POST -H @- "<WORKER_URL>/trigger?name=<JOB_NAME>"
   ```
-  (For a GitHub clock: `gh workflow run cron-<TASK_NAME>.yml`. For a dedicated clock: `curl` the `/api/cron/<TASK_NAME>` route directly with the project's `CRON_SECRET`.)
+  (The header reaches curl on its standard input, `-H @-`: the token is never an argument.) For a GitHub clock: `gh workflow run cron-<TASK_NAME>.yml`. For a dedicated clock, call the route with the project's `CRON_SECRET`, read from `.env` the same way:
+  ```bash
+  V=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" CRON_SECRET) \
+    && printf 'Authorization: Bearer %s\n' "$V" | curl -s -X POST -H @- "<NEXT_PUBLIC_APP_URL>/api/cron/<TASK_NAME>"
+  ```
 - **"show me my scheduled tasks"**: `node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --list` (+ `.github/workflows/cron-*.yml` + `cron-workers/*/` for the other clocks). Present them in plain language.
 - **"change the schedule"** (shared): re-run the register command from Step 6 with the new `--cron` (same project + same task name = update in place).
 - **"delete this task"** (shared): `node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --remove --name <JOB_NAME>`. Also offer to delete the now-unused `/api/cron/<TASK_NAME>` route.

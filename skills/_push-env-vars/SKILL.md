@@ -26,6 +26,15 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" "KEY1=value1" "KEY2=v
 
 Pass each `KEY=VALUE` as a single shell-quoted argument. The script splits on the first `=` only, so values containing `=` are preserved.
 
+**A secret never goes as an argument**: an argument can be read in the process list by anything running on the machine. It goes on the standard input, one `KEY=VALUE` per line, from where it already is, never typed nor shown:
+
+```bash
+grep '^DATABASE_URL=' .env | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
+printf '%s=%s\n' KEY "$VALUE" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
+```
+
+(`printf` is a shell builtin: the value in `$VALUE` never sits in a process argument.) An empty value is refused and nothing is written, because in a pipe it is what a step that failed upstream sends: read a value into a variable and check it (`[ -n "$VALUE" ]`) before the pipe. `--allow-empty` sets an empty value on purpose; `--no-local` writes the hosting only, the local `.env` left as it is.
+
 ## Rules
 
 - **Always** use this helper (never `vercel env add` / `echo KEY=... >> .env` / `printf ... | vercel env ...` inline).

@@ -7,7 +7,8 @@
 // in the environment, where it has not lived since the vault. And had it run, a domain that was
 // not exported either would have been written as "https://undefined" into every service of the
 // account. This script is now the one place those writes happen:
-//   - it writes only to the services the person names, the project's manifest pointing at them;
+//   - it writes only to the services the person names, and to a service the project's manifest
+//     does not record only once the person has said it is this project's (--outside-manifest);
 //   - a value comes from the project's .env, read here: never an argument, never the conversation;
 //   - "declares nothing" is only said after a listing that succeeded, every page of it.
 //
@@ -15,13 +16,21 @@
 //        the services of the account that declare one of the keys, each marked `inManifest`
 //        when the project's manifest records it (kind render-service)
 //   node env-vars.mjs set      --project-dir <dir> --key <KEY> --service <srv-id> [--service ...]
-//                              [--from <ENV_NAME>] [--no-deploy]
+//                              [--from <ENV_NAME>] [--no-deploy] [--outside-manifest]
 //        writes the value of <ENV_NAME> (default: <KEY>) from the project's .env into each named
 //        service that declares <KEY>, then starts a deploy so the service picks it up
 //   node env-vars.mjs retarget --project-dir <dir> --service <srv-id> [--service ...]
-//                              --to-origin <https://domain> [--no-deploy]
-//        in the named services, every value that points at a *.vercel.app address is pointed at
-//        <to-origin> instead (the project's address became its domain)
+//                              --to-origin <https://domain> [--vercel-project <name>]
+//                              [--no-deploy] [--outside-manifest]
+//        in the named services, every value that points at one of THIS project's addresses at
+//        Vercel is pointed at <to-origin> instead (the project's address became its domain); an
+//        address of another project is listed in `kept`, never touched (../vercel/own-address.mjs)
+//
+// A named service that the project's manifest does not record (kind render-service) may belong
+// to another project of the same account: `set` and `retarget` refuse it (6) unless
+// --outside-manifest says the person confirmed it is this project's. Each result says
+// `inManifest`. The skills asked before writing; the script wrote anyway, with the same answer
+// as for the project's own service (outside review, 3.3.2).
 //
 // Prints ONE JSON object. Exit codes: 0 ok, 1 usage or provider error, 2/3 vault to open,
 // 4 no Render key / value absent from .env, 6 refused (a service that does not declare the key).
@@ -32,6 +41,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { envValue } from "../env-value.mjs";
 import { manifestExistant } from "../manifest/locate.mjs";
+import { checkOrigin, projectNameOf, repointOwn } from "../vercel/own-address.mjs";
 
 const API = "https://api.render.com/v1";
 
@@ -102,6 +112,8 @@ export async function run(argv, { fetchImpl = globalThis.fetch, readKey } = {}) 
   for (let i = 0; i < rest.length; i += 1) {
     const a = rest[i];
     if (a === "--no-deploy") flags.noDeploy = true;
+    else if (a === "--outside-manifest") flags.outsideManifest = true;
+    else if (a === "--vercel-project") flags.vercelProject = rest[++i];
     else if (a === "--key") flags.key.push(rest[++i]);
     else if (a === "--service") flags.service.push(rest[++i]);
     else if (a === "--project-dir") flags.projectDir = rest[++i];
@@ -136,6 +148,13 @@ export async function run(argv, { fetchImpl = globalThis.fetch, readKey } = {}) 
 
   if (!flags.service.length) throw new Failure(1, `${cmd} needs at least one --service <srv-id>: the services are named, never "every service of the account"`);
   const deploy = async (id) => (flags.noDeploy ? null : api("POST", `/services/${encodeURIComponent(id)}/deploys`, {}).then(() => true, () => false));
+  const outside = flags.service.filter((id) => !owned.has(id));
+  if (outside.length && !flags.outsideManifest) {
+    throw new Failure(
+      6,
+      `Refused: ${outside.join(", ")} ${outside.length > 1 ? "are" : "is"} not in this project's manifest, and may belong to another project of the account. Ask the person; once they have said it is this project's, run the same command with --outside-manifest. Nothing was written.`,
+    );
+  }
 
   if (cmd === "set") {
     const [k] = flags.key;
@@ -149,26 +168,33 @@ export async function run(argv, { fetchImpl = globalThis.fetch, readKey } = {}) 
     }
     for (const id of flags.service) {
       await api("PUT", `/services/${encodeURIComponent(id)}/env-vars/${encodeURIComponent(k)}`, { value });
-      results.push({ id, key: k, written: true, redeployed: await deploy(id) });
+      results.push({ id, inManifest: owned.has(id), key: k, written: true, redeployed: await deploy(id) });
     }
     return { results };
   }
 
-  // retarget
-  if (!/^https:\/\/[a-z0-9.-]+$/i.test(flags.toOrigin ?? "")) throw new Failure(1, "--to-origin must be https://<domain>, nothing after the domain");
-  const OLD = /https?:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.vercel\.app/i;
-  const OLD_ALL = new RegExp(OLD.source, "gi");
+  // retarget: only THIS project's addresses at Vercel. Another project's (a shared API, a
+  // billing service) is kept and listed, never rewritten into this project's domain.
+  if (!checkOrigin(flags.toOrigin)) throw new Failure(1, "--to-origin must be https://<domain>, nothing after the domain");
+  const project = flags.vercelProject ?? projectNameOf(projectDir);
+  if (!project || !/^[a-z0-9-]+$/.test(project)) {
+    throw new Failure(1, "The project's name at Vercel is unknown (no projectName in .vercel/project.json): pass --vercel-project <name>. Nothing was changed.");
+  }
   const results = [];
   for (const id of flags.service) {
     const changed = [];
+    const kept = [];
     for (const e of await envVars(api, id)) {
-      if (typeof e.value !== "string" || !OLD.test(e.value)) continue;
-      await api("PUT", `/services/${encodeURIComponent(id)}/env-vars/${encodeURIComponent(e.key)}`, { value: e.value.replace(OLD_ALL, flags.toOrigin) });
+      if (typeof e.value !== "string") continue;
+      const r = repointOwn(e.value, project, flags.toOrigin);
+      for (const k of r.kept) if (!kept.includes(k)) kept.push(k);
+      if (!r.changes.length) continue;
+      await api("PUT", `/services/${encodeURIComponent(id)}/env-vars/${encodeURIComponent(e.key)}`, { value: r.text });
       changed.push(e.key);
     }
-    results.push({ id, changed, redeployed: changed.length ? await deploy(id) : null });
+    results.push({ id, inManifest: owned.has(id), changed, kept, redeployed: changed.length ? await deploy(id) : null });
   }
-  return { results };
+  return { project, results };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

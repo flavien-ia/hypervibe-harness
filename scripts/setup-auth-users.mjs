@@ -703,15 +703,19 @@ async function pushEnvVars() {
   const helper = join(__dirname, "push-env-vars.mjs");
   if (!existsSync(helper)) fail(`Sibling script missing: ${helper}`);
 
-  const res = spawnSync(
-    "node",
-    [helper, "--target=all", `AUTH_SECRET=${state.authSecret}`],
-    { cwd: WEB_DIR, stdio: "inherit", shell: false },
-  );
+  // On the helper's standard input, never as arguments: an argument can be read in the process
+  // list by anything running on the machine (3.3.4). The helper writes .env first, so a push that
+  // failed can be run again from it without the values being typed or shown.
+  const res = spawnSync("node", [helper, "--target=all", "--stdin"], {
+    cwd: WEB_DIR,
+    input: `AUTH_SECRET=${state.authSecret}\n`,
+    stdio: ["pipe", "inherit", "inherit"],
+    shell: false,
+  });
   if (res.status !== 0) {
     fail(
-      "push-env-vars.mjs failed. Code is in place but AUTH_SECRET didn't land. " +
-        "Retry manually with the value visible in this run's logs.",
+      "push-env-vars.mjs failed. Code is in place but AUTH_SECRET didn't land. Push it again from .env, without showing it: " +
+        "grep '^AUTH_SECRET=' .env | node " + helper + " --target=all --stdin",
     );
   }
   ok("AUTH_SECRET pushed");

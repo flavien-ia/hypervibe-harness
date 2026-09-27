@@ -74,12 +74,11 @@ pnpm add -D @types/web-push
 First check whether they already exist in the environment (`NEXT_PUBLIC_VAPID_PUBLIC_KEY`): if so, do not regenerate (that would invalidate the subscriptions). Otherwise, generate them:
 
 ```bash
-cd "<WEB_DIR>" && node "${CLAUDE_SKILL_DIR}/../../scripts/generate-vapid-keys.mjs"
+cd "<WEB_DIR>" && node "${CLAUDE_SKILL_DIR}/../../scripts/generate-vapid-keys.mjs" --env \
+  | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
 ```
 
-The script returns `{ "publicKey": "...", "privateKey": "..." }`. Push the 3 variables via `_push-env-vars` (local `.env` + Vercel):
-- `NEXT_PUBLIC_VAPID_PUBLIC_KEY=<publicKey>`
-- `VAPID_PRIVATE_KEY=<privateKey>`
+The two keys go from the generator to the local `.env` and Vercel on a pipe: the private key never appears in the conversation, nor in a process argument. Then push the subject, which is not a secret, via `_push-env-vars`:
 - `VAPID_SUBJECT=mailto:<project contact email>` (read `BREVO_SENDER_EMAIL` / `ADMIN_EMAIL` / the project domain; default `mailto:contact@<domain>`).
 
 These are **project-specific** secrets (like `AUTH_SECRET`): they go in `.env` + Vercel, **never** in the global vault.

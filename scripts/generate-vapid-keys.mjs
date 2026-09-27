@@ -2,6 +2,9 @@
 // generate-vapid-keys.mjs
 // Generates a VAPID key pair for Web Push and prints it as JSON on stdout :
 //   { "publicKey": "...", "privateKey": "..." }
+// With --env, it prints the two variables instead, for push-env-vars.mjs --stdin, so that the
+// private key goes from here to .env and the hosting without ever being shown:
+//   node generate-vapid-keys.mjs --env | node push-env-vars.mjs --stdin
 //
 // IMPORTANT : run with the cwd AT THE PROJECT ROOT (cd <WEB_DIR> && node ...).
 // This script lives in the plugin, but `web-push` is installed in the project : we
@@ -33,4 +36,8 @@ try {
 }
 
 const keys = webpush.generateVAPIDKeys();
-process.stdout.write(JSON.stringify({ publicKey: keys.publicKey, privateKey: keys.privateKey }));
+if (process.argv.includes("--env")) {
+  process.stdout.write(`NEXT_PUBLIC_VAPID_PUBLIC_KEY=${keys.publicKey}\nVAPID_PRIVATE_KEY=${keys.privateKey}\n`);
+} else {
+  process.stdout.write(JSON.stringify({ publicKey: keys.publicKey, privateKey: keys.privateKey }));
+}

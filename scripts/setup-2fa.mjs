@@ -231,8 +231,21 @@ async function pushEnvVars() {
   const helper = join(__dirname, "push-env-vars.mjs");
   if (!existsSync(helper)) fail(`Sibling script missing: ${helper}`);
   const kvs = [`ADMIN_TOTP_SECRET=${state.base32}`, `ADMIN_2FA_BACKUP_HASHES=${JSON.stringify(state.backupHashes)}`];
-  const res = spawnSync("node", [helper, "--target=all", ...kvs], { cwd: WEB_DIR, stdio: "inherit", shell: false });
-  if (res.status !== 0) fail("push-env-vars.mjs failed. Code is in place but env vars didn't land.");
+  // On the helper's standard input, never as arguments: an argument can be read in the process
+  // list by anything running on the machine (3.3.4). The helper writes .env first, so a push that
+  // failed can be run again from it without the values being typed or shown.
+  const res = spawnSync("node", [helper, "--target=all", "--stdin"], {
+    cwd: WEB_DIR,
+    input: kvs.join("\n") + "\n",
+    stdio: ["pipe", "inherit", "inherit"],
+    shell: false,
+  });
+  if (res.status !== 0) {
+    fail(
+      "push-env-vars.mjs failed. Code is in place but env vars didn't land. Push them again from .env, without showing them: " +
+        "grep -E '^(ADMIN_TOTP_SECRET|ADMIN_2FA_BACKUP_HASHES)=' .env | node " + helper + " --target=all --stdin",
+    );
+  }
   ok("Env vars pushed");
 }
 

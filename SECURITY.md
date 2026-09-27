@@ -87,7 +87,10 @@ raw head of a command: `sudo`, `command`, `env`, `time`, a launcher (`npx`,
 are stripped or unfolded first, so a shape the rules did not foresee does not
 hide what they forbid. `xargs` is unfolded too, with the line it rebuilds from
 its input when that input is on the command line, and so are `find -exec`,
-`timeout`, `stdbuf` and `caffeinate`. The full table is in the README.
+`timeout`, `stdbuf` and `caffeinate`. A launcher's options are read the way
+the tool reads them: a long option by its prefix, its value after `=` or in
+the next word, and `env -S` hands over a whole command (outside review, 3.3.2).
+The full table is in the README.
 
 Two properties matter here:
 
@@ -148,6 +151,12 @@ The allowlists come first and the framing second, on purpose: framing
 Global keys live in a Bitwarden vault, and are typed into an OS window that the
 assistant never sees. They are never printed in the chat, never committed, never
 written to a file. Project secrets stay in the project's `.env` and in Vercel.
+A secret the plugin writes (a generated key, a key typed into the masked
+window, a connection string) goes from command to command on the standard
+input: never on a command line, where anything running on the machine can read
+it, and never through the conversation. Until 3.3.3 four setup scripts, the
+OpenRouter key and a few skills broke that line; a recette now reads the
+scripts and the commands the skills give for it.
 A global git hook (gitleaks, installed by `/start`) blocks any commit containing
 a detected secret. The same global hooks can hand over to a repository's own
 `.hooks/pre-commit` and `.hooks/pre-push` (that is how the recette installed by

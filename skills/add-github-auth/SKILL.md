@@ -107,23 +107,27 @@ Show this message:
 > - GitHub shows the secret only once - **copy it immediately**
 > - ⚠️ If you leave the page without copying it, you will have to generate a new one
 >
-> **Send me the Client ID and the Client Secret** and I will take care of configuring everything.
+> **Do not paste them here.** A window opens on your screen: type the Client ID (shown as you type) and the Client Secret (hidden) there. They go straight into the project and Vercel, never into our conversation.
 
-Wait for the user to provide the Client ID and the Client Secret.
+Then open the masked window (the `_collect-secret` pattern, destination B: a secret of THIS project). Replace `<LANG>` with the conversation's language code:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "AUTH_GITHUB_ID:text,AUTH_GITHUB_SECRET:secret" \
+  --project-dir "<absolute project dir>"
+```
+
+It blocks until the user is done, and exits non-zero if they cancel or the write fails: read the exit code, never assume success. The client secret never passes through the conversation: if the user pastes it in chat anyway, do not reuse it, and tell them to generate a new one on the OAuth App's page (the pasted one is in the session's transcript).
 
 ---
 
 ## Step 3 - Claude Code configures everything
 
-Once both values are received:
+Once the window has written both values:
 
-### 3a. Push the env vars
+### 3a. The env vars
 
-Invoke `_push-env-vars` with:
-- `AUTH_GITHUB_ID=<provided_client_id>`
-- `AUTH_GITHUB_SECRET=<provided_client_secret>`
-
-The helper writes to the local `.env` AND pushes to Vercel (production/preview/development) idempotently.
+The window has written `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET` to the local `.env` AND to Vercel (production and preview), idempotently, through `_push-env-vars`. Nothing else to push.
 
 ### 3b. Configure the provider in NextAuth
 
@@ -208,7 +212,7 @@ The helper is idempotent. If the `politique-de-confidentialite/page.tsx` page ex
 Confirm to the user that everything is configured:
 
 - `.env` updated with `AUTH_GITHUB_ID` and `AUTH_GITHUB_SECRET`
-- Variables pushed to Vercel (production + preview + development)
+- Variables pushed to Vercel (production + preview)
 - GitHub provider configured in `src/server/auth.ts`
 - CLAUDE.md updated
 

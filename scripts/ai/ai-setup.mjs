@@ -170,14 +170,13 @@ async function principal() {
       // dans le .env du projet et sur Vercel, puis ne rend que de quoi en
       // parler. Aucun appelant n'a besoin de la voir, donc aucun appelant ne
       // peut la divulguer, y compris en plantant.
+      // Sur l'entrée standard, jamais en argument : un argument se lit dans la liste des
+      // processus par tout ce qui tourne sur la machine.
       const projet = opt("projet", process.cwd());
       const pousse = spawnSync(
-        "node",
-        [
-          path.join(ICI, "..", "push-env-vars.mjs"),
-          `OPENROUTER_API_KEY=${creee.valeur}`,
-        ],
-        { encoding: "utf8", cwd: projet },
+        process.execPath,
+        [path.join(ICI, "..", "push-env-vars.mjs"), "--stdin"],
+        { encoding: "utf8", cwd: projet, input: `OPENROUTER_API_KEY=${creee.valeur}\n` },
       );
       const journal = (pousse.stdout ?? "")
         .split("\n")

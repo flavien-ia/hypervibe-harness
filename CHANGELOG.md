@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.3.4 (27 septembre 2026)
+
+### Sécurité
+- **Aucun secret en argument d'une commande** : la clé OpenRouter créée par `/add-ai`, le secret de session et ceux de la double authentification posés à l'installation de la connexion, et la clé d'envoi des emails passaient en argument d'une commande, lisible par tout programme de la machine. Ils passent désormais d'une commande à l'autre sans jamais apparaître, et une recette le vérifie à chaque version.
+- **Plus aucun secret par la conversation** : `/add-google-auth` et `/add-github-auth` ouvrent une fenêtre masquée pour le secret de connexion, et la clé des tâches planifiées (`/add-cron`) comme la clé privée des notifications (`/add-push-notification`) ne passent plus par l'échange avec Claude.
+- **Une étape qui échoue ne vide plus une clé de production** : une valeur vide est refusée avant tout envoi, et `/rotate-secret` comme le passage en live de `/add-stripe` vérifient leurs valeurs avant de les envoyer (relecture de Bastien Detraz).
+- **Garde-fou** : il lit les options de `sudo`, `env`, `nice`, `timeout` et `stdbuf` comme ces outils les lisent, et une accolade collée à un mot (`xargs -I{} git add {}`) ne le trompe plus.
+
+### Corrections
+- **`/add-domain` ne casse plus les tâches planifiées** : un Worker recevait l'adresse `https://undefined` avant d'être redéployé. Seules les adresses de ce projet sont repointées, celle d'un autre projet reste intacte, sur Cloudflare comme sur Render.
+- **Render** : un service absent du manifeste du projet n'est plus modifié sans ton accord.
+
 ## v3.3.3 (27 septembre 2026)
 
 ### Corrections

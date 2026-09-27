@@ -83,6 +83,39 @@ console.log("\n── --no-local : l'hebergement seul, le .env local ne bouge pa
   check("la valeur n'est jamais affichee", !(r.stdout + r.stderr).includes(SECRET));
 }
 
+console.log("\n── Une valeur vide est refusee, et rien n'est ecrit (revue externe, 3.3.2) ──");
+{
+  // Ce qu'envoie un tube dont une etape a echoue : la ligne part quand meme, vide.
+  const a = push(["--stdin"], "CLE=\n");
+  check("exit 1", a.r.status === 1, `exit ${a.r.status}`);
+  check("le refus nomme la cle", /CLE/.test(a.r.stderr) && /--allow-empty/.test(a.r.stderr));
+  check(".env n'a pas bouge", a.env === "AUTRE=1\nDATABASE_URL=ancienne\n", a.env);
+  const b = push(["--stdin"], "BONNE=1\nCLE=   \n");
+  check("une valeur faite d'espaces aussi, et la bonne ligne voisine n'est pas ecrite non plus", b.r.status === 1 && b.env === "AUTRE=1\nDATABASE_URL=ancienne\n", b.env);
+  const c = push(["DATABASE_URL="]);
+  check("en argument aussi : l'ancienne valeur reste", c.r.status === 1 && c.env.includes("DATABASE_URL=ancienne"), c.env);
+  const d = push(["--stdin", "--allow-empty"], "CLE=\n");
+  check("--allow-empty : une valeur vide voulue est ecrite", d.r.status === 0 && /^CLE=$/m.test(d.env), `exit ${d.r.status} ${d.env}`);
+}
+
+console.log("\n── Aucun script ne passe un secret en argument de l'aide (3.3.4) ──");
+{
+  const { existsSync } = await import("node:fs");
+  const lanceurs = /spawnSync\(\s*(?:"node"|process\.execPath)\s*,\s*\[([^\]]*)\]/g;
+  for (const rel of ["setup-2fa.mjs","setup-auth-admin.mjs","setup-auth-users.mjs","setup-email.mjs","setup-db.mjs","ai/ai-setup.mjs"]) {
+    const f = join(ROOT, "scripts", ...rel.split("/"));
+    if (!existsSync(f)) continue;
+    const src = readFileSync(f, "utf8");
+    const appels = [...src.matchAll(lanceurs)].map((m) => m[1]).filter((a) => /helper|push-env-vars/.test(a));
+    check(`${rel} : l'aide est lancee`, appels.length > 0);
+    check(
+      `${rel} : sur l'entree standard, sans valeur en argument`,
+      appels.every((a) => a.includes('"--stdin"') && !a.includes("`") && !a.includes("...")),
+      appels.join(" | "),
+    );
+  }
+}
+
 console.log("\n── La fenetre masquee passe les valeurs par l'entree standard ──");
 {
   const inter = readFileSync(join(ROOT, "scripts", "vault", "interactive.mjs"), "utf8");

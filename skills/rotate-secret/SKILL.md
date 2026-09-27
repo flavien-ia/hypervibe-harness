@@ -143,9 +143,12 @@ Store `PROVIDER_URL` and `PROVIDER_INSTRUCTIONS`.
 Generate it and send it to the project in one command: the value goes from the generator straight into `.env` and the hosting, and never appears in the conversation, nor as an argument (format `hex`, length `32` by default, or `base64url`/`64` for the NextAuth `AUTH_SECRET`, which prefers something longer):
 
 ```bash
-{ printf '%s=' "<SECRET_NAME>"; node "${CLAUDE_SKILL_DIR}/../../scripts/generate-secret.mjs" --format <hex|base64url> --length <32|64>; printf '\n'; } \
-  | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/generate-secret.mjs" --format <hex|base64url> --length <32|64>) && [ -n "$NEW_VALUE" ] \
+  || { echo "The generator failed: nothing was pushed, the current value is untouched."; exit 1; }
+printf '%s=%s\n' "<SECRET_NAME>" "$NEW_VALUE" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
 ```
+
+The value is read into a variable and checked BEFORE it is sent: in a single pipe, a generator that failed (a mistyped format, say) still sent an empty line, and the key was replaced with nothing in production (outside review, 3.3.2). `push-env-vars.mjs` now refuses an empty value too, but the check belongs here, where the failure happens. `printf` is a shell builtin: the value never sits in a process argument.
 
 Add `--target=all` to `push-env-vars.mjs` only if the development value must change too (rare: a compromised development secret).
 
@@ -320,7 +323,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" list --project-dir 
 
 - Exit 4 (no Render key in the vault) → silent, the user has no Render. Exit 2 → the vault is locked: unlock it, run the same command again.
 - `services` empty → no Render service uses this key, skip.
-- Services marked `inManifest: true` are this project's: update them. A service NOT in the manifest may belong to another project of the same account: name it to the user and ask whether it belongs to this project before writing to it. Never "every service that declares the key".
+- Services marked `inManifest: true` are this project's: update them. A service NOT in the manifest may belong to another project of the same account: name it to the user and ask whether it belongs to this project before writing to it. The script holds the same rule: it refuses such a service (exit 6) until `--outside-manifest` says the user confirmed it. Never "every service that declares the key".
 
 Then write the value into the chosen services. The script reads it from the project's `.env` (never from the command line) and redeploys each service so that it picks it up:
 
@@ -331,7 +334,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" set --project-dir "
 
 Depending on the output:
 - `results[].written: true` → announce `✅ Render service <name>: <SECRET_NAME> updated, redeploy started (~2-5 min)`.
-- Exit 6 → a named service does not declare the key: nothing was written, check the list.
+- Exit 6 → nothing was written: a named service does not declare the key, or is not in the project's manifest and the user has not confirmed it is this project's (the message says which).
 - Exit 1 → Render refused or did not answer: surface the message, offer `https://dashboard.render.com` for a manual fix.
 
 ⚠️ **If the auto-push partially fails** (e.g. Vercel OK but Render KO): **do not conclude until all targets are in sync**. A partial rotation means some runtimes use the old key (which will soon be revoked) → they will break. Insist on the manual fix before moving to Step 6.

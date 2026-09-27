@@ -414,6 +414,102 @@ function withoutVersion(seg) {
   return seg.replace(/^([^@\s]+)@[^\s/]+(?=\s|$)/, "$1");
 }
 
+/** The launchers that run the command after them unchanged, and how each one reads its
+ *  options, the way getopt reads them: `value`, the short options that take a value (attached,
+ *  `-n5`, or in the next word, `-n 5`); `optional`, those whose value can only be attached
+ *  (`sudo -h`); `long`, the long options, a trailing `=` marking those that take a value
+ *  (after `=`, or in the next word), each accepted by any unambiguous prefix (`--sig` is
+ *  `--signal`); `split`, the options whose value is itself the command (`env -S "git push"`);
+ *  `operands`, the words between the options and the command (the duration of `timeout`).
+ *  They all stop reading options at the first word that is not one. Reading only some forms let
+ *  `timeout --signal KILL 60 git push`, `sudo --user root git push` and `env -C /tmp git push`
+ *  through (outside review, 3.3.2, and the rest of the family measured then). */
+const LAUNCHERS = {
+  sudo: {
+    value: "aCcDgpRrTtUu",
+    optional: "h",
+    long: [
+      "askpass", "auth-type=", "background", "bell", "chdir=", "chroot=", "close-from=",
+      "command-timeout=", "edit", "group=", "help", "host=", "list", "login", "login-class=",
+      "no-update", "non-interactive", "other-user=", "preserve-env", "preserve-groups", "prompt=",
+      "remove-timestamp", "reset-timestamp", "role=", "set-home", "shell", "stdin", "type=",
+      "user=", "validate", "version",
+    ],
+  },
+  doas: { value: "aCu" },
+  env: {
+    value: "CLPSUu",
+    long: [
+      "block-signal", "chdir=", "debug", "default-signal", "help", "ignore-environment",
+      "ignore-signal", "list-signal-handling", "null", "split-string=", "unset=", "version",
+    ],
+    split: ["S", "split-string"],
+    dash: true,
+  },
+  nice: { value: "n", long: ["adjustment=", "help", "version"], number: true },
+  time: { value: "fo", long: ["append", "format=", "help", "output=", "portability", "quiet", "verbose", "version"] },
+  timeout: {
+    value: "ks",
+    long: ["foreground", "help", "kill-after=", "preserve-status", "signal=", "verbose", "version"],
+    operands: 1,
+  },
+  stdbuf: { value: "eio", long: ["error=", "help", "input=", "output=", "version"] },
+  caffeinate: { value: "tw" },
+  nohup: { long: ["help", "version"] },
+  exec: { value: "a" },
+  setsid: { long: ["ctty", "fork", "help", "version", "wait"] },
+};
+LAUNCHERS.gtimeout = LAUNCHERS.timeout;
+
+/** The segment after a launcher and its options (see LAUNCHERS), or null when the segment
+ *  does not start with one. */
+function afterLauncher(seg) {
+  const list = words(seg);
+  const spec = list.length ? LAUNCHERS[list[0].value] : null;
+  if (!spec) return null;
+  const rest = (from, head = []) => [...head, ...list.slice(from).map((x) => x.raw)].join(" ");
+  const bare = (o) => o.replace(/=$/, "");
+  const long = spec.long ?? [];
+  let i = 1;
+  while (i < list.length) {
+    const v = list[i].value;
+    if (v === "--") {
+      i += 1;
+      break;
+    }
+    if ((v === "-" && spec.dash) || (spec.number && /^-\d+$/.test(v))) {
+      i += 1;
+      continue;
+    }
+    if (/^--[^=]/.test(v)) {
+      const eq = v.indexOf("=");
+      const name = eq < 0 ? v.slice(2) : v.slice(2, eq);
+      const prefixed = long.filter((o) => bare(o).startsWith(name));
+      const opt = long.find((o) => bare(o) === name) ?? (prefixed.length === 1 ? prefixed[0] : null);
+      i += 1;
+      if (opt && spec.split?.includes(bare(opt))) {
+        return eq >= 0 ? rest(i, [v.slice(eq + 1)]) : rest(i + 1, [list[i]?.value ?? ""]);
+      }
+      if (opt?.endsWith("=") && eq < 0) i += 1;
+      continue;
+    }
+    if (/^-./.test(v)) {
+      i += 1;
+      for (let j = 1; j < v.length; j += 1) {
+        if (spec.optional?.includes(v[j])) break;
+        if (!spec.value?.includes(v[j])) continue;
+        const attached = v.slice(j + 1);
+        if (spec.split?.includes(v[j])) return attached ? rest(i, [attached]) : rest(i + 1, [list[i]?.value ?? ""]);
+        if (!attached) i += 1;
+        break;
+      }
+      continue;
+    }
+    break;
+  }
+  return rest(i + (spec.operands ?? 0));
+}
+
 /** Where a command hides. `sudo git add -A`, `/usr/bin/git add -A`,
  *  `command git add -A`, `(git add -A && ...)`, `{ git add -A; }`,
  *  `if x; then git add -A; fi`: one family, and the family is infinite, so
@@ -433,24 +529,20 @@ function normalise(raw) {
     // Openers and keywords a shell swallows before the command itself, and
     // the closers of the same blocks at the end.
     s = s.replace(/^(?:[({]\s*|(?:then|do|else|elif|if|while|until)\s+|!\s+)/, "");
-    s = s.replace(/[\s;]*[)}]+$/, "");
+    // A `)` closes a subshell even attached (`(git add -A)`); a `}` closes a group only as
+    // a word of its own (`{ git add -A; }`). Attached, it belongs to a word: the `{}` that
+    // `xargs -I{} git add {}` fills in, read as a closer, left `git add {` (outside review, 3.3.2).
+    s = s.replace(/(?:[\s;]*\)|(?:^|[\s;]+)\})+$/, "");
     // A whole segment in quotes (`eval "git push"`) is the command it quotes.
     s = s.replace(/^(["'])(.*)\1$/, "$2");
     // `FOO=1 git push`: assignments carry the escape prefixes, keep them.
     const e = withoutEnv(s);
     for (const [k, v] of e.env) env.set(k, v);
     s = e.rest;
-    // Prefixes that run the rest unchanged, with their own options.
-    s = s.replace(/^(?:sudo|doas)(?:\s+(?:-[ug]\s+\S+|-[A-Za-z]+|--\S*))*\s+/, "");
-    s = s.replace(/^env(?:\s+-i)?(?:\s+-u\s+\S+)*\s+/, "");
-    s = s.replace(/^nice(?:\s+-n\s+\S+|\s+-\d+)?\s+/, "");
-    s = s.replace(/^time(?:\s+-p)?\s+/, "");
-    // Launchers that run the rest unchanged, with the options that take a value: `timeout 60
-    // git push`, `stdbuf -oL git push`, `caffeinate -i git push` all push (outside review, 3.3.1).
-    s = s.replace(/^g?timeout(?:\s+(?:--preserve-status|--foreground|-v|--verbose|-k\s*\S+|--kill-after=\S+|-s\s*\S+|--signal=\S+))*\s+\S+\s+/, "");
-    s = s.replace(/^stdbuf(?:\s+(?:-[ioe]\s*\S+|--(?:input|output|error)=\S+))*\s+/, "");
-    s = s.replace(/^caffeinate(?:\s+(?:-[dimsu]+|-[tw]\s*\S+))*\s+/, "");
-    s = s.replace(/^(?:command(?:\s+-p)?|builtin|exec|nohup|eval)\s+/, "");
+    // Prefixes that run the rest unchanged, read with their options as they read them.
+    const launched = afterLauncher(s);
+    if (launched !== null) s = launched;
+    s = s.replace(/^(?:command(?:\s+-p)?|builtin|eval)\s+/, "");
     // A quoted or escaped head: `"git" push`, `\git push`.
     s = s.replace(/^(["'])([^"'\s]+)\1(?=\s|$)/, "$2").replace(/^\\(?=\S)/, "");
     // A launcher, a version pin, a path: `npx wrangler@latest deploy`,

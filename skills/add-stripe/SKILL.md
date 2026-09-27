@@ -493,11 +493,16 @@ If the user chooses A -> do the code migration automatically (case by case depen
 At this stage: KYC OK + no blocking hardcoded prices. We can push, from the file of their own, on the standard input, to the hosting ONLY (`--no-local`): the local `.env` keeps the test keys, so that development never charges real money.
 
 ```bash
-cd "<WEB_DIR>" && {
-  printf 'STRIPE_SECRET_KEY='; node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --file .env.stripe-live STRIPE_SECRET_KEY_LIVE; printf '\n'
-  printf 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY='; node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --file .env.stripe-live STRIPE_PUBLISHABLE_KEY_LIVE; printf '\n'
-} | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin --no-local --target=production,preview
+cd "<WEB_DIR>" || exit 1
+SK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --file .env.stripe-live STRIPE_SECRET_KEY_LIVE) \
+  && PK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --file .env.stripe-live STRIPE_PUBLISHABLE_KEY_LIVE) \
+  && [ -n "$SK" ] && [ -n "$PK" ] \
+  || { echo "The live keys could not be read from .env.stripe-live: nothing was pushed, production keeps its keys."; exit 1; }
+printf 'STRIPE_SECRET_KEY=%s\nNEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=%s\n' "$SK" "$PK" \
+  | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin --no-local --target=production,preview
 ```
+
+The two keys are read into variables and checked BEFORE anything is sent: in a single pipe, a missing `.env.stripe-live` still sent two empty lines, and both production keys were replaced with nothing (outside review, 3.3.2). `printf` is a shell builtin: the keys never sit in a process argument.
 
 ### 10.5 - Duplicate the webhook test -> live (auto)
 

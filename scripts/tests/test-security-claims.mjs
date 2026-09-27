@@ -649,6 +649,35 @@ check(
   );
 }
 
+console.log("\n── SECURITY.md : un secret ecrit par le plugin passe sur l'entree standard ──");
+check(
+  "la page le dit",
+  /never on a command line/.test(securite) && /standard\s+input/.test(securite),
+);
+
+console.log("\n── Aucun secret par la conversation ni en argument dans les commandes des skills (3.3.4) ──");
+{
+  const dir = join(ROOT, "skills");
+  const blocs = (texte) => [...texte.replace(/\r\n/g, "\n").matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]).join("\n");
+  // Des noms qui ne sont pas des secrets : identifiants et adresses publiques.
+  const PUBLIC = /^(?:VERCEL_ORG_ID|VERCEL_PROJECT_ID|CRON_APP_URL|NEXT_PUBLIC_[A-Z0-9_]+)$/;
+  const fautes = [];
+  for (const nom of readdirSync(dir)) {
+    const f = join(dir, nom, "SKILL.md");
+    if (!existsSync(f)) continue;
+    const texte = readFileSync(f, "utf8");
+    const code = blocs(texte);
+    for (const m of code.matchAll(/gh secret set\s+([A-Z0-9_]+)[^\n]*--body/g)) if (!PUBLIC.test(m[1])) fautes.push(`${nom} : gh secret set ${m[1]} --body`);
+    if (/-f\s+"?value="?\$/.test(code)) fautes.push(`${nom} : gh workflow run -f value=$…`);
+    if (/echo\s+"<[A-Z0-9_]*(?:SECRET|KEY|TOKEN|PASSWORD)[A-Z0-9_]*>"/.test(code)) fautes.push(`${nom} : echo "<secret>" |`);
+    if (/Bearer <[A-Z0-9_]*(?:SECRET|KEY|TOKEN)[A-Z0-9_]*>/.test(code)) fautes.push(`${nom} : Bearer <secret> en argument de curl`);
+    // Une valeur recopiee par Claude dans la liste des variables a pousser.
+    for (const m of texte.matchAll(/^\s*- `([A-Z0-9_]*(?:SECRET|PRIVATE|PASSWORD)[A-Z0-9_]*)=<[^>`]+>`/gm)) if (!PUBLIC.test(m[1])) fautes.push(`${nom} : ${m[1]}=<valeur> passe par la conversation`);
+    if (/Send me (?:the Client ID and the Client Secret|these two values)|Colle-moi le Client ID et le Client Secret/.test(texte)) fautes.push(`${nom} : le secret OAuth demande dans la conversation`);
+  }
+  check("aucune commande de skill ne met un secret en argument ni ne le fait passer par la conversation", fautes.length === 0, fautes.join(" | "));
+}
+
 console.log(`\n${checks - failures}/${checks} verifications`);
 if (failures) {
   console.error(`${failures} ECHEC(S)`);

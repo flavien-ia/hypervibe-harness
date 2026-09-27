@@ -337,15 +337,19 @@ async function pushEnvVars() {
 
   // ADMIN_PASSWORD_HASH_DEV must reach development (we want the dev login working
   // locally too); --target=all forces all 3 environments regardless of NEXT_PUBLIC_ prefix.
-  const res = spawnSync("node", [helper, "--target=all", ...kvs], {
+  // On the helper's standard input, never as arguments: an argument can be read in the process
+  // list by anything running on the machine (3.3.4). The helper writes .env first, so a push that
+  // failed can be run again from it without the values being typed or shown.
+  const res = spawnSync("node", [helper, "--target=all", "--stdin"], {
     cwd: WEB_DIR,
-    stdio: "inherit",
+    input: kvs.join("\n") + "\n",
+    stdio: ["pipe", "inherit", "inherit"],
     shell: false,
   });
   if (res.status !== 0) {
     fail(
-      "push-env-vars.mjs failed. The code is in place but env vars didn't land. " +
-        "Retry manually with the values shown above.",
+      "push-env-vars.mjs failed. The code is in place but env vars didn't land. Push them again from .env, without showing them: " +
+        "grep -E '^(AUTH_SECRET|ADMIN_USERNAME|ADMIN_PASSWORD_HASH_DEV|ADMIN_PASSWORD_HASH_PROD)=' .env | node " + helper + " --target=all --stdin",
     );
   }
   ok("Env vars pushed");

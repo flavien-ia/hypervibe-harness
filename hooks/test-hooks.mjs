@@ -569,6 +569,42 @@ expect("stdbuf -oL pnpm dev", "pass");
 expect("caffeinate -i pnpm build", "pass");
 expect("echo a.ts | xargs -J % git add %", "pass");
 
+console.log("\n── Accolades et options des lanceurs lues comme getopt (revue externe, 3.3.2) ──");
+// Un {} colle a son mot n'est pas la fin d'un bloc { ...; } : lu ainsi, xargs recevait `git add {`.
+expect("echo . | xargs -I{} git add {}", "deny");
+expect("echo 'git push origin main' | xargs -I{} sh -c {}", "ask");
+// Les options longues prennent leur valeur apres = OU dans le mot suivant, et un prefixe sans
+// ambiguite vaut l'option entiere (getopt_long).
+expect("timeout --signal KILL 60 git push origin main", "ask");
+expect("timeout --kill-after 5 60 git add -A", "deny");
+expect("timeout --sig KILL 60 git push origin main", "ask");
+expect("timeout -vk 5 60 git push origin main", "ask");
+expect("stdbuf --output L git push origin main", "ask");
+expect("stdbuf --out L git push origin main", "ask");
+expect("nice --adjustment 5 git push origin main", "ask");
+expect("nice -n5 git push origin main", "ask");
+expect("sudo --user root git push origin main", "ask");
+expect("sudo -p '' git push origin main", "ask");
+expect("sudo -iu root git add -A", "deny");
+expect("env -C /tmp git push origin main", "ask");
+expect("env --unset HOME git push origin main", "ask");
+expect("exec -a nom git push origin main", "ask");
+expect("setsid git push origin main", "ask");
+// env -S : la valeur de l'option EST la commande.
+expect("env -S 'git push origin main'", "ask");
+expect("env --split-string='git push' origin main", "ask");
+// Les blocs restent lus comme des blocs.
+expect("{ git add -A;}", "deny");
+expect("{ (git add -A); }", "deny");
+// ... et ce qui y ressemble sans en etre.
+expect("echo a.ts | xargs -I{} git add {}", "pass");
+expect("timeout --signal KILL 60 pnpm test", "pass");
+expect("stdbuf --output L pnpm dev", "pass");
+expect("nice --adjustment 5 pnpm build", "pass");
+expect("sudo --user root ls", "pass");
+expect("env -S 'pnpm test'", "pass");
+expect("echo ${HOME}", "pass");
+
 console.log("\n── Un dossier hooks/ recopie seul garde ses regles (revue externe, 3.2.6) ──");
 {
   const { spawnSync } = await import("node:child_process");

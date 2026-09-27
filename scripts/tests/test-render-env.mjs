@@ -39,7 +39,13 @@ const SECRET = "valeur-secrete-qui-ne-doit-jamais-sortir";
 function fakeRender({ failList = false } = {}) {
   const state = { services: [], env: new Map(), puts: [], deploys: [] };
   for (let i = 0; i < 120; i += 1) state.services.push({ id: `srv-${i}`, name: `service-${i}` });
-  state.env.set("srv-3", [{ key: "RESEND_API_KEY", value: "ancienne" }, { key: "APP_URL", value: "https://atelier.vercel.app/api" }]);
+  state.env.set("srv-3", [
+    { key: "RESEND_API_KEY", value: "ancienne" },
+    { key: "APP_URL", value: "https://atelier.vercel.app/api" },
+    { key: "BILLING_API_URL", value: "https://facturation-commune.vercel.app/api" },
+    { key: "PREVIEW_URL", value: "https://atelier-git-main-equipe.vercel.app" },
+    { key: "OTHER_URL", value: "https://atelier-pro.vercel.app" },
+  ]);
   state.env.set("srv-110", [{ key: "RESEND_API_KEY", value: "autre-projet" }]);
   for (const s of state.services) if (!state.env.has(s.id)) state.env.set(s.id, []);
   const page = (list, url) => {
@@ -77,10 +83,14 @@ function fakeRender({ failList = false } = {}) {
   return { state, fetch };
 }
 
-function project({ env = "", manifest = null } = {}) {
+function project({ env = "", manifest = [{ kind: "render-service", id: "srv-3", name: "atelier-agent" }], vercel = "atelier" } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "hv-render-"));
   mkdirSync(join(dir, ".git"));
   writeFileSync(join(dir, ".env"), env);
+  if (vercel) {
+    mkdirSync(join(dir, ".vercel"));
+    writeFileSync(join(dir, ".vercel", "project.json"), JSON.stringify({ projectId: "prj_1", orgId: "team_1", projectName: vercel }));
+  }
   if (manifest) {
     mkdirSync(join(dir, ".hypervibe"));
     writeFileSync(join(dir, ".hypervibe", "resources.json"), JSON.stringify({ version: 1, resources: manifest }));
@@ -113,7 +123,7 @@ console.log("\n── Écrire : dans les services nommés, la valeur lue dans le
   check("another project's service that declares the same key is untouched", r.state.env.get("srv-110")[0].value === "autre-projet");
   check("the value never appears in the output", !JSON.stringify(out).includes(SECRET));
   check("no --service: refused, nothing is written to 'every service of the account'", (await thrown(() => run(["set", "--project-dir", dir, "--key", "RESEND_API_KEY"], { fetchImpl: r.fetch, readKey: key })))?.code === 1 && r.state.puts.length === 1);
-  const notDeclared = await thrown(() => run(["set", "--project-dir", dir, "--key", "RESEND_API_KEY", "--service", "srv-5"], { fetchImpl: r.fetch, readKey: key }));
+  const notDeclared = await thrown(() => run(["set", "--project-dir", dir, "--key", "RESEND_API_KEY", "--service", "srv-5", "--outside-manifest"], { fetchImpl: r.fetch, readKey: key }));
   check("a service that does not declare the key is refused (6), nothing added", notDeclared?.code === 6 && r.state.puts.length === 1, notDeclared?.message);
   const absent = await thrown(() => run(["set", "--project-dir", dir, "--key", "BREVO_API_KEY", "--service", "srv-3"], { fetchImpl: r.fetch, readKey: key }));
   check("a value absent from the .env: refused (4), nothing written", absent?.code === 4 && r.state.puts.length === 1, absent?.message);
@@ -130,10 +140,53 @@ console.log("\n── Réorienter : l'ancienne adresse du projet devient son dom
   const dir = project();
   const out = await run(["retarget", "--project-dir", dir, "--service", "srv-3", "--to-origin", "https://atelier.fr"], { fetchImpl: r.fetch, readKey: key });
   const appUrl = r.state.env.get("srv-3").find((e) => e.key === "APP_URL").value;
+  const v = (k) => r.state.env.get("srv-3").find((e) => e.key === k).value;
   check("the old address is replaced by the domain, the path kept", appUrl === "https://atelier.fr/api", appUrl);
-  check("... only the variable that pointed at it", out.results[0].changed.join(",") === "APP_URL" && r.state.env.get("srv-3").find((e) => e.key === "RESEND_API_KEY").value === "ancienne");
+  check("... and one of its aliases at Vercel too", v("PREVIEW_URL") === "https://atelier.fr", v("PREVIEW_URL"));
+  check("... only the variables that pointed at them", out.results[0].changed.join(",") === "APP_URL,PREVIEW_URL" && v("RESEND_API_KEY") === "ancienne", out.results[0].changed.join(","));
+  // Outside review, 3.3.2: every vercel.app address was taken for the project's own.
+  check("another project's address is never rewritten (a shared billing API)", v("BILLING_API_URL") === "https://facturation-commune.vercel.app/api", v("BILLING_API_URL"));
+  check("... nor a name that merely starts like the project's (atelier-pro is not atelier)", v("OTHER_URL") === "https://atelier-pro.vercel.app", v("OTHER_URL"));
+  check("... they are listed as kept, origin only", (out.results[0].kept ?? []).join(",") === "https://facturation-commune.vercel.app,https://atelier-pro.vercel.app", (out.results[0].kept ?? []).join(","));
+  const noName = project({ vercel: null });
+  const unknown = await thrown(() => run(["retarget", "--project-dir", noName, "--service", "srv-3", "--to-origin", "https://atelier.fr"], { fetchImpl: fakeRender().fetch, readKey: key }));
+  check("the project's name unknown: refused, nothing changed", unknown?.code === 1 && /--vercel-project/.test(unknown.message), unknown?.message);
+  rmSync(noName, { recursive: true, force: true });
   check("never 'https://undefined': a domain that is not https://<domain> is refused", (await thrown(() => run(["retarget", "--project-dir", dir, "--service", "srv-3", "--to-origin", "undefined"], { fetchImpl: r.fetch, readKey: key })))?.code === 1);
   rmSync(dir, { recursive: true, force: true });
+}
+
+console.log("\n── Un service hors du manifeste : refuse sans l'accord dit (revue externe, 3.3.2) ──");
+{
+  const r = fakeRender();
+  r.state.env.set("srv-110", [{ key: "DATABASE_URL", value: "base-de-l-autre-projet" }]);
+  const dir = project({ env: `DATABASE_URL=${SECRET}\n` });
+  const refused = await thrown(() => run(["set", "--project-dir", dir, "--key", "DATABASE_URL", "--service", "srv-110"], { fetchImpl: r.fetch, readKey: key }));
+  check("set: a service the manifest does not record is refused (6), nothing written", refused?.code === 6 && r.state.puts.length === 0 && /--outside-manifest/.test(refused.message), refused?.message);
+  check("... the other project's DATABASE_URL is intact", r.state.env.get("srv-110")[0].value === "base-de-l-autre-projet");
+  const mixed = await thrown(() => run(["set", "--project-dir", dir, "--key", "DATABASE_URL", "--service", "srv-3", "--service", "srv-110"], { fetchImpl: r.fetch, readKey: key }));
+  check("... even named beside the project's own: nothing written at all", mixed?.code === 6 && r.state.puts.length === 0);
+  const retargetRefused = await thrown(() => run(["retarget", "--project-dir", dir, "--service", "srv-110", "--to-origin", "https://atelier.fr"], { fetchImpl: r.fetch, readKey: key }));
+  check("retarget: the same rule", retargetRefused?.code === 6 && r.state.puts.length === 0);
+  const agreed = await run(["set", "--project-dir", dir, "--key", "DATABASE_URL", "--service", "srv-110", "--outside-manifest"], { fetchImpl: r.fetch, readKey: key });
+  check("--outside-manifest, once the person said yes: written, and said to be outside", r.state.puts.length === 1 && agreed.results[0].inManifest === false);
+  r.state.env.set("srv-3", [{ key: "DATABASE_URL", value: "x" }]);
+  const own = await run(["set", "--project-dir", dir, "--key", "DATABASE_URL", "--service", "srv-3"], { fetchImpl: r.fetch, readKey: key });
+  check("the project's own service: written, and said to be in the manifest", own.results[0].inManifest === true);
+  rmSync(dir, { recursive: true, force: true });
+}
+
+console.log("\n── Les adresses du projet, et elles seules (own-address.mjs) ──");
+{
+  const { isProjectHost, repointOwn } = await import(pathToFileURL(join(ROOT, "scripts", "vercel", "own-address.mjs")).href);
+  check("<project>.vercel.app is the project's", isProjectHost("atelier.vercel.app", "atelier"));
+  check("<project>-git-<branch>-<scope> and <project>-<9 characters>-<scope> are its aliases", isProjectHost("atelier-git-feat-x-equipe.vercel.app", "atelier") && isProjectHost("atelier-a1b2c3d4e-equipe.vercel.app", "atelier"));
+  check("atelier-pro.vercel.app is another project", !isProjectHost("atelier-pro.vercel.app", "atelier"));
+  check("... and so is an address that only contains the name", !isProjectHost("mon-atelier.vercel.app", "atelier"));
+  const toml = 'APP_URL = "https://atelier.vercel.app/api/cron"\nOTHER = "https://facturation-commune.vercel.app/x"\nFAKE = "https://atelier.vercel.app.example.com/y"\n';
+  const out = repointOwn(toml, "atelier", "https://atelier.fr");
+  check("a Worker's file: the project's address repointed, the path kept", out.text.includes('APP_URL = "https://atelier.fr/api/cron"'), out.text);
+  check("... another project's and a look-alike host left as they are", out.text.includes("https://facturation-commune.vercel.app/x") && out.text.includes("https://atelier.vercel.app.example.com/y"), out.text);
 }
 
 console.log("\n── Les skills passent par ce script ──");

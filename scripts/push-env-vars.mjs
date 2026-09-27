@@ -6,6 +6,9 @@
 //   node push-env-vars.mjs [--target=<env>[,<env>...]] KEY1=VALUE1 [KEY2=VALUE2 ...]
 //   node push-env-vars.mjs [--target=...] --stdin      # KEY=VALUE lines on the standard input
 //
+// An empty value is refused, and nothing is written: in a pipe, it is what a step that failed
+// upstream sends. --allow-empty sets one on purpose.
+//
 // --stdin is for a value that is a secret whole (a database connection string): an
 // argument can be read in the process list by anything running on the machine, the
 // standard input cannot. Both forms can be mixed. To push again a value already in .env
@@ -51,6 +54,7 @@ let readStdin = false;
 // --no-local: the hosting only, the local .env left as it is. A live key must reach production
 // without replacing the test key a developer's machine runs on (hosting inventory, 27/09/2026).
 let noLocal = false;
+let allowEmpty = false;
 const VALID_ENVS = ["production", "preview", "development"];
 let explicitTargets = null; // null = smart per-key default
 const pairs = [];
@@ -62,6 +66,10 @@ for (const arg of rawArgs) {
   }
   if (arg === "--no-local") {
     noLocal = true;
+    continue;
+  }
+  if (arg === "--allow-empty") {
+    allowEmpty = true;
     continue;
   }
   if (arg.startsWith("--target=")) {
@@ -105,6 +113,22 @@ if (readStdin) {
 
 if (pairs.length === 0) {
   console.error("No KEY=VALUE pairs provided.");
+  process.exit(1);
+}
+
+// An empty value is refused unless asked for (--allow-empty). In a pipe, a step that fails
+// upstream still sends its line, empty: `KEY=` replaced a production key with nothing and the
+// push ended on a success (outside review, 3.3.2: /rotate-secret with a mistyped format,
+// /add-stripe without its file of live keys). Refused before anything is written, the local
+// .env included.
+const emptyKeys = pairs.filter((p) => p.value.trim() === "").map((p) => p.key);
+if (emptyKeys.length && !allowEmpty) {
+  console.error(
+    `Refused: ${emptyKeys.join(", ")} would be set to an empty value. Nothing was written, neither the local .env nor the hosting.`,
+  );
+  console.error(
+    "In a pipe, an empty value is what a step that failed upstream sends: check that step. To really set an empty value, pass --allow-empty.",
+  );
   process.exit(1);
 }
 

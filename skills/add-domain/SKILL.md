@@ -458,7 +458,7 @@ Depending on the output:
 
 `/add-cron` and the CF variant of `/add-automation` write the Vercel URL directly into the Worker's `wrangler.toml` (`[vars]` section). When the domain changes, the Worker keeps pinging the old URL -> cron silently broken.
 
-Run the block below once. It scans all the repo's `wrangler.toml` files, patches the URLs that contain `.vercel.app`, and redeploys each affected Worker.
+Run the block below once. It scans all the repo's `wrangler.toml` files, repoints to `https://<domain>` the addresses that are **this project's** at Vercel (`<project>.vercel.app` or one of its aliases, as in 11.2), their path kept, and redeploys each affected Worker. Another project's `*.vercel.app` address (a shared API the Worker calls on purpose) is listed, never touched.
 
 ```bash
 NEW_DOMAIN="<domain>"
@@ -472,23 +472,28 @@ if [ -z "$WT_LIST" ]; then
   echo "CF_WORKERS_FIX=no_workers"
 else
   echo "$WT_LIST" | while read -r WT; do
-    if grep -qE "https?://[^\"']*\.vercel\.app" "$WT"; then
-      # Use a node script to do a safe replace (sed is fragile with TOML quoting).
-      OLD_CONTENT=$(cat "$WT")
-      NEW_CONTENT=$(node -e "
-        const s = require('fs').readFileSync('$WT','utf8');
-        const out = s.replace(/https?:\/\/[^\"'\\s]*\.vercel\.app/g, 'https://' + process.env.NEW_DOMAIN);
-        process.stdout.write(out);
+    # own-address.mjs repoints the project's own addresses (the project's name is read from
+    # <WEB_DIR>/.vercel/project.json; add --vercel-project <name> if it is not there).
+    RESULT=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/own-address.mjs" rewrite --project-dir "<WEB_DIR>" --to-origin "https://$NEW_DOMAIN" < "$WT" \
+      | WT="$WT" node -e "
+        const r = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+        if (r.error) { console.log('error:' + r.error); process.exit(0); }
+        for (const k of r.kept || []) console.log('kept:' + k);
+        if ((r.changes || []).length) { require('fs').writeFileSync(process.env.WT, r.text); console.log('status:patched'); }
       ")
-      if [ "$OLD_CONTENT" != "$NEW_CONTENT" ]; then
-        printf '%s' "$NEW_CONTENT" > "$WT"
-        echo "CF_WORKER_PATCHED=$WT"
-        # Redeploy from the worker's directory
-        WORKER_DIR=$(dirname "$WT")
-        (cd "$WORKER_DIR" && npx wrangler deploy 2>&1 | tail -3) \
-          && echo "CF_WORKER_REDEPLOYED=$WT" \
-          || echo "CF_WORKER_REDEPLOY_FAILED=$WT"
-      fi
+    printf '%s\n' "$RESULT" | while IFS= read -r LINE; do
+      case "$LINE" in
+        kept:*) echo "CF_WORKER_OTHER=$WT|${LINE#kept:}" ;;
+        error:*) echo "CF_WORKER_ERROR=$WT|${LINE#error:}" ;;
+      esac
+    done
+    if printf '%s\n' "$RESULT" | grep -qx 'status:patched'; then
+      echo "CF_WORKER_PATCHED=$WT"
+      # Redeploy from the worker's directory
+      WORKER_DIR=$(dirname "$WT")
+      (cd "$WORKER_DIR" && npx wrangler deploy < /dev/null 2>&1 | tail -3) \
+        && echo "CF_WORKER_REDEPLOYED=$WT" \
+        || echo "CF_WORKER_REDEPLOY_FAILED=$WT"
     fi
   done
 fi
@@ -498,6 +503,8 @@ Depending on the output:
 - `CF_WORKERS_FIX=no_workers` -> no Worker in the project, silent skip.
 - `CF_WORKER_PATCHED=<path>` without `CF_WORKER_REDEPLOYED` -> the file is patched but the redeployment failed. Read the `wrangler deploy` output above to understand (auth? missing account_id?).
 - `CF_WORKER_REDEPLOYED=<path>` -> ✅ announce to the user `✅ Cloudflare Worker <name> redeployed with the new URL`.
+- `CF_WORKER_OTHER=<path>|<address>` -> another project's address, left as it is: mention it in one line, it does not belong to this project.
+- `CF_WORKER_ERROR=<path>|<message>` -> nothing was changed in that file (the project's name at Vercel is unknown, say): surface the message, fix it, run again.
 
 ⚠️ Special case **`scripts/wrangler.toml` of the shared db-backup**: this Worker is outside the repo (`~/.db-backup-worker/wrangler.toml`) and does not contain a Vercel URL - it is not affected. The `find` above does not touch it (it only scans the project's repo).
 
@@ -513,9 +520,9 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" list --project-dir 
 
 - Exit 4 (no Render key in the vault) or `services` empty -> silent, nothing to fix.
 - Exit 2 -> the vault is locked: unlock it, run again.
-- Services marked `inManifest: true` are this project's. A service not in the manifest may belong to another project: ask before touching it.
+- Services marked `inManifest: true` are this project's. A service not in the manifest may belong to another project: ask before touching it. The script refuses it (exit 6) until `--outside-manifest` says the user confirmed it is this project's.
 
-Then point the chosen services' `*.vercel.app` addresses at the domain (only the variables that held such an address change), and redeploy them:
+Then point the chosen services' addresses at the domain: only this project's addresses at Vercel change, another project's `*.vercel.app` address (a shared API) is kept and listed. Redeploy them:
 
 ```bash
 node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" retarget --project-dir "<WEB_DIR>" \
@@ -523,6 +530,8 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" retarget --project-
 ```
 
 - `results[].changed` not empty -> ✅ announce `✅ Render service <name> updated (<variables>), redeploy started`.
+- `results[].kept` not empty -> another project's addresses, left as they are: mention them in one line.
+- Exit 6 -> a named service is not in the manifest and the user has not confirmed it: nothing was written.
 - Exit 1 -> Render refused or did not answer: surface the message and move it to the manual actions (11.5).
 
 ⚠️ The Render redeployment takes 2-5 min - no need to wait in this flow. Mention to the user that they can monitor it on `https://dashboard.render.com`.

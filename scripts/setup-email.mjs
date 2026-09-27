@@ -385,17 +385,19 @@ async function pushEnvVars() {
     state.envVarsPushed = ["BREVO_API_KEY", "BREVO_SENDER_EMAIL", "BREVO_SENDER_NAME"];
   }
 
-  const res = spawnSync("node", [helper, ...kvs], {
+  // On the helper's standard input, never as arguments: an argument can be read in the process
+  // list by anything running on the machine (3.3.4). The helper writes .env first, so a push that
+  // failed can be run again from it without the values being typed or shown.
+  const res = spawnSync("node", [helper, "--stdin"], {
     cwd: WEB_DIR,
-    stdio: "inherit",
+    input: kvs.join("\n") + "\n",
+    stdio: ["pipe", "inherit", "inherit"],
     shell: false,
   });
   if (res.status !== 0) {
     fail(
-      "push-env-vars.mjs failed. SDK is installed and code is in place, only the env vars didn't land. " +
-        "Retry manually: `node " +
-        helper +
-        " '<KEY=VALUE>' [...]`",
+      "push-env-vars.mjs failed. SDK is installed and code is in place, only the env vars didn't land. Push them again from .env, without showing them: " +
+        `grep -E '^(${state.envVarsPushed.join("|")})=' .env | node ${helper} --stdin`,
     );
   }
   ok(`Env vars pushed: ${state.envVarsPushed.join(", ")}`);

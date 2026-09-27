@@ -206,25 +206,29 @@ Show this message:
 > - **Client ID** (format `123456789-xxxxxx.apps.googleusercontent.com`)
 > - **Client secret** (a random string that often begins with `GOCSPX-`)
 >
-> **Send me these two values** and I will take care of configuring everything on the code + Vercel side.
+> **Do not paste them here.** A window opens on your screen: type the Client ID (shown as you type) and the Client secret (hidden) there. They go straight into the project and Vercel, never into our conversation.
 
 Replace `<production_url>`, `<project>` and `<APP_NAME>` with the real values of the current project before showing.
 
-Wait for the user to provide the Client ID and the Client Secret.
+Then open the masked window (the `_collect-secret` pattern, destination B: a secret of THIS project). Replace `<LANG>` with the conversation's language code:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "AUTH_GOOGLE_ID:text,AUTH_GOOGLE_SECRET:secret" \
+  --project-dir "<absolute project dir>"
+```
+
+It blocks until the user is done, and exits non-zero if they cancel or the write fails: read the exit code, never assume success. The client secret never passes through the conversation: if the user pastes it in chat anyway, do not reuse it, and tell them to create a new one in the Google console (the pasted one is in the session's transcript).
 
 ---
 
 ## Step 4 - Claude Code configures everything
 
-Once the two values are received:
+Once the window has written both values:
 
-### 4a. Push the env vars
+### 4a. The env vars
 
-Invoke `_push-env-vars` with:
-- `AUTH_GOOGLE_ID=<provided_client_id>`
-- `AUTH_GOOGLE_SECRET=<provided_client_secret>`
-
-The helper writes to the local `.env` AND pushes to Vercel (production/preview/development) idempotently (removes the old values before adding).
+The window has written `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` to the local `.env` AND to Vercel (production and preview), idempotently, through `_push-env-vars`. Nothing else to push.
 
 ### 4b. Configure the provider in NextAuth
 
@@ -306,7 +310,7 @@ The helper is idempotent. If the `politique-de-confidentialite/page.tsx` page ex
 Confirm to the user that everything is configured:
 
 - `.env` updated with `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`
-- Variables pushed to Vercel (production + preview + development)
+- Variables pushed to Vercel (production + preview)
 - Google provider configured in `src/server/auth.ts`
 - CLAUDE.md updated
 

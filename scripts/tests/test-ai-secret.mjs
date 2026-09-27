@@ -53,6 +53,11 @@ verifier(
     setup.includes("OPENROUTER_API_KEY=${creee.valeur}"),
 );
 verifier(
+  "... sur l'entree standard, jamais en argument (lisible dans la liste des processus)",
+  /\[path\.join\(ICI, "\.\.", "push-env-vars\.mjs"\), "--stdin"\]/.test(setup) &&
+    /input: `OPENROUTER_API_KEY=\$\{creee\.valeur\}\\n`/.test(setup),
+);
+verifier(
   "le journal de la poussee est filtre de la valeur",
   /filter\(\([a-z]\) => [a-z] && ![a-z]\.includes\(creee\.valeur\)\)/.test(setup),
 );
