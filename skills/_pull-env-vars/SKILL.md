@@ -28,22 +28,25 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/pull-env-vars.mjs" --target=<env> [--key
 
 - `--target=production|preview|development` - **required**. Which Vercel environment to read from.
 - `--keys=KEY1,KEY2,...` - optional. Filter the output to only these keys. If omitted, returns all env vars from that environment.
-- `--write-to-local` - optional. Merge the pulled values into `.env.local` (preserves existing keys not in the pull, adds new ones, updates values for keys present in both).
-- `--json` - optional. Output machine-readable JSON `{KEY: value, ...}`. Default is human-readable text suitable for relay to the user (without showing the values for sensitive keys, only key names + presence).
+- `--write-to-local` - optional. Merge the pulled values into `.env.local` (preserves existing keys not in the pull, adds new ones, updates values for keys present in both). A secret the host never gives back (Vercel returns an empty value for every "sensitive" variable) is never written: the local value, if any, is kept, and the report lists the key as not readable.
+- `--json` - optional. Output machine-readable JSON `{KEY: value, ...}`, with `null` for a secret the host never gives back. Default is human-readable text suitable for relay to the user (without showing the values for sensitive keys, only key names + presence).
 
 ### Output modes
 
 **Default (text, safe to relay):**
 ```
-3 variables pulled from production:
-  - STRIPE_SECRET_KEY (✅ present)
-  - DATABASE_URL (✅ present)
-  - BREVO_API_KEY (✅ present)
+1 variable pulled from production:
+  - NEXT_PUBLIC_APP_URL (present)
+2 not readable (a secret the host never gives back; the local value, if any, is kept):
+  - DATABASE_URL
+  - STRIPE_SECRET_KEY
 ```
+
+A key listed as not readable is a secret: its production value is wherever the project keeps it (the vault, the service's dashboard), never in this pull.
 
 **With `--json` (full values, NOT to relay verbatim to chat):**
 ```json
-{"STRIPE_SECRET_KEY":"sk_live_xxx","DATABASE_URL":"postgresql://..."}
+{"NEXT_PUBLIC_APP_URL":"https://...","STRIPE_SECRET_KEY":null}
 ```
 
 ⚠️ **If you use `--json`, capture the output into a shell variable, process it, and NEVER relay it in plain text to the user.** The JSON output is meant for programmatic use on the script side (for example: comparing a value before/after rotation, restoring a lost `.env.local`).

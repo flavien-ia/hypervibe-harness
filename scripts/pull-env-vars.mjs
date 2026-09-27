@@ -2,6 +2,12 @@
 // Pull environment variables FROM Vercel for a given target.
 // Optionally filters by keys, optionally merges into local .env.local.
 //
+// A "sensitive" variable is never given back by Vercel: its command line writes KEY="" for it.
+// That empty string is NOT the value. It is never written over a local value, never added as an
+// empty line, reported as not readable, and null in the JSON (as the organisation's pull
+// workflow has always done). Until 3.3.3 it erased every local secret of a .env.local restored
+// this way, and was announced "present".
+//
 // Usage:
 //   node pull-env-vars.mjs --target=<production|preview|development> [--keys=K1,K2] [--write-to-local] [--json]
 //
@@ -11,6 +17,7 @@
 
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { spawnSpec } from "./_spawn.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -57,7 +64,10 @@ const tmpFile = join(tmpDir, `.env.${target}`);
 
 function runVercel(args) {
   return new Promise((resolve) => {
-    const proc = spawn("vercel", args, { stdio: ["ignore", "pipe", "pipe"], shell: process.platform === "win32" });
+    // spawnSpec: every argument quoted for the Windows shell (the temporary file's path carries
+    // the user's folder, which may hold a space).
+    const spec = spawnSpec("vercel", args);
+    const proc = spawn(spec.file, spec.args, { stdio: ["ignore", "pipe", "pipe"], shell: spec.shell });
     let stdout = "";
     let stderr = "";
     proc.stdout.on("data", (d) => (stdout += d.toString()));
@@ -94,13 +104,19 @@ for (const line of raw.split("\n")) {
   envs[key] = value;
 }
 
-// ─── Apply key filter ──────────────────────────────────────────────────
-let filtered = envs;
+// ─── Apply key filter, and set apart what the host would not give back ─
+let wanted = envs;
 if (keysFilter && keysFilter.length > 0) {
-  filtered = {};
+  wanted = {};
   for (const k of keysFilter) {
-    if (k in envs) filtered[k] = envs[k];
+    if (k in envs) wanted[k] = envs[k];
   }
+}
+const filtered = {};
+const unreadable = [];
+for (const [k, v] of Object.entries(wanted)) {
+  if (v === "") unreadable.push(k);
+  else filtered[k] = v;
 }
 
 // ─── Optional merge into .env.local ────────────────────────────────────
@@ -159,15 +175,19 @@ if (writeToLocal) {
 
 // ─── Output ────────────────────────────────────────────────────────────
 if (asJson) {
-  process.stdout.write(JSON.stringify(filtered));
+  process.stdout.write(JSON.stringify({ ...filtered, ...Object.fromEntries(unreadable.map((k) => [k, null])) }));
 } else {
   const count = Object.keys(filtered).length;
-  if (count === 0) {
+  if (count === 0 && unreadable.length === 0) {
     console.log(`No variable ${keysFilter ? "matching the filter " : ""}found in the ${target} environment.`);
   } else {
     console.log(`${count} variable${count > 1 ? "s" : ""} pulled from ${target} :`);
     for (const key of Object.keys(filtered).sort()) {
       console.log(`  - ${key} (present)`);
+    }
+    if (unreadable.length) {
+      console.log(`${unreadable.length} not readable (a secret the host never gives back${writeToLocal ? "; the local value, if any, is kept" : ""}) :`);
+      for (const key of unreadable.sort()) console.log(`  - ${key}`);
     }
     if (writeToLocal) {
       console.log(`\nMerged into .env.local.`);

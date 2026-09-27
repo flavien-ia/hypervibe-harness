@@ -43,6 +43,7 @@ const SUITES = [
   ["SQL helper: what it refuses, where it sends", join(ROOT, "scripts", "tests", "test-run-sql.mjs")],
   ["database export never calls a holed backup ok", join(ROOT, "scripts", "tests", "test-dump-db.mjs")],
   ["a connection string never sits in an argument", join(ROOT, "scripts", "tests", "test-push-env-stdin.mjs")],
+  ["a secret the host never gives back never erases the project's", join(ROOT, "scripts", "tests", "test-pull-sensitive-empty.mjs")],
   ["database organisation: which answers are certain", join(ROOT, "scripts", "tests", "test-neon-org.mjs")],
   ["git identity: checked and repaired, never shown", join(ROOT, "scripts", "tests", "test-git-identity.mjs")],
 ];

@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.3.3 (27 septembre 2026)
+
+### Corrections
+- **Vos secrets ne sont plus effacés en local** : récupérer les variables de votre site, par exemple pour restaurer un `.env.local` perdu, écrivait une valeur vide par-dessus chaque clé secrète. Vercel ne rend jamais la valeur d'un secret : ces clés sont désormais signalées comme illisibles, et votre valeur locale est gardée.
+- **Vérification de votre projet** : une base bien configurée n'est plus déclarée absente parce que la production cache la valeur de sa connexion.
+- **`/save-project`** : les secrets que Vercel ne rend pas ne sont plus comptés comme des variables ni copiés vides dans la sauvegarde. Leurs noms sont listés en tête de chaque fichier, et la notice de restauration dit où reprendre leur valeur.
+- **Windows** : la récupération des variables fonctionne aussi quand le nom de votre dossier utilisateur contient une espace.
+
+### Coulisses
+- Une recette rejoue ces cas avec un faux outil Vercel qui rend les secrets vides, comme le vrai.
+
 ## v3.3.2 (27 septembre 2026)
 
 ### Améliorations

@@ -114,8 +114,12 @@ function readVercelEnv() {
     if (!existsSync(tmpFile)) {
       return { ok: false, reason: "vercel env pull a réussi mais pas de fichier généré", vars: {} };
     }
-    const vars = parseEnvContent(readFileSync(tmpFile, "utf8"));
-    return { ok: true, reason: "vars Vercel prod récupérées", vars };
+    // A secret comes back as KEY="": Vercel never gives its value. That empty string must not
+    // hide the local value (a database set up locally was reported missing).
+    const pulled = parseEnvContent(readFileSync(tmpFile, "utf8"));
+    const vars = Object.fromEntries(Object.entries(pulled).filter(([, v]) => v !== ""));
+    const unreadable = Object.keys(pulled).filter((k) => pulled[k] === "");
+    return { ok: true, reason: "vars Vercel prod récupérées", vars, unreadable };
   } catch (e) {
     return { ok: false, reason: `vercel env pull a échoué: ${String(e.message || e).slice(0, 200)}`, vars: {} };
   } finally {
@@ -794,7 +798,7 @@ for (const check of checks) {
 // IMPORTANT: don't leak secret values - only expose KEYS (var names) that were pulled from Vercel.
 if (includeVercel) {
   const pullSummary = vercelEnvInfo
-    ? { ok: vercelEnvInfo.ok, reason: vercelEnvInfo.reason, keys: Object.keys(vercelEnvInfo.vars || {}) }
+    ? { ok: vercelEnvInfo.ok, reason: vercelEnvInfo.reason, keys: Object.keys(vercelEnvInfo.vars || {}), unreadable: vercelEnvInfo.unreadable || [] }
     : null;
   result._meta = {
     sources: vercelEnvInfo?.ok ? ["local", "vercel-production"] : ["local"],

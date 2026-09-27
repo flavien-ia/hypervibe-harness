@@ -223,8 +223,22 @@ function stepEnvVars() {
       if (existsSync(outPath)) { try { unlinkSync(outPath); } catch {} }
       const r = run("vercel", ["env", "pull", outPath, `--environment=${env}`, "--yes"], { cwd: PROJECT_DIR });
       if (r.status === 0 && existsSync(outPath)) {
-        const lines = readFileSync(outPath, "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#")).length;
-        results.push({ source: "vercel", env, ok: true, vars: lines });
+        // A secret comes back as KEY="": Vercel never gives its value. Such a line is not a
+        // variable of the backup, and copied as a .env it would set the secret empty. It
+        // leaves the file, and its name is written at the top of it and in the report.
+        const kept = [];
+        const unreadable = [];
+        for (const line of readFileSync(outPath, "utf8").split(/\r?\n/)) {
+          const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line.trim());
+          if (m && /^(""|'')?$/.test(m[2].trim())) unreadable.push(m[1]);
+          else kept.push(line);
+        }
+        const note = unreadable.length
+          ? [`# Not given back by the host (secrets it never returns): ${unreadable.join(", ")}`, "# Their value is where the project keeps them: env/local/ for this machine's, the vault or the service's dashboard for production's.", ""]
+          : [];
+        writeFileSync(outPath, [...note, ...kept].join("\n"), "utf8");
+        const lines = kept.filter((l) => l.trim() && !l.startsWith("#")).length;
+        results.push({ source: "vercel", env, ok: true, vars: lines, ...(unreadable.length ? { unreadable } : {}) });
       } else {
         results.push({ source: "vercel", env, ok: false, error: (r.stderr || r.stdout || "").slice(0, 200) });
       }
@@ -565,7 +579,7 @@ Ce snapshot contient des **secrets en clair** (clés API dans les fichiers \`env
 La restauration n'est pas automatisée. Pour reconstruire le projet manuellement :
 
 1. **Code** : \`git clone code/repo.bundle <new-dir>\` puis \`pnpm install\`. Si \`working-changes.patch\` est présent, \`cd <new-dir> && git apply ../code/working-changes.patch\`.
-2. **Variables d'env** : \`cp env/production.env <new-dir>/.env\` (ou \`env/local/.env\` si Vercel n'a rien rendu). Pour Vercel : \`vercel env add\` pour chaque variable, ou utiliser la skill \`/_push-env-vars\` d'Hypervibe.
+2. **Variables d'env** : \`cp env/production.env <new-dir>/.env\` (ou \`env/local/.env\` si Vercel n'a rien rendu). ⚠️ Vercel ne rend jamais la valeur d'un secret : leurs noms sont en tête de chaque \`env/<environnement>.env\`, sans valeur. Celle du poste est dans \`env/local/\`, celle de production là où le projet la garde (coffre, tableau de bord du service). Pour Vercel : la skill \`/_push-env-vars\` d'Hypervibe.
 3. **DB** : créer une nouvelle base Neon, puis demander à Claude Code de générer un script de restauration qui lit \`db/schema.json\` et insère depuis les fichiers \`*.json\`.
 4. **R2** : recréer les buckets via \`wrangler r2 bucket create\`, puis \`wrangler r2 object put\` pour chaque fichier de \`storage/\`.
 5. **Webhooks Stripe** : recréer chaque webhook depuis \`config/stripe-webhooks.json\` via le dashboard Stripe (les secrets \`whsec_...\` sont nécessairement régénérés à la création).
