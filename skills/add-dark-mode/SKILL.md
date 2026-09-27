@@ -1,6 +1,6 @@
 ---
 name: add-dark-mode
-description: Add dark mode support (light / dark / system) to an existing Next.js + Tailwind v4 project using next-themes. Configures the dark variant in globals.css, audits existing colors and proposes dark-mode tokens, mounts ThemeProvider in the root layout (and in the [locale] layout if i18n is detected), and creates a 3-state ThemeToggle component ready to drop in the header / navbar / footer.
+description: Add dark mode support (light / dark / system) to an existing Next.js + Tailwind v4 project using next-themes. Configures the dark variant in globals.css, audits existing colors and proposes dark-mode tokens, mounts ThemeProvider in the root layout (and in the [locale] layout if i18n is detected), and creates a 3-state ThemeToggle component ready to drop in the header / navbar / footer. Not for a site that is only dark (a single dark palette, no switch).
 argument-hint: ""
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
 ---

@@ -18,7 +18,7 @@ Add or remove subprocessors in the project's RGPD privacy policy registry. Deleg
 
 ## Architecture
 
-The helper edits `<web-root>/src/lib/subprocessors.json` (a flat array of subprocessor entries). A thin TS wrapper at `<web-root>/src/lib/subprocessors.ts` re-exports the JSON with a typed signature. The privacy policy page (`src/app/.../politique-de-confidentialite/page.tsx`) is generated once by `/bootstrap` as a pure renderer over the registry - it is never modified by the helper. Only the data file changes when subprocessors are added or removed.
+The helper edits `subprocessors.json` in the `lib/` folder next to the application Next.js serves: `<web-root>/src/lib/` in a project with `src/`, `<web-root>/lib/` in a project whose `app/` sits at its root (a flat array of subprocessor entries). A thin TS wrapper next to it (`subprocessors.ts`) re-exports the JSON with a typed signature. The privacy policy page (`src/app/.../politique-de-confidentialite/page.tsx`) is generated once by `/bootstrap` as a pure renderer over the registry - it is never modified by the helper. Only the data file changes when subprocessors are added or removed.
 
 This keeps the page text stable (the user can customize wording) while automating the legally-relevant subprocessor list.
 

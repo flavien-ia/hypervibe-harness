@@ -86,7 +86,8 @@ raw head of a command: `sudo`, `command`, `env`, `time`, a launcher (`npx`,
 `pnpm dlx`), a version pin, an absolute path, a subshell or a `sh -c` payload
 are stripped or unfolded first, so a shape the rules did not foresee does not
 hide what they forbid. `xargs` is unfolded too, with the line it rebuilds from
-its input when that input is on the command line. The full table is in the README.
+its input when that input is on the command line, and so are `find -exec`,
+`timeout`, `stdbuf` and `caffeinate`. The full table is in the README.
 
 Two properties matter here:
 

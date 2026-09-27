@@ -124,21 +124,22 @@ Only the server SDK. Hosted Checkout redirects to `session.url`, so nothing on t
 >
 > In the Stripe dashboard, top right, there is a toggle **"Test mode" <-> "Live mode"**. **For now, stay in Test mode.**
 
-Then ask for the keys:
+Then collect the keys, in a masked window, never in the conversation:
 
-> Give me your 2 keys from https://dashboard.stripe.com/test/apikeys (URL in test mode):
-> 1. **Publishable key** (`pk_test_...`)
-> 2. **Secret key** (`sk_test_...`)
+> I am opening your Stripe dashboard in test mode (https://dashboard.stripe.com/test/apikeys). Copy the **Publishable key** (`pk_test_...`) and the **Secret key** (`sk_test_...`, click **Reveal** first). A small window will open on your machine: paste them in there, not in our conversation.
 
-If the user accidentally provides `pk_live_...` or `sk_live_...` keys, point it out and ask again for the test versions (a safety measure so you don't wire up prod by mistake during dev).
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:text,STRIPE_SECRET_KEY:secret" \
+  --project-dir "<WEB_DIR>" --url "https://dashboard.stripe.com/test/apikeys"
+node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" --prefix 8 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY STRIPE_SECRET_KEY
+```
+
+The window writes both keys into the project's `.env` and the hosting itself. The second command shows only the first 8 characters of each: expect `pk_test_` and `sk_test_`. If they read `pk_live_` / `sk_live_`, point it out and open the window again for the test versions (a safety measure so you don't wire up prod by mistake during dev). A non-zero exit code of the window means the user cancelled: stop there.
 
 ## Step 5 - Push env vars
 
-Invoke `_push-env-vars` with:
-- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=<publishable key from user>`
-- `STRIPE_SECRET_KEY=<secret key from user>`
-
-(The `STRIPE_WEBHOOK_SECRET` will be added later, in Step 8.)
+Nothing to push: the window wrote both keys into the project's `.env` and the hosting. (The `STRIPE_WEBHOOK_SECRET` will be added later, in Step 8.)
 
 ## Step 6 - Scaffold server code via script
 
@@ -179,20 +180,18 @@ The `STRIPE_WEBHOOK_SECRET` lets the app verify that the webhooks it receives re
 
 **Automated procedure** (Claude does everything, the user touches nothing):
 
-1. Start `stripe listen` in the background:
-   ```bash
-   # with Bash run_in_background:true
-   stripe listen --forward-to localhost:3000/api/webhooks/stripe
-   ```
-2. Read the process output (the first line contains `Ready! Your webhook signing secret is whsec_xxxxxxxxxxxxxxxxxxxxx`) - extract the `whsec_...`.
-3. Kill the process (we no longer need the live connection, just the secret).
-4. **Write ONLY to the local `.env`** (no Vercel push): `STRIPE_WEBHOOK_SECRET=whsec_...`. ⚠️ This key is specific to the local Stripe CLI - it does NOT work for the production webhook (the prod webhook will have its own key, created later via the "Switch Stripe to live mode" procedure). Pushing this key to the Vercel env vars would break signature verification in prod.
+The Stripe CLI prints the signing secret on demand (`--print-secret`). It goes straight into the local `.env` (**only** the local one: this key belongs to the local CLI and does NOT work for the production webhook, which will get its own key in the "Switch Stripe to live mode" procedure; pushing it to the hosting would break signature checks in production). It is never shown:
 
-Since `_push-env-vars` pushes to Vercel by default too, here **do not use it** - write directly to `.env`:
 ```bash
-# Add or replace the line in .env
-grep -v "^STRIPE_WEBHOOK_SECRET=" .env > .env.tmp 2>/dev/null && mv .env.tmp .env
-echo "STRIPE_WEBHOOK_SECRET=<whsec_...>" >> .env
+# The signing secret goes from the Stripe CLI straight into the local .env: never shown.
+WHSEC=$(stripe listen --print-secret 2>/dev/null)
+case "$WHSEC" in
+  whsec_*)
+    grep -v "^STRIPE_WEBHOOK_SECRET=" "<WEB_DIR>/.env" > "<WEB_DIR>/.env.tmp" 2>/dev/null; mv "<WEB_DIR>/.env.tmp" "<WEB_DIR>/.env"
+    printf 'STRIPE_WEBHOOK_SECRET=%s\n' "$WHSEC" >> "<WEB_DIR>/.env"
+    echo "WHSEC=saved" ;;
+  *) echo "WHSEC=failed" ;;
+esac
 ```
 
 If `stripe listen` fails (CLI not authenticated) -> invoke `_setup-stripe-cli` then start over.
@@ -233,24 +232,7 @@ Invoke `_update-claude-md` with:
     ```
     To be done ONLY when you are ready to collect real payments (having tested the full flow in test mode beforehand). Strict order:
 
-    1. **Get the live keys**
-       - Stripe dashboard -> top-right toggle: "Test mode" -> "Live mode"
-       - Page https://dashboard.stripe.com/apikeys (URL without /test/)
-       - Copy `pk_live_...` and `sk_live_...`
-
-    2. **Push the live keys to Vercel only** (keep the test keys locally to keep developing)
-       - `_push-env-vars NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...` (Vercel production + preview)
-       - `_push-env-vars STRIPE_SECRET_KEY=sk_live_...` (same)
-       - **Do NOT overwrite the local `.env`** - local must stay in test mode to avoid collecting money during dev.
-
-    3. **Create a live webhook on the Stripe side**
-       - Verify the prod URL (no 301/307 redirect): `curl -I https://<domain>/api/webhooks/stripe`
-       - Create: `stripe webhook_endpoints create --url "https://<verified-url>/api/webhooks/stripe" --enabled-events checkout.session.completed` (no --live flag, the active mode is the one of the dashboard toggle)
-       - Get the returned `whsec_...`
-
-    4. **Push the live whsec to Vercel**
-       - `_push-env-vars STRIPE_WEBHOOK_SECRET=whsec_...` (production + preview)
-       - **Do NOT overwrite** the `STRIPE_WEBHOOK_SECRET` in the local `.env` (which points to the CLI listen, not to the prod webhook).
+    1. **Run `/add-stripe` and choose "Switch to live mode".** It collects the live keys in a masked window (never in the conversation), keeps them in a file of their own, checks that the Stripe account can take real payments, sends them to the hosting only (the local `.env` stays in test mode, so development never charges real money), then creates the live webhook and sends its signing secret the same way.
 
     5. **Test with a real transaction**
        - Make a 1 EUR payment from the app in prod with your real card
@@ -259,7 +241,7 @@ Invoke `_update-claude-md` with:
 
     6. **`git push`** to redeploy (Vercel rebuilds with the new env vars).
 
-    If you want to go back to test mode later: redo steps 1-2-4 with the `_test_` keys.
+    If you want to go back to test mode later: run `/add-stripe` again and choose the way back to test mode.
     ```
 
 The live keys are only active once that redeploy has landed, so confirm it before telling the user to test a real payment. **Do not hand-roll a polling loop** (`for i in $(seq 1 20); do vercel ls ...; sleep 10; done`) - it dies on the harness's 2-minute `Bash` timeout without proving anything. Use the bundled waiter, which waits inside a single process:
@@ -401,18 +383,16 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/plan.mjs"
 
 Show the user:
 
-> Let's switch Stripe to live. I need your two live keys (different from the test ones):
->
-> 1. Go to **https://dashboard.stripe.com/apikeys** (URL **without** `/test/` - check that the "Test mode" toggle is **OFF** in the top right)
-> 2. Copy the **Publishable key** (starts with `pk_live_`)
-> 3. Copy the **Secret key** (starts with `sk_live_`) - click **Reveal** first to see it
->
-> Paste both here.
+> Let's switch Stripe to live. I am opening https://dashboard.stripe.com/apikeys (URL **without** `/test/`, check that the "Test mode" toggle is **OFF** in the top right). Copy the **Publishable key** (`pk_live_...`) and the **Secret key** (`sk_live_...`, click **Reveal** first). A small window will open on your machine: paste them in there, not in our conversation.
 
-Get the values. **Validate strictly**:
-- If the Publishable key does not start with `pk_live_` -> refuse, ask again.
-- If the Secret key does not start with `sk_live_` -> refuse, ask again.
-- If the user gives you `pk_test_` / `sk_test_` keys "by mistake" -> explicitly point out *"these keys are TEST keys, not LIVE - re-check the toggle in the dashboard"*.
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "STRIPE_PUBLISHABLE_KEY_LIVE:text,STRIPE_SECRET_KEY_LIVE:secret" \
+  --project-dir "<WEB_DIR>" --file .env.stripe-live --url "https://dashboard.stripe.com/apikeys"
+node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" --file .env.stripe-live --prefix 8 STRIPE_PUBLISHABLE_KEY_LIVE STRIPE_SECRET_KEY_LIVE
+```
+
+The window keeps both keys in a file of their own in the project, `.env.stripe-live` (gitignored, not in `.env`, not online). The second command shows only the first 8 characters: expect `pk_live_` and `sk_live_`. If they read `pk_test_` / `sk_test_`, say explicitly *"these keys are TEST keys, not LIVE - re-check the toggle in the dashboard"* and open the window again. A non-zero exit code of the window means the user cancelled: stop there.
 
 Do **not** push the keys right away - first the KYC check (10.2) to avoid switching Vercel to live if the account cannot be activated.
 
@@ -421,8 +401,10 @@ Do **not** push the keys right away - first the KYC check (10.2) to avoid switch
 Stripe blocks all live charges until the KYC (identity, IBAN, supporting documents) is validated. Without it, the user will switch to live and see all payments declined without understanding why.
 
 ```bash
-SK_LIVE="<sk_live_...>"
-ACCOUNT=$(stripe accounts retrieve --api-key "$SK_LIVE" 2>/dev/null) || { echo "KYC=auth_error"; exit 0; }
+# The live key is read from its file of its own into a shell variable, and handed to the Stripe
+# CLI through its environment (STRIPE_API_KEY), never as an argument.
+SK_LIVE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" --file .env.stripe-live STRIPE_SECRET_KEY_LIVE) || { echo "KYC=no_live_key"; exit 0; }
+ACCOUNT=$(STRIPE_API_KEY="$SK_LIVE" stripe accounts retrieve 2>/dev/null) || { echo "KYC=auth_error"; exit 0; }
 CHARGES=$(echo "$ACCOUNT" | node -e "
   const d = JSON.parse(require('fs').readFileSync(0,'utf8'));
   console.log(d.charges_enabled === true ? 'yes' : 'no');
@@ -508,31 +490,34 @@ If the user chooses A -> do the code migration automatically (case by case depen
 
 ### 10.4 - Push the live keys to Vercel
 
-At this stage: KYC OK + no blocking hardcoded prices. We can push.
+At this stage: KYC OK + no blocking hardcoded prices. We can push, from the file of their own, on the standard input, to the hosting ONLY (`--no-local`): the local `.env` keeps the test keys, so that development never charges real money.
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" \
-  "STRIPE_SECRET_KEY=$SK_LIVE" \
-  "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=$PK_LIVE"
+cd "<WEB_DIR>" && {
+  printf 'STRIPE_SECRET_KEY='; node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --file .env.stripe-live STRIPE_SECRET_KEY_LIVE; printf '\n'
+  printf 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY='; node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --file .env.stripe-live STRIPE_PUBLISHABLE_KEY_LIVE; printf '\n'
+} | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin --no-local --target=production,preview
 ```
-
-Note: do not push to local `dev` (the user probably wants to keep test locally). `_push-env-vars` targets `production + preview` by default, which is the right behavior.
 
 ### 10.5 - Duplicate the webhook test -> live (auto)
 
 Stripe has 2 separate webhook catalogs. We will list the test webhooks, identify the prod one (URL with the domain, not localhost), and create the live mirror with **the same list of events**.
 
 ```bash
+# The keys are read into shell variables (the test one from .env, the live one from its file of
+# its own), and reach the Stripe CLI through STRIPE_API_KEY, never as an argument.
+SK_LIVE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" --file .env.stripe-live STRIPE_SECRET_KEY_LIVE) || { echo "LIVE_WH=no_live_key"; exit 0; }
 SK_TEST=$(grep "^STRIPE_SECRET_KEY=" "<WEB_DIR>/.env.local" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"')
 # .env.local takes priority if present (dev), otherwise .env
 [ -z "$SK_TEST" ] && SK_TEST=$(grep "^STRIPE_SECRET_KEY=" "<WEB_DIR>/.env" | head -1 | cut -d= -f2- | tr -d '"')
 
 # Detect target domain from NEXT_PUBLIC_APP_URL
 DOMAIN=$(grep "^NEXT_PUBLIC_APP_URL=" "<WEB_DIR>/.env" | head -1 | cut -d= -f2- | tr -d '"' | sed 's|https\?://||;s|/$||')
-WEBHOOK_URL="https://$DOMAIN/api/webhooks/stripe"
+# Exported: the scripts below read it (it was not, and an existing live webhook was never found).
+export WEBHOOK_URL="https://$DOMAIN/api/webhooks/stripe"
 
 # 1. List test webhooks, find the one matching the domain (the "prod test" webhook)
-TEST_WH=$(stripe webhook_endpoints list --api-key "$SK_TEST" --limit 50 2>/dev/null)
+TEST_WH=$(STRIPE_API_KEY="$SK_TEST" stripe webhook_endpoints list --limit 50 2>/dev/null)
 EVENTS=$(echo "$TEST_WH" | node -e "
   const d = JSON.parse(require('fs').readFileSync(0,'utf8'));
   const prod = (d.data || []).find(w => w.url && !w.url.includes('localhost') && !w.url.includes('127.0.0.1'));
@@ -548,7 +533,7 @@ else
 fi
 
 # 2. Check if a live webhook for this URL already exists
-LIVE_WH=$(stripe webhook_endpoints list --api-key "$SK_LIVE" --limit 50 2>/dev/null)
+LIVE_WH=$(STRIPE_API_KEY="$SK_LIVE" stripe webhook_endpoints list --limit 50 2>/dev/null)
 EXISTING_ID=$(echo "$LIVE_WH" | node -e "
   const d = JSON.parse(require('fs').readFileSync(0,'utf8'));
   const found = (d.data || []).find(w => w.url === process.env.WEBHOOK_URL);
@@ -560,8 +545,7 @@ if [ -n "$EXISTING_ID" ]; then
   echo "Use this webhook's signing secret - already in Vercel? If not, surface manual step."
 else
   # 3. Create the live webhook
-  CREATE=$(stripe webhook_endpoints create \
-    --api-key "$SK_LIVE" \
+  CREATE=$(STRIPE_API_KEY="$SK_LIVE" stripe webhook_endpoints create \
     --url "$WEBHOOK_URL" \
     --enabled-events "$EVENTS" 2>/dev/null)
   WH_ID=$(echo "$CREATE" | node -e "const d=JSON.parse(require('fs').readFileSync(0));console.log(d.id||'');")
@@ -569,10 +553,9 @@ else
   if [ -n "$WH_ID" ] && [ -n "$WH_SECRET" ]; then
     echo "LIVE_WH=created:$WH_ID"
     # Push the live signing secret to Vercel (production + preview ONLY, NOT local)
-    node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" \
-      --target=production,preview \
-      "STRIPE_WEBHOOK_SECRET=$WH_SECRET"
-    echo "LIVE_WH_SECRET_PUSHED=yes"
+    # On the standard input, to the hosting only: the local .env keeps the CLI's secret.
+    (cd "<WEB_DIR>" && printf 'STRIPE_WEBHOOK_SECRET=%s\n' "$WH_SECRET" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin --no-local --target=production,preview) \
+      && echo "LIVE_WH_SECRET_PUSHED=yes" || echo "LIVE_WH_SECRET_PUSHED=no"
   else
     echo "LIVE_WH=create_failed"
   fi
@@ -600,10 +583,11 @@ Ask the user:
 If **yes**:
 
 ```bash
-stripe trigger checkout.session.completed --api-key "$SK_LIVE"
+SK_LIVE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" --file .env.stripe-live STRIPE_SECRET_KEY_LIVE) || { echo "TEST_TRIGGER=no_live_key"; exit 0; }
+STRIPE_API_KEY="$SK_LIVE" stripe trigger checkout.session.completed
 sleep 5
 # Check delivery status
-LATEST=$(stripe events list --api-key "$SK_LIVE" --limit 1 2>/dev/null | \
+LATEST=$(STRIPE_API_KEY="$SK_LIVE" stripe events list --limit 1 2>/dev/null | \
   node -e "
     const d = JSON.parse(require('fs').readFileSync(0,'utf8'));
     const e = (d.data || [])[0];
@@ -626,7 +610,8 @@ Show:
 
 If the user says **yes, disable it**:
 ```bash
-stripe webhook_endpoints update <test-wh-id> --disabled --api-key "$SK_TEST"
+SK_TEST=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" STRIPE_SECRET_KEY)
+STRIPE_API_KEY="$SK_TEST" stripe webhook_endpoints update <test-wh-id> --disabled
 ```
 
 If **no / by default** -> skip.
@@ -638,6 +623,14 @@ Update the CLAUDE.md stack line (which says "Currently in **TEST mode**") so it 
 - Add a note `"Live webhook: wh_xxx pointing to https://<domain>/api/webhooks/stripe"` if it is not already there
 
 ### 10.9 - Final recap
+
+First remove the file that held the live keys: they are now at the hosting, and it has no reason to stay on the machine.
+
+```bash
+rm -f "<WEB_DIR>/.env.stripe-live"
+```
+
+If the migration stopped before this point (KYC incomplete, hardcoded prices), the file waits for the next attempt; say so, and remove it the same way if the user gives up the switch.
 
 > ✅ **Stripe switched to LIVE mode**
 >

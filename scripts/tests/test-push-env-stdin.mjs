@@ -75,6 +75,21 @@ console.log("\n── setup-db.mjs ──");
   check("la region repondue par le fournisseur va au manifeste", /region=\$\{state\.region\}/.test(src));
 }
 
+console.log("\n── --no-local : l'hebergement seul, le .env local ne bouge pas (inventaire, 27/09/2026) ──");
+{
+  const { r, env } = push(["--stdin", "--no-local"], `STRIPE_SECRET_KEY=sk_live_${SECRET}\n`);
+  check("le .env local n'a pas bouge : la cle de test y reste", env === "AUTRE=1\nDATABASE_URL=ancienne\n", env);
+  check("sans hebergement relie, rien n'a ete ecrit nulle part : un echec, jamais un succes", r.status === 1 && /Nothing written/.test(r.stderr), `exit ${r.status}`);
+  check("la valeur n'est jamais affichee", !(r.stdout + r.stderr).includes(SECRET));
+}
+
+console.log("\n── La fenetre masquee passe les valeurs par l'entree standard ──");
+{
+  const inter = readFileSync(join(ROOT, "scripts", "vault", "interactive.mjs"), "utf8");
+  check("collect-env lance l'envoi avec --stdin", /push-env-vars\.mjs"\), "--stdin"\]/.test(inter));
+  check("... et lui donne les valeurs en entree, jamais en arguments", /input: pairs\.join\("\\n"\)/.test(inter) && !/args\.push\(\.\.\.pairs\)/.test(inter));
+}
+
 console.log(`\n${checks - failures}/${checks} verifications`);
 if (failures) {
   console.error(`${failures} ECHEC(S)`);

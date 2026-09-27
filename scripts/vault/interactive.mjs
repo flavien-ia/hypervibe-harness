@@ -351,7 +351,7 @@ async function doAdd() {
 // need the vault: a project may have no vault at all.
 //
 //   interactive.mjs collect-env --keys "STRIPE_SECRET_KEY:secret,APP_ID:text" \
-//     --project-dir C:/DEV/app [--target production,preview] [--url https://...]
+//     --project-dir C:/DEV/app [--target production,preview] [--url https://...] [--file .env.<name>]
 async function doCollectEnv() {
   const keysSpec = flags.keys;
   const projectDir = flags["project-dir"];
@@ -388,9 +388,31 @@ async function doCollectEnv() {
     pairs.push(`${s.name}=${val}`);
   }
 
-  const args = [join(__dirname, "..", "push-env-vars.mjs")];
+  // --file <.env.name>: the values are kept in that file of the project, gitignored, and go
+  // nowhere else. For keys that must be checked before they are used (live payment keys: the
+  // account is verified first, then they reach production only), hosting inventory 27/09/2026.
+  if (flags.file && flags.file !== "true") {
+    const file = flags.file;
+    if (!/^\.env\.[A-Za-z0-9._-]+$/.test(file) || /\.\./.test(file)) throw new Error(t("badStageFile", { file }));
+    const target = join(projectDir, file);
+    const kept = existsSync(target)
+      ? readFileSync(target, "utf8").split(/\r?\n/).filter((l) => l.trim() && !pairs.some((p) => l.startsWith(`${p.split("=")[0]}=`)))
+      : [];
+    writeFileSync(target, [...kept, ...pairs].join("\n") + "\n", { encoding: "utf8", mode: 0o600 });
+    const gi = join(projectDir, ".gitignore");
+    const ignored = existsSync(gi) ? readFileSync(gi, "utf8") : "";
+    if (!ignored.split(/\r?\n/).some((l) => l.trim() === file)) {
+      writeFileSync(gi, ignored + (ignored === "" || ignored.endsWith("\n") ? "" : "\n") + file + "\n", "utf8");
+    }
+    console.log(t("collectSavedFile", { names: specs.map((s) => s.name).join(", "), file }));
+    return;
+  }
+
+  // The values go on the helper's STANDARD INPUT, never in its arguments: an argument is
+  // readable in the process list by anything running on the machine (hosting inventory,
+  // 27/09/2026; the window used to pass them as KEY=VALUE arguments).
+  const args = [join(__dirname, "..", "push-env-vars.mjs"), "--stdin"];
   if (flags.target && flags.target !== "true") args.push(`--target=${flags.target}`);
-  args.push(...pairs);
 
   // cwd = the project, so push-env-vars finds the right .env and Vercel link.
   //
@@ -399,7 +421,7 @@ async function doCollectEnv() {
   // the reader is the user, so we swallow the technical log and print a translated
   // summary instead. On failure we DO surface the raw output: that is the one moment
   // where the technical detail is worth more than the tidy sentence.
-  const res = spawnSync("node", args, { cwd: projectDir, encoding: "utf8" });
+  const res = spawnSync("node", args, { cwd: projectDir, encoding: "utf8", input: pairs.join("\n") + "\n" });
   const raw = `${res.stdout || ""}${res.stderr || ""}`.trim();
   if (res.status !== 0) throw new Error(t("collectFailed", { detail: raw || String(res.status) }));
 

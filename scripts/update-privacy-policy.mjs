@@ -23,6 +23,7 @@
 // Runs from the project root (where package.json or apps/web/package.json lives).
 
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { isPrivateTool, registryFile } from "./privacy/layout.mjs";
 import { join, dirname } from "node:path";
 
 // ─── Catalogue des sous-traitants connus ──────────────────────────────────
@@ -611,8 +612,14 @@ function detectWebRoot() {
 }
 
 const WEB_ROOT = detectWebRoot();
-const DATA_FILE = join(WEB_ROOT, "src/lib/subprocessors.json");
-const TS_WRAPPER = join(WEB_ROOT, "src/lib/subprocessors.ts");
+// Next to the application Next.js serves (privacy/layout.mjs): src/lib/ in a project with src/,
+// lib/ otherwise, or wherever the registry already is.
+const DATA_FILE = registryFile(WEB_ROOT);
+const TS_WRAPPER = DATA_FILE.replace(/\.json$/, ".ts");
+
+// A private tool (marker in CLAUDE.md): an absent registry is not recreated by an /add-* skill.
+// The listings still answer; an existing registry is still kept up to date.
+const PRIVATE_TOOL = !existsSync(DATA_FILE) && isPrivateTool(WEB_ROOT, process.cwd());
 
 // ─── Load registry ────────────────────────────────────────────────────────
 function loadRegistry() {
@@ -732,6 +739,11 @@ if (action === "add-i18n") {
 }
 
 const reports = [];
+
+if (PRIVATE_TOOL && (adds.length || entryFiles.length)) {
+  console.log("[update-privacy-policy] This project is marked as a private tool (no legal pages, see its CLAUDE.md): no registry is created. Remove the marker the day a page becomes public, then run /rgpd-audit.");
+  process.exit(0);
+}
 
 for (const key of adds) {
   if (!CATALOG[key]) {

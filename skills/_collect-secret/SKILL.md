@@ -248,8 +248,20 @@ Order matters here: open the input window **before** the user closes the provide
   2. Permissions to add (depending on usage): Workers Scripts:Edit, R2:Edit, Workers KV Storage:Edit, etc.
   3. Account Resources: your account
   4. **Continue to summary → Create Token**
-  5. Copy the value (40-char hex format)
-- Format: 40 alphanumeric characters
+  5. Copy the value
+
+### Cloudflare R2 - bucket token (S3 API)  ·  *secret → project*
+
+- URL: `https://dash.cloudflare.com/` → **Storage & databases** → **R2 Object Storage** → **Overview** → **Account details** → **{} Manage** (`Manage R2 API Tokens`)
+- Instructions:
+  1. **Create Account API token**
+  2. Name it after the application; permission **Object Read & Write** (or **Object Read only** for a read-only use)
+  3. **Apply to specific buckets only**, and pick the project's bucket
+  4. **Create Account API Token**
+- The page then shows THREE values. Collect only two, in ONE window: the **Access Key ID** and the **Secret Access Key** (shown only once). The **Token value** is a Cloudflare API token: it gives no right on the objects, through the REST API or S3. Do not collect it.
+- Window (destination B, the project's `.env` + hosting): `--keys "R2_ACCESS_KEY_ID:secret,R2_SECRET_ACCESS_KEY:secret"`
+- The S3 endpoint is `https://<account-id>.r2.cloudflarestorage.com`, or `https://<account-id>.eu.r2.cloudflarestorage.com` for a bucket in the EU jurisdiction.
+- Checking an account token: `/accounts/{account_id}/tokens/verify`, not `/user/tokens/verify` (which calls it invalid).
 
 ### Vercel - Personal Access Token  ·  *secret → vault*
 

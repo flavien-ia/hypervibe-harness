@@ -16,7 +16,7 @@
 //   node scripts/tests/test-rgpd-audit.mjs
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -304,6 +304,74 @@ console.log("\n── What an outside review of 3.3.0 measured ──");
   const hosts = hostsInCode(code);
   check("protocol-relative addresses are seen (script, link, img, url())", ["cdn.tiers-un.example", "fonts.tiers-deux.example", "pixel.tiers-trois.example", "img.tiers-quatre.example"].every((h) => hosts.has(h)), [...hosts].join(","));
   check("... and a comment still is not one", !hosts.has("cdn.commentaire.example") && !hosts.has("pas.un.hote.example"), [...hosts].join(","));
+}
+
+console.log("\n── What an outside review of 3.3.1 measured ──");
+{
+  const UPP = join(ROOT, "scripts", "update-privacy-policy.mjs");
+  const pkg = { dependencies: { next: "15.0.0" } };
+  const rootApp = project({ "package.json": pkg, "app/layout.tsx": "export default function L() { return null; }", "app/politique-de-confidentialite/page.tsx": "export default function P() { return null; }" });
+  const a = audit(rootApp);
+  check("app/ at the root: the policy found there is the served one", /(^|\/)app\/politique-de-confidentialite\/page\.tsx$/.test(a.policyPagePath ?? "") && !/\/src\//.test(a.policyPagePath ?? ""), a.policyPagePath);
+  check("... the application folder reported is app/ at the root", /\/app$/.test(a.appDir ?? "") && !/\/src\//.test(a.appDir ?? ""), a.appDir);
+  check("... and the registry belongs in lib/ next to it", /\/lib\/subprocessors\.json$/.test(a.registryPath ?? "") && !/\/src\//.test(a.registryPath ?? ""), a.registryPath);
+  const added = spawnSync(process.execPath, [UPP, "--add", "vercel"], { cwd: rootApp, encoding: "utf8" });
+  check("... where the registry script writes it", added.status === 0 && existsSync(join(rootApp, "lib", "subprocessors.json")) && !existsSync(join(rootApp, "src")), added.stderr);
+  rmSync(rootApp, { recursive: true, force: true });
+
+  const ignored = project({ "package.json": pkg, "app/layout.tsx": "export default function L() { return null; }", "src/app/politique-de-confidentialite/page.tsx": "export default function P() { return null; }" });
+  const b = audit(ignored);
+  check("a policy in src/app of a project with app/ at its root is never served, and said so", b.policyPagePath === null && /src\/app\/politique-de-confidentialite/.test(b.policyPageIgnoredPath ?? ""), JSON.stringify({ served: b.policyPagePath, ignored: b.policyPageIgnoredPath }));
+  rmSync(ignored, { recursive: true, force: true });
+
+  const srcProject = project({ "package.json": pkg, "src/app/politique-de-confidentialite/page.tsx": "export default function P() { return null; }" });
+  const c = audit(srcProject);
+  check("control: a project with src/ keeps src/app and src/lib", /src\/app\/politique-de-confidentialite/.test(c.policyPagePath ?? "") && /src\/lib\/subprocessors\.json$/.test(c.registryPath ?? "") && c.policyPageIgnoredPath === null, JSON.stringify(c.registryPath));
+  rmSync(srcProject, { recursive: true, force: true });
+
+  const call = (host) => `export default async function P() { await fetch("https://${host}/x"); return null; }`;
+  const routes = project({
+    "package.json": pkg,
+    "src/app/contact/page.tsx": call("api.tiers-contact.example"),
+    "src/app/(outils)/build/page.tsx": call("api.tiers-build.example"),
+    "src/app/out/page.tsx": call("api.tiers-out.example"),
+    "src/app/test/page.tsx": call("api.tiers-test.example"),
+    "build/chunk.js": call("api.tiers-sortie.example"),
+  });
+  const r = values(audit(routes).unidentified, "host");
+  check("control: a route's call is seen", r.includes("api.tiers-contact.example"), r.join(","));
+  check("routes named build, out or test are read like any other", ["api.tiers-build.example", "api.tiers-out.example", "api.tiers-test.example"].every((h) => r.includes(h)), r.join(","));
+  check("... while the build output at the root is not", !r.includes("api.tiers-sortie.example"), r.join(","));
+  rmSync(routes, { recursive: true, force: true });
+
+  const css = project({
+    "package.json": pkg,
+    "src/app/page.tsx": call("api.tiers-controle.example"),
+    "src/app/globals.css": '@import url("https://fonts.tiers-polices.example/css2?family=Inter");\n.hero { background: url(//pixel.tiers-pixel.example/p.gif); }\n/* https://commentaire.tiers-css.example */',
+  });
+  const s = values(audit(css).unidentified, "host");
+  check("a font imported by a stylesheet is seen", s.includes("fonts.tiers-polices.example"), s.join(","));
+  check("... and an image a stylesheet loads, even protocol-relative", s.includes("pixel.tiers-pixel.example"), s.join(","));
+  check("... but not an address in a CSS comment", !s.includes("commentaire.tiers-css.example"), s.join(","));
+  rmSync(css, { recursive: true, force: true });
+}
+
+console.log("\n── A private tool: no legal pages, and no registry recreated (hypervibe-learn, 27/09/2026) ──");
+{
+  const UPP = join(ROOT, "scripts", "update-privacy-policy.mjs");
+  const MARK = "# Project\n\n<!-- hypervibe:no-legal-pages -->\n**Legal pages: none, this is a private tool.**\n";
+  const priv = project({ "package.json": { dependencies: { next: "15.0.0" } }, "CLAUDE.md": MARK, "src/app/page.tsx": "export default function P() { return null; }" });
+  const r = spawnSync(process.execPath, [UPP, "--add", "vercel"], { cwd: priv, encoding: "utf8" });
+  check("an /add-* on a private tool does not recreate the registry", r.status === 0 && !existsSync(join(priv, "src", "lib", "subprocessors.json")) && /private tool/.test(r.stdout), r.stdout + r.stderr);
+  check("the audit says the project is a private tool", audit(priv).privateTool === true);
+  mkdirSync(join(priv, "src", "lib"), { recursive: true });
+  writeFileSync(join(priv, "src", "lib", "subprocessors.json"), "[]\n");
+  const kept = spawnSync(process.execPath, [UPP, "--add", "vercel"], { cwd: priv, encoding: "utf8" });
+  check("... but a registry that exists is still kept up to date", kept.status === 0 && JSON.parse(readFileSync(join(priv, "src", "lib", "subprocessors.json"), "utf8")).some((e) => e.key === "vercel"), kept.stderr);
+  rmSync(priv, { recursive: true, force: true });
+  const plain = project({ "package.json": { dependencies: { next: "15.0.0" } }, "CLAUDE.md": "# Project\n" });
+  check("control: an unmarked project is not a private tool", audit(plain).privateTool === false);
+  rmSync(plain, { recursive: true, force: true });
 }
 
 console.log(`\n${checks - failures}/${checks} checks`);

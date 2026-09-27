@@ -74,7 +74,7 @@ Wait for the answer.
 | Choice | Action |
 |---|---|
 | 1 (switch bucket) | Ask for the new bucket name + public/private. Create it via `wrangler r2 bucket create <nom> -J eu` (strict EU jurisdiction, GDPR - NEVER omit `-J eu`). Push `R2_BUCKET_NAME=<nouveau>` via `_push-env-vars`. Remind that the files in the old bucket are not migrated automatically. |
-| 2 (key rotation) | Guide to the Cloudflare dashboard → R2 → Manage R2 API tokens → Revoke the old one + Create new token with the same permissions on the bucket. Push `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` via `_push-env-vars`. |
+| 2 (key rotation) | Guide to the Cloudflare dashboard → R2 → Manage R2 API tokens → Revoke the old one + Create new token with the same permissions on the bucket. Collect the two new keys through the masked window of Step 8 (`_collect-secret`, entry « Cloudflare R2 - bucket token »), never in the conversation. |
 | 3 (update public URL) | Ask for the new public URL (e.g. `https://assets.mydomain.com`). Push `R2_PUBLIC_URL=<url>` via `_push-env-vars`. Remind that on the Cloudflare side, a custom domain must have been connected to the bucket via the R2 dashboard. |
 | 4 (start over) | Abort: ask the user to manually clean up their R2 env vars, then re-run. |
 | 5 (migrate to EU) | Start the migration - see **"Option 5 in detail"** just below. In short: create the EU twin **under the same name**, copy the objects ONCE, switch the env vars, then delete the old bucket. |
@@ -297,11 +297,16 @@ R2 requires S3 credentials separate from the Cloudflare API token (Cloudflare li
 > 4. Click on **"Create account API token"**
 > 5. **Rename the token** with the name of the application (`<PROJECT_NAME>`) + **Permissions**: **"Object Read & Write"** + select **"Apply to specific buckets only"** and choose the bucket that was just created (`<PROJECT_NAME>-assets`)
 > 6. Click on **"Create Account API Token"** at the bottom
-> 7. Cloudflare displays (only once) an **Access Key ID** and a **Secret Access Key**: paste them to me here, I push them to `.env` + Vercel
+> 7. Cloudflare shows three values, the **Secret Access Key** only once. A small window will open on your machine: paste the **Access Key ID** and the **Secret Access Key** in there (not the Token value), not in our conversation, so that they are never written into this chat.
 
-When the user provides the 2 keys, invoke `_push-env-vars` with:
-- `R2_ACCESS_KEY_ID=<access key provided>`
-- `R2_SECRET_ACCESS_KEY=<secret key provided>`
+Then open the masked window (`_collect-secret`, entry « Cloudflare R2 - bucket token »). It writes both keys into `.env` and the hosting itself:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "R2_ACCESS_KEY_ID:secret,R2_SECRET_ACCESS_KEY:secret" --project-dir "<WEB_DIR>"
+```
+
+Read the exit code: non-zero means the user cancelled, storage is not wired yet. **Never ask for these keys in the conversation.**
 
 ## Step 9 - Propose to build the user-facing layer
 

@@ -68,6 +68,8 @@ const STRINGS = {
     collectFailed: "Saving failed. Details:\n{detail}",
     collectSavedLocal: "\nSaved to the project's .env: {names}.",
     collectSavedVercel: "\nSaved to the project's .env and pushed to Vercel: {names}.",
+    collectSavedFile: "\nKept aside in {file}, in the project (not in .env, not online yet): {names}.",
+    badStageFile: "A file of its own must be named .env.<name>, in the project: {file}",
 
     willOpen: "[vault] A terminal window will open for the \"{cmd}\" step.",
     ifNothingOpens: "[vault] If nothing opens, run this by hand in a terminal:\n           {cmd}",
@@ -131,6 +133,8 @@ const STRINGS = {
     collectFailed: "L'enregistrement a echoue. Details :\n{detail}",
     collectSavedLocal: "\nC'est fait. Ces valeurs sont maintenant dans le .env du projet : {names}.",
     collectSavedVercel: "\nC'est fait. Ces valeurs sont maintenant dans le .env du projet et sur Vercel : {names}.",
+    collectSavedFile: "\nC'est fait. Ces valeurs sont gardees a part dans {file}, dans le projet (ni dans le .env, ni en ligne pour l'instant) : {names}.",
+    badStageFile: "Un fichier a part doit s'appeler .env.<nom>, dans le projet : {file}",
 
     willOpen: "[coffre] Une fenetre de terminal va s'ouvrir pour l'etape \"{cmd}\".",
     ifNothingOpens: "[coffre] Si rien ne s'ouvre, lance ceci a la main dans un terminal :\n           {cmd}",

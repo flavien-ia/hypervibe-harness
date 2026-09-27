@@ -48,6 +48,9 @@ if (rawArgs.length === 0) {
 }
 
 let readStdin = false;
+// --no-local: the hosting only, the local .env left as it is. A live key must reach production
+// without replacing the test key a developer's machine runs on (hosting inventory, 27/09/2026).
+let noLocal = false;
 const VALID_ENVS = ["production", "preview", "development"];
 let explicitTargets = null; // null = smart per-key default
 const pairs = [];
@@ -55,6 +58,10 @@ const pairs = [];
 for (const arg of rawArgs) {
   if (arg === "--stdin") {
     readStdin = true;
+    continue;
+  }
+  if (arg === "--no-local") {
+    noLocal = true;
     continue;
   }
   if (arg.startsWith("--target=")) {
@@ -101,7 +108,8 @@ if (pairs.length === 0) {
   process.exit(1);
 }
 
-// ─── Step 1 - Update .env ──────────────────────────────────────────────
+// ─── Step 1 - Update .env (unless --no-local) ──────────────────────────
+if (noLocal) console.log("[env] --no-local: the local .env is left as it is");
 const envPath = ".env";
 const existingContent = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
 const lines = existingContent.split("\n");
@@ -121,13 +129,15 @@ for (const { key, value } of pairs) {
   filtered.push(`${key}=${value}`);
 }
 
-writeFileSync(envPath, filtered.join("\n") + "\n");
-console.log(`[env] Updated ${envPath} (${pairs.length} var${pairs.length > 1 ? "s" : ""})`);
+if (!noLocal) {
+  writeFileSync(envPath, filtered.join("\n") + "\n");
+  console.log(`[env] Updated ${envPath} (${pairs.length} var${pairs.length > 1 ? "s" : ""})`);
+}
 
 const gitignorePath = ".gitignore";
 const gitignore = existsSync(gitignorePath) ? readFileSync(gitignorePath, "utf8") : "";
 const alreadyIgnored = gitignore.split("\n").some((l) => l.trim() === ".env");
-if (!alreadyIgnored) {
+if (!noLocal && !alreadyIgnored) {
   const suffix = gitignore.length === 0 || gitignore.endsWith("\n") ? "" : "\n";
   writeFileSync(gitignorePath, gitignore + suffix + ".env\n");
   console.log(`[env] Added .env to .gitignore`);
@@ -137,6 +147,11 @@ if (!alreadyIgnored) {
 const vercelProjectPath = ".vercel/project.json";
 if (!existsSync(vercelProjectPath)) {
   console.log("[vercel] Project not linked (no .vercel/project.json). Skipping Vercel push.");
+  if (noLocal) {
+    // Nothing was written anywhere: never a success.
+    console.error("Nothing written: --no-local, and this folder is not linked to its hosting.");
+    process.exit(1);
+  }
   console.log(`✅ Pushed ${pairs.length} env var${pairs.length > 1 ? "s" : ""} to local .env only.`);
   process.exit(0);
 }

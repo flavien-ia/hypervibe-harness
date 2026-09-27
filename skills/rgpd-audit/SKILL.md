@@ -39,7 +39,10 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/rgpd-audit.mjs"
 
 The script returns a JSON object with:
 - `webRoot` - root of the code (apps/web for monorepos, root otherwise)
-- `registryPath` - path of the registry `src/lib/subprocessors.json`
+- `registryPath` - path of the registry, `subprocessors.json` in the `lib/` folder next to the application (`src/lib/` in a project with `src/`)
+- `appDir` - the application folder Next.js serves, where a page must be written
+- `i18nRoutingPath` - the project's i18n routing file, or null for a single-language project
+- `policyPageIgnoredPath`, `mentionsLegalesIgnoredPath` - a page found where Next.js does NOT serve it (null otherwise)
 - `registryExists` - boolean
 - `policyPagePath` - path of the policy page if found, otherwise `null`
 - `mentionsLegalesPath` - path of the legal notices page if found
@@ -181,20 +184,26 @@ The catalogue covers the services the plugin installs and the most common others
 
 ### Case A: `policyPagePath === null` (no page)
 
+**If `privateTool` is true**, create nothing: the project is marked as a private tool (no page for the public, the marker sits in its CLAUDE.md). Say so in one line, and that the marker is to be removed the day a page becomes public.
+
 Create the page from the template. The template to use depends on the project's i18n state:
 
-- **If `src/i18n/routing.ts` exists** (multilingual project) → use `${CLAUDE_SKILL_DIR}/../../templates/privacy-policy/i18n.tsx`, and then run `node ${CLAUDE_SKILL_DIR}/../../scripts/_i18n-merge-messages.mjs --web-dir <web-root> --feature privacy-policy` to merge the `privacy.*` keys into the `messages/<locale>.json` files.
+- **If `i18nRoutingPath` is not null** (multilingual project) → use `${CLAUDE_SKILL_DIR}/../../templates/privacy-policy/i18n.tsx`, and then run `node ${CLAUDE_SKILL_DIR}/../../scripts/_i18n-merge-messages.mjs --web-dir <web-root> --feature privacy-policy` to merge the `privacy.*` keys into the `messages/<locale>.json` files.
 - **Otherwise** (single-language project) → use `${CLAUDE_SKILL_DIR}/../../templates/privacy-policy/plain.tsx`.
 
 Substitute in the template:
 - `{{PROJECT_NAME}}` (read the web-root's `package.json`)
 - `{{LAST_UPDATED}}` (today's date, format `YYYY-MM-DD`)
 
-Page location:
-- If `src/app/[locale]/` exists → `src/app/[locale]/politique-de-confidentialite/page.tsx`
-- Otherwise → `src/app/politique-de-confidentialite/page.tsx`
+Page location: always in `appDir`, the folder the audit reports, which is the one Next.js serves (`app/` at the project's root when it exists, `src/app/` otherwise). Next.js ignores `src/app` as soon as an `app/` exists at the root: a page written there builds without a warning and answers 404.
+- If `<appDir>/[locale]/` exists → `<appDir>/[locale]/politique-de-confidentialite/page.tsx`
+- Otherwise → `<appDir>/politique-de-confidentialite/page.tsx`
 
 Create the folder then write the file. Verify that the page does import `~/lib/subprocessors`. If the `~/` alias is not configured in the project (rare), replace it with the appropriate relative path.
+
+### Case A bis: `policyPageIgnoredPath !== null` (a page exists, where Next.js never serves it)
+
+Tell the person plainly that their privacy policy page exists but is not online (the site answers 404 on it), because it sits in a folder Next.js ignores in this project. Move it into `appDir` (`git mv`, keeping its content), then continue as in Case B. Same for `mentionsLegalesIgnoredPath`.
 
 ### Case B: `policyPagePath !== null` (the page already exists)
 

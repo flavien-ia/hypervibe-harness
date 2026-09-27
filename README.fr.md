@@ -176,7 +176,7 @@ Les opérations irréversibles sont donc gardées, pas seulement déconseillées
 | `git config user.email <autre chose qu'une adresse>` | **refus** | Chaque commit la porte, et un push la publie : un mot de passe saisi là par erreur partirait sur GitHub. Le refus ne répète jamais la valeur. |
 | `shared-worker/ensure.mjs`, `worker-check.mjs` (sans `--dry-run`) | **confirmation** | Ils peuvent redéployer l'horloge partagée, du code qui tourne avec les clés du compte, comme `wrangler deploy`. |
 
-Les règles regardent la commande, pas son costume. `sudo`, `command`, `env`, `time`, un lanceur (`npx`, `pnpm dlx`), une version épinglée (`wrangler@latest`), un chemin absolu (`/usr/bin/git`), un sous-shell ou un bloc (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), une tête entre guillemets, et la charge d'un `sh -c` ou d'un `eval` sont retirés ou dépliés avant qu'une règle s'applique. De même pour le script d'un shell qui le lit ailleurs : `bash <<'EOF'`, `bash <<< '...'`, `echo '...' | bash`, `bash <(echo ...)` (le corps d'un heredoc reste une donnée pour toute autre commande), et la ligne que `xargs` recompose à partir de ce qu'on lui envoie. Une frontière est assumée : ce qu'une substitution imprimera (`bash <<< "$(...)"`) n'existe qu'à l'exécution, et c'est la garde propre aux scripts qui tient au-delà. Cinq formes de ce genre passaient devant toutes les règles en 3.0.4 ; fermer la famille plutôt que les cinq, c'est ce qu'une relecture extérieure a demandé.
+Les règles regardent la commande, pas son costume. `sudo`, `command`, `env`, `time`, un lanceur (`npx`, `pnpm dlx`), une version épinglée (`wrangler@latest`), un chemin absolu (`/usr/bin/git`), un sous-shell ou un bloc (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), une tête entre guillemets, et la charge d'un `sh -c` ou d'un `eval` sont retirés ou dépliés avant qu'une règle s'applique. De même pour le script d'un shell qui le lit ailleurs : `bash <<'EOF'`, `bash <<< '...'`, `echo '...' | bash`, `bash <(echo ...)` (le corps d'un heredoc reste une donnée pour toute autre commande), et la ligne que `xargs` recompose à partir de ce qu'on lui envoie (celui de GNU comme celui de macOS), ou que lancent `find -exec`, `timeout`, `stdbuf` et `caffeinate`. Une frontière est assumée : ce qu'une substitution imprimera (`bash <<< "$(...)"`) n'existe qu'à l'exécution, et c'est la garde propre aux scripts qui tient au-delà. Cinq formes de ce genre passaient devant toutes les règles en 3.0.4 ; fermer la famille plutôt que les cinq, c'est ce qu'une relecture extérieure a demandé.
 
 Tout le reste passe sans encombre, et cette moitié-là est testée avec autant de soin que l'autre : `git add src/a.ts`, `git push --dry-run`, `git add -p`, un `DELETE ... WHERE`, et même un message de commit qui mentionne `git add -A` (`node hooks/test-hooks.mjs`).
 
@@ -223,6 +223,10 @@ Le plugin inclut [Context7](https://github.com/upstash/context7-mcp), qui donne 
 ## Auteur
 
 **Flavien Chervet** - [flavienchervet.fr](https://flavienchervet.fr)
+
+## Contributeurs
+
+**Bastien Detraz** - relectures de sécurité indépendantes du plugin (garde-fous, gardes SQL, audit RGPD), chaque constat mesuré et livré avec sa reproduction.
 
 ## Licence
 

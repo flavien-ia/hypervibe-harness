@@ -411,25 +411,38 @@ Capture each `KEY=yes/no` line in memory. Skip the blocks below for the integrat
 
 ### 11.2 - Auto-fix: Stripe webhook (if Stripe installed)
 
-If `STRIPE=yes`, run the block below. It lists the webhook endpoints, identifies those whose URL contains `vercel.app`, and updates them to `https://<domain>/api/webhooks/stripe` (or whatever path is already configured on the webhook - we only replace the host).
+If `STRIPE=yes`, run the block below. It lists the webhook endpoints and repoints to `https://<domain>` the ones that target **this project's** address on Vercel (`<project>.vercel.app`, or one of its `<project>-….vercel.app` aliases), keeping their path. A webhook that targets another `*.vercel.app` belongs to another project of the same Stripe account: it is listed, never touched.
 
 ```bash
-NEW_DOMAIN="<domain>"
-PAYLOAD=$(stripe webhook_endpoints list --limit 30 2>/dev/null) || { echo "STRIPE_FIX=cli_error"; exit 0; }
+export NEW_DOMAIN="<domain>"
+export VERCEL_PROJECT="$(node -e "try { process.stdout.write(require(require('path').resolve('<WEB_DIR>', '.vercel', 'project.json')).projectName || '') } catch {}")"
+[ -z "$VERCEL_PROJECT" ] && export VERCEL_PROJECT="<vercel project name>"
+PAYLOAD=$(stripe webhook_endpoints list --limit 100 2>/dev/null) || { echo "STRIPE_FIX=cli_error"; exit 0; }
 echo "$PAYLOAD" | node -e "
 const data = JSON.parse(require('fs').readFileSync(0, 'utf8'));
-const obsolete = (data.data || []).filter(w => /\.vercel\.app/.test(w.url));
-if (obsolete.length === 0) { console.log('STRIPE_FIX=none'); process.exit(0); }
-const NEW = process.env.NEW_DOMAIN;
-for (const w of obsolete) {
-  const newUrl = w.url.replace(/https:\/\/[^/]*\.vercel\.app/, 'https://' + NEW);
-  console.log('PATCH=' + w.id + '|' + w.url + '|' + newUrl);
+const NEW = process.env.NEW_DOMAIN, P = process.env.VERCEL_PROJECT;
+if (!NEW || !P) { console.log('STRIPE_FIX=missing_input'); process.exit(0); }
+if (!/^[a-z0-9-]+$/.test(P)) { console.log('STRIPE_FIX=missing_input'); process.exit(0); }
+// The project's address, or one of its aliases: <project>-git-<branch>-<scope> and <project>-<9 characters>-<scope>.
+// A plain prefix test would take atelier-pro.vercel.app, another project, for an alias of atelier.
+const ours = (host) => host === P + '.vercel.app' || new RegExp('^' + P + '-(git-[a-z0-9-]+|[a-z0-9]{9})-[a-z0-9-]+[.]vercel[.]app$').test(host);
+let any = false;
+for (const w of data.data || []) {
+  let u; try { u = new URL(w.url); } catch { continue; }
+  if (!u.hostname.endsWith('.vercel.app')) continue;
+  any = true;
+  if (!ours(u.hostname)) { console.log('OTHER|' + w.id + '|' + w.url); continue; }
+  console.log('PATCH|' + w.id + '|' + w.url + '|https://' + NEW + u.pathname + u.search);
 }
+if (!any) console.log('STRIPE_FIX=none');
 " | while IFS='|' read -r tag ID OLD NEW_URL; do
-  [ "$tag" = "PATCH" ] || continue
-  stripe webhook_endpoints update "$ID" --url "$NEW_URL" >/dev/null 2>&1 \
-    && echo "STRIPE_FIX_OK=$ID|$OLD → $NEW_URL" \
-    || echo "STRIPE_FIX_FAIL=$ID|$OLD"
+  case "$tag" in
+    STRIPE_FIX=*) echo "$tag" ;;
+    OTHER) echo "STRIPE_OTHER=$ID|$OLD" ;;
+    PATCH) stripe webhook_endpoints update "$ID" --url "$NEW_URL" >/dev/null 2>&1 \
+             && echo "STRIPE_FIX_OK=$ID|$OLD → $NEW_URL" \
+             || echo "STRIPE_FIX_FAIL=$ID|$OLD" ;;
+  esac
 done
 ```
 
@@ -438,6 +451,8 @@ Depending on the output:
 - `STRIPE_FIX_OK=...` -> announce to the user: `✅ Stripe webhook updated: <old> → <new>`. Test by re-listing: `stripe webhook_endpoints retrieve <id> --output json | grep url`.
 - `STRIPE_FIX_FAIL=...` -> put it in the manual-actions stack (see 11.5) and log the cause (probably a restricted API key permission).
 - `STRIPE_FIX=cli_error` -> the Stripe CLI is not authenticated. Re-trigger `_setup-stripe-cli` then retry.
+- `STRIPE_OTHER=<id>|<url>` -> a webhook of ANOTHER project of the same Stripe account: not touched. Mention it in one line, it is not this project's.
+- `STRIPE_FIX=missing_input` -> the domain or the Vercel project name was not set: nothing was changed, fill `<domain>` and `<vercel project name>` and run again.
 
 ### 11.3 - Auto-fix: Cloudflare Workers env vars
 
@@ -488,75 +503,29 @@ Depending on the output:
 
 ### 11.4 - Auto-fix: Render Services env vars
 
-`_create-agent` and the Render variant of `/add-automation` read the app's URL via an env var on Render (typically `APP_URL` or `NEXT_PUBLIC_APP_URL`). Render has no automatic link with Vercel: if `NEXT_PUBLIC_APP_URL` changes on the Vercel side, Render keeps the old value.
+`_create-agent` and the Render variant of `/add-automation` read the app's URL through an environment variable on Render (typically `APP_URL` or `NEXT_PUBLIC_APP_URL`). Render has no link with Vercel: when the address changes, Render keeps the old one.
 
-Run the block below if `RENDER_API_KEY` is available in the user's environment (otherwise skip silently - the user probably has no Render service).
+List the project's services that carry one of those variables (the Render key is read from the vault; the project's manifest marks its own services):
 
 ```bash
-NEW_DOMAIN="<domain>"
-if [ -z "$RENDER_API_KEY" ]; then
-  echo "RENDER_FIX=no_api_key"
-else
-  # 1. List all services on the user's Render account
-  SERVICES_JSON=$(curl -sS -H "Authorization: Bearer $RENDER_API_KEY" \
-    "https://api.render.com/v1/services?limit=50" 2>/dev/null)
-  if [ -z "$SERVICES_JSON" ] || echo "$SERVICES_JSON" | grep -q '"message"'; then
-    echo "RENDER_FIX=api_error"
-  else
-    SERVICE_IDS=$(echo "$SERVICES_JSON" | node -e "
-      const d = JSON.parse(require('fs').readFileSync(0,'utf8'));
-      (d || []).forEach(s => console.log((s.service||s).id));
-    ")
-
-    if [ -z "$SERVICE_IDS" ]; then
-      echo "RENDER_FIX=no_services"
-    else
-      echo "$SERVICE_IDS" | while read -r SID; do
-        [ -z "$SID" ] && continue
-        # 2. Get env vars for this service
-        EV=$(curl -sS -H "Authorization: Bearer $RENDER_API_KEY" \
-          "https://api.render.com/v1/services/$SID/env-vars?limit=50" 2>/dev/null)
-        STALE=$(echo "$EV" | node -e "
-          const d = JSON.parse(require('fs').readFileSync(0,'utf8'));
-          (d || []).forEach(e => {
-            const ev = e.envVar || e;
-            if (ev.value && /https?:\/\/[^\s\"']*\.vercel\.app/.test(ev.value)) {
-              const nv = ev.value.replace(/https?:\/\/[^\s\"']*\.vercel\.app/g, 'https://' + process.env.NEW_DOMAIN);
-              console.log(ev.key + '|' + ev.value + '|' + nv);
-            }
-          });
-        ")
-        [ -z "$STALE" ] && continue
-
-        # 3. Patch each stale env var via PUT
-        echo "$STALE" | while IFS='|' read -r KEY OLD_VAL NEW_VAL; do
-          curl -sS -X PUT -H "Authorization: Bearer $RENDER_API_KEY" \
-            -H "Content-Type: application/json" \
-            -d "{\"value\":\"$NEW_VAL\"}" \
-            "https://api.render.com/v1/services/$SID/env-vars/$KEY" >/dev/null \
-            && echo "RENDER_PATCHED=$SID:$KEY ($OLD_VAL → $NEW_VAL)" \
-            || echo "RENDER_PATCH_FAILED=$SID:$KEY"
-        done
-
-        # 4. Trigger a redeploy so the new env vars actually take effect
-        curl -sS -X POST -H "Authorization: Bearer $RENDER_API_KEY" \
-          -H "Content-Type: application/json" \
-          -d '{"clearCache":"do_not_clear"}' \
-          "https://api.render.com/v1/services/$SID/deploys" >/dev/null \
-          && echo "RENDER_REDEPLOYED=$SID" \
-          || echo "RENDER_REDEPLOY_FAILED=$SID"
-      done
-    fi
-  fi
-fi
+node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" list --project-dir "<WEB_DIR>" --key APP_URL --key NEXT_PUBLIC_APP_URL
 ```
 
-Depending on the output:
-- `RENDER_FIX=no_api_key` or `RENDER_FIX=no_services` -> silent, the user has no Render service to fix.
-- `RENDER_FIX=api_error` -> auth/network error, surface the message and switch to manual (Render dashboard link in 11.5).
-- `RENDER_PATCHED=<id>:<key>` + `RENDER_REDEPLOYED=<id>` -> ✅ announce `✅ Render Service <id> updated (X env vars patched) + redeployment started`.
+- Exit 4 (no Render key in the vault) or `services` empty -> silent, nothing to fix.
+- Exit 2 -> the vault is locked: unlock it, run again.
+- Services marked `inManifest: true` are this project's. A service not in the manifest may belong to another project: ask before touching it.
 
-⚠️ The Render redeployment takes 2-5 min - no need to wait in this flow. Mention to the user that they can monitor it via `https://dashboard.render.com`.
+Then point the chosen services' `*.vercel.app` addresses at the domain (only the variables that held such an address change), and redeploy them:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" retarget --project-dir "<WEB_DIR>" \
+  --service <srv-id> [--service <srv-id> ...] --to-origin "https://<domain>"
+```
+
+- `results[].changed` not empty -> ✅ announce `✅ Render service <name> updated (<variables>), redeploy started`.
+- Exit 1 -> Render refused or did not answer: surface the message and move it to the manual actions (11.5).
+
+⚠️ The Render redeployment takes 2-5 min - no need to wait in this flow. Mention to the user that they can monitor it on `https://dashboard.render.com`.
 
 ### 11.5 - Required manual actions
 

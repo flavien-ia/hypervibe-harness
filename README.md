@@ -176,7 +176,7 @@ So the operations that cannot be undone are guarded, not merely discouraged:
 | `git config user.email <something that is not an address>` | **refused** | Every commit carries it, and a push publishes it: a password typed there by mistake would reach GitHub. The refusal never repeats the value. |
 | `shared-worker/ensure.mjs`, `worker-check.mjs` (without `--dry-run`) | **confirmation** | They can redeploy the shared clock, code that runs with the account's keys, like `wrangler deploy`. |
 
-The rules look at the command, not at its costume. `sudo`, `command`, `env`, `time`, a launcher (`npx`, `pnpm dlx`), a version pin (`wrangler@latest`), an absolute path (`/usr/bin/git`), a subshell or a block (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), a quoted head, and the payload of `sh -c` or `eval` are stripped or unfolded before any rule runs. So is the script of a shell that reads it from elsewhere: `bash <<'EOF'`, `bash <<< '...'`, `echo '...' | bash`, `bash <(echo ...)` (a heredoc's body stays data for every other command), and the line `xargs` rebuilds from what it is sent. One frontier is chosen: what a substitution will print (`bash <<< "$(...)"`) only exists at run time, and the scripts' own checks are what hold beyond it. Five such shapes walked past every rule on 3.0.4; closing the family, rather than the five, is what an outside review asked for.
+The rules look at the command, not at its costume. `sudo`, `command`, `env`, `time`, a launcher (`npx`, `pnpm dlx`), a version pin (`wrangler@latest`), an absolute path (`/usr/bin/git`), a subshell or a block (`(git add -A && ...)`, `{ ... }`, `if ...; then ...`), a quoted head, and the payload of `sh -c` or `eval` are stripped or unfolded before any rule runs. So is the script of a shell that reads it from elsewhere: `bash <<'EOF'`, `bash <<< '...'`, `echo '...' | bash`, `bash <(echo ...)` (a heredoc's body stays data for every other command), and the line `xargs` rebuilds from what it is sent (GNU's and macOS's), or runs through `find -exec`, `timeout`, `stdbuf` or `caffeinate`. One frontier is chosen: what a substitution will print (`bash <<< "$(...)"`) only exists at run time, and the scripts' own checks are what hold beyond it. Five such shapes walked past every rule on 3.0.4; closing the family, rather than the five, is what an outside review asked for.
 
 Everything else passes untouched, and that half is tested as carefully as the other: `git add src/a.ts`, `git push --dry-run`, `git add -p`, a `DELETE ... WHERE`, even a commit message that merely mentions `git add -A` all go through (`node hooks/test-hooks.mjs`).
 
@@ -223,6 +223,10 @@ The plugin ships with [Context7](https://github.com/upstash/context7-mcp), which
 ## Author
 
 **Flavien Chervet** - [flavienchervet.fr](https://flavienchervet.fr)
+
+## Contributors
+
+**Bastien Detraz** - independent security reviews of the plugin (guardrails, SQL guards, privacy audit), each finding measured and delivered with its reproduction.
 
 ## License
 

@@ -445,6 +445,11 @@ function normalise(raw) {
     s = s.replace(/^env(?:\s+-i)?(?:\s+-u\s+\S+)*\s+/, "");
     s = s.replace(/^nice(?:\s+-n\s+\S+|\s+-\d+)?\s+/, "");
     s = s.replace(/^time(?:\s+-p)?\s+/, "");
+    // Launchers that run the rest unchanged, with the options that take a value: `timeout 60
+    // git push`, `stdbuf -oL git push`, `caffeinate -i git push` all push (outside review, 3.3.1).
+    s = s.replace(/^g?timeout(?:\s+(?:--preserve-status|--foreground|-v|--verbose|-k\s*\S+|--kill-after=\S+|-s\s*\S+|--signal=\S+))*\s+\S+\s+/, "");
+    s = s.replace(/^stdbuf(?:\s+(?:-[ioe]\s*\S+|--(?:input|output|error)=\S+))*\s+/, "");
+    s = s.replace(/^caffeinate(?:\s+(?:-[dimsu]+|-[tw]\s*\S+))*\s+/, "");
     s = s.replace(/^(?:command(?:\s+-p)?|builtin|exec|nohup|eval)\s+/, "");
     // A quoted or escaped head: `"git" push`, `\git push`.
     s = s.replace(/^(["'])([^"'\s]+)\1(?=\s|$)/, "$2").replace(/^\\(?=\S)/, "");
@@ -616,6 +621,23 @@ function scriptsOf(parts, k, seg) {
   return [];
 }
 
+/** The command lines `find` runs through `-exec`, `-execdir`, `-ok` or `-okdir`: the words
+ *  after the action, up to its `;` or `+`, as written (`{}` stays: what it names cannot be read
+ *  from the command line). `find . -exec git push \;` is a push (outside review, 3.3.1). */
+function findCommands(seg) {
+  const list = words(seg);
+  const out = [];
+  for (let w = 1; w < list.length; w += 1) {
+    if (!/^-(?:exec|execdir|ok|okdir)$/.test(list[w].value)) continue;
+    const parts = [];
+    let k = w + 1;
+    for (; k < list.length && list[k].value !== ";" && list[k].value !== "+"; k += 1) parts.push(list[k].raw);
+    if (parts.length) out.push(parts.join(" "));
+    w = k;
+  }
+  return out;
+}
+
 /** The command lines `xargs` would run: the command after its options, with what the
  *  segment piped into it prints when the command line says it (`producedBy`), put in place
  *  of the replacement string (`-I{}`, `-i`, `--replace`) or appended as arguments. Without
@@ -623,7 +645,9 @@ function scriptsOf(parts, k, seg) {
 function xargsCommands(parts, k, seg) {
   const list = words(seg);
   let replace = null;
+  let bsdJ = false;
   let fromFile = false;
+  let nul = false;
   let w = 1;
   for (; w < list.length; w += 1) {
     const v = list[w].value;
@@ -632,16 +656,21 @@ function xargsCommands(parts, k, seg) {
       break;
     }
     if (!v.startsWith("-") || v === "-") break;
-    if (/^-[IEdnLPsa]$/.test(v) || /^--(?:max-args|max-lines|max-procs|max-chars|delimiter|arg-file|eof|process-slot-var)$/.test(v)) {
-      if (v === "-I") replace = list[w + 1]?.value ?? null;
+    // GNU's options, and BSD's (macOS): -J replaces like -I, -R and -S take a value. Unknown to
+    // the reader, a value would become the command (outside review, 3.3.1).
+    if (/^-[IEdnLPsaJRS]$/.test(v) || /^--(?:max-args|max-lines|max-procs|max-chars|delimiter|arg-file|eof|process-slot-var)$/.test(v)) {
+      if (v === "-I" || v === "-J") replace = list[w + 1]?.value ?? null;
+      if (v === "-J") bsdJ = true;
       if (v === "-a" || v === "--arg-file") fromFile = true;
       w += 1;
       continue;
     }
-    if (v.startsWith("-I")) replace = v.slice(2);
+    if (v.startsWith("-I") || v.startsWith("-J")) replace = v.slice(2);
+    if (v.startsWith("-J")) bsdJ = true;
     else if (/^-i/.test(v)) replace = v.slice(2) || "{}";
     else if (/^--replace(?:=|$)/.test(v)) replace = v.includes("=") ? v.slice(v.indexOf("=") + 1) : "{}";
     else if (/^(?:-a.|--arg-file=)/.test(v)) fromFile = true;
+    if (v === "-0" || v === "--null" || /^-[^-]*0/.test(v)) nul = true;
   }
   const command = list
     .slice(w)
@@ -656,11 +685,25 @@ function xargsCommands(parts, k, seg) {
   }
   if (input === null) return [command];
   if (replace) {
-    const lines = input
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
-    return lines.length ? lines.map((l) => command.split(replace).join(l)) : [command];
+    const quote = (s) => `'${s.replace(/'/g, "'\\''")}'`;
+    const items = (nul ? input.split("\0") : input.split("\n").map((l) => l.trim())).filter(Boolean);
+    const withWord = (sub, item) =>
+      list
+        .slice(w)
+        .map((x) => (x.value === replace ? sub : x.raw.split(replace).join(item)))
+        .join(" ");
+    if (bsdJ) {
+      // BSD -J: the input's ARGUMENTS take the replacement's place (its words, or each item of
+      // -0 as one argument): `echo push origin main | xargs -J % git %` is `git push origin main`.
+      const args = nul ? items.map(quote).join(" ") : input.split(/\s+/).filter(Boolean).join(" ");
+      return [withWord(args, args)];
+    }
+    // -I, -i, --replace: each line becomes ONE argument where the replacement is a whole word
+    // (`xargs -0 -I % bash -c %` hands the whole line to `-c`). Judged under both readings, as
+    // that one argument and as its words: the worse verdict wins, a question too many costs less
+    // than a push let through.
+    const lines = items.flatMap((item) => [withWord(quote(item), item), withWord(item, item)]);
+    return lines.length ? lines : [command];
   }
   const args = input.split(/\s+/).filter(Boolean).join(" ");
   return [args ? `${command} ${args}` : command];
@@ -812,6 +855,18 @@ export function decide(command, inherited = new Map()) {
     // -c '{}'` rebuilds the line it runs, one step further than `tee` (outside review,
     // 3.2.6). Judged as xargs would build it when the input is on the command line, and as
     // written otherwise.
+    // `find -exec` runs its command for every file found: judged as written.
+    if (/^find(?:\s|$)/.test(seg)) {
+      const commands = findCommands(seg);
+      if (commands.length) {
+        for (const line of commands) {
+          const verdict = decide(line, env);
+          if (verdict) keep(verdict.decision, verdict.reason);
+        }
+        continue;
+      }
+    }
+
     if (/^xargs(?:\s|$)/.test(seg)) {
       for (const line of xargsCommands(parts, index, seg)) {
         const verdict = decide(line, env);

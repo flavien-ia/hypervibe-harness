@@ -549,6 +549,26 @@ expect("find src -name '*.ts' | xargs grep -l TODO", "pass");
 // La frontiere choisie : ce que la substitution IMPRIME n'existe qu'a l'execution.
 expect('bash <<< "$(echo git push origin main)"', "pass");
 
+console.log("\n── xargs de macOS et autres lanceurs (revue externe, 3.3.1) ──");
+expect("echo push origin main | xargs -J % git %", "ask");
+expect("printf 'git push origin main' | xargs -0 -J % bash -c %", "ask");
+expect("echo 'push origin main' | xargs -R 1 -I % git %", "ask");
+expect("echo 'git push origin main' | xargs -S 1024 -I{} bash -c '{}'", "ask");
+expect("find . -maxdepth 0 -exec git push origin main \\;", "ask");
+expect("find . -maxdepth 0 -execdir git add -A \\;", "deny");
+expect("find . -name x -ok git push origin main ';'", "ask");
+expect("caffeinate -i git push origin main", "ask");
+expect("stdbuf -oL git push origin main", "ask");
+expect("timeout 60 git push origin main", "ask");
+expect("timeout -k 5 60 git add -A", "deny");
+// ... et ce qui y ressemble sans en etre.
+expect("find src -name '*.ts' -exec grep -l TODO {} \\;", "pass");
+expect("find . -name '*.log' -delete", "pass");
+expect("timeout 60 pnpm test", "pass");
+expect("stdbuf -oL pnpm dev", "pass");
+expect("caffeinate -i pnpm build", "pass");
+expect("echo a.ts | xargs -J % git add %", "pass");
+
 console.log("\n── Un dossier hooks/ recopie seul garde ses regles (revue externe, 3.2.6) ──");
 {
   const { spawnSync } = await import("node:child_process");

@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.3.2 (27 septembre 2026)
+
+### Améliorations
+- **Vos clés ne passent plus par la conversation** : `/rotate-secret`, `/add-stripe` et `/add-storage` font passer chaque clé par la fenêtre masquée, ou directement d'un outil à l'autre, et `/add-storage` dit lesquelles des trois valeurs affichées par Cloudflare saisir. Les clés live de Stripe ne touchent plus au `.env` de votre poste : elles partent à l'hébergement seulement.
+- **Stripe et nom de domaine** : `/add-domain` ne repointe plus que les webhooks de CE projet, jamais ceux d'un autre projet du même compte Stripe.
+- **Render enfin mis à jour** : `/rotate-secret` et `/add-domain` écrivent la nouvelle valeur dans les services Render que vous désignez, et les redéploient.
+- **`/bootstrap`** attend le déploiement de CE commit, en arrière-plan, au lieu d'une attente qui s'interrompait au bout de deux minutes. Un outil privé (tout derrière la connexion admin) peut se passer de pages légales, et une demande de « thème sombre » donne une palette sombre unique, sans bouton clair/sombre.
+- **`/rgpd-audit`** reconnaît un site dont le dossier `app/` est à la racine, signale une politique de confidentialité rangée là où le site ne la sert pas, et lit aussi les feuilles de style.
+- **Garde-fou** : il lit aussi les commandes lancées par `find -exec`, par `xargs` à la manière de macOS, ou derrière `timeout`, `stdbuf` et `caffeinate`.
+
+### Coulisses
+- Merci à Bastien Detraz, dont la relecture de la 3.3.1 est à l'origine de plusieurs de ces corrections : il rejoint les contributeurs du projet.
+- Nouveaux outils internes pour lire une valeur du `.env` sans l'afficher et écrire les variables d'un service Render.
+
 ## v3.3.1 (26 septembre 2026)
 
 ### Améliorations

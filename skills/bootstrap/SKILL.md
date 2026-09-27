@@ -459,6 +459,7 @@ Tell the user: "OK, I will create a simple app based on your description. You ca
 - Analytics, tracking, statistics → add-analytics. ⚠️ **STRICT OPT-IN**: only propose `add-analytics` IF the user explicitly wrote words like "analytics", "tracking", "statistics", "Google Analytics", "GA4", "audience", "audience measurement" in their spec or short description. **Never as a "useful" default**: a site about marketing or SaaS does NOT trigger analytics on its own. When in doubt → no, the user can add `/add-analytics` later.
 - Map, interactive map, agencies, stores, points of sale, locations, "find", "where to find us", route, map-first app, geolocation → add-map. Also infer the `usage` (single / multi / route / mapfirst) and the `placement` (existing contact page / dedicated page to create / home) from the spec to pass these hints to the skill - it will then be able to skip its discovery question.
 - Any app that stores data implicitly needs add-db (e.g., "booking app" → needs a DB).
+- Dark theme, dark design, "thème sombre", "mode sombre" WITHOUT a light/dark switch, a toggle or the system's theme → do NOT invoke add-dark-mode: it installs a light/dark/system switch (next-themes, a 3-state ThemeToggle). At Step 6, build a single dark palette instead: the dark colours in `:root` of globals.css, the `dark` class set once on `<html>` in the root layout, and `<Toaster theme="dark" />` for Sonner. Invoke add-dark-mode only when the spec asks for a switch, for both themes, or for following the system.
 
 ---
 
@@ -479,6 +480,7 @@ This is **the single confirmation point** before configuring the addons. Present
 > - Storage: <yes/no>
 > - Multilingual: <yes (languages) / no>
 > - Interactive map: <yes (inferred usage: single / multi / route / mapfirst) / no>
+> - Legal pages: <yes / no (private tool: everything behind the admin login, no public page)>
 >
 > **Shall I launch the configuration, or do you want to change the list?**
 
@@ -490,6 +492,15 @@ Then, two possible cases:
 If the requested change is ambiguous (e.g. "can we remove stuff?"), ask **one single** short clarification question, then loop again.
 
 ⚠️ The project name is no longer changeable at this stage (the GitHub repo and the Vercel project are already created). If the user asks to change the name, explain that it would require starting over from scratch and propose to continue with the current name.
+
+**Legal pages** defaults to `no (private tool)` when the description makes the app an internal tool reserved to its administrator (authentication inferred in admin mode: a back-office, a private dashboard, "for me only") and no page is meant for the public; `yes` otherwise. The user switches it in the same loop. If it is `no` at validation, run this block before Step 5: the Step 2 script already generated the privacy policy and its registry, they go, and the project is marked so that no later `/add-*` recreates them:
+
+```bash
+cd "<WEB_DIR>" && git rm -r -q --ignore-unmatch src/app/politique-de-confidentialite src/lib/subprocessors.json src/lib/subprocessors.ts
+printf '\n<!-- hypervibe:no-legal-pages -->\n**Legal pages: none, this is a private tool** (everything behind the admin login, no page for the public). The day a page becomes public, remove these two lines and run `/rgpd-audit`.\n' >> "<WEB_DIR>/CLAUDE.md"
+```
+
+Then skip 7b (legal pages) and its footer links.
 
 ---
 
@@ -645,6 +656,8 @@ Use a direct Edit (the `_update-claude-md` helper does not handle insertion at a
 
 ### 7b - Legal pages
 
+**Skip this whole step if Legal pages was `no (private tool)` at 4b** (the project's CLAUDE.md carries the marker).
+
 Any site published in France needs at minimum **Legal Notice** and **Privacy Policy**. We create them systematically.
 
 #### 7b.1 - Gather the info from the user
@@ -767,60 +780,25 @@ git push                     # the guardrail asks the user to confirm: expected,
 
 The GitHub-to-Vercel auto-deploy was already verified at Step 2 (or repaired at Step 3). The push triggers a Vercel build - now you must **wait for the build to finish and verify that it succeeded**, otherwise a silent crash (TS error, prerender error, missing env var, etc.) slips under the radar and the user discovers the broken site in prod.
 
-Run this block once. It polls the GitHub API until it sees a terminal state (success / failure / error), 6 min max:
+Wait for THIS commit's deployment with the bundled waiter. It does all its waiting inside one process, so it never dies on the 2-minute limit of a `Bash` call the way a hand-rolled polling loop does (see Step 2). A big Next.js build can take 3-5 minutes: launch it with `run_in_background: true` and wait for its notification.
 
 ```bash
-SHA=$(git rev-parse HEAD)
-REPO=$(git remote get-url origin | sed 's|.*github.com[:/]||;s|\.git$||')
-
-# 1) Wait for Vercel to register the deployment for this SHA (webhook ~5-30s)
-DEPLOY_ID=""
-for i in $(seq 1 18); do
-  DEPLOY_ID=$(gh api "repos/$REPO/deployments?sha=$SHA&per_page=1" --jq '.[0].id // empty' 2>/dev/null)
-  [ -n "$DEPLOY_ID" ] && break
-  sleep 5
-done
-
-if [ -z "$DEPLOY_ID" ]; then
-  echo "RESULT=NO_DEPLOY_REGISTERED - Vercel did not register a deploy for $SHA in ~90s. The GitHub-to-Vercel integration may be broken."
-else
-  # 2) Poll the status until terminal (up to ~6 min total - a big Next.js build can take 3-4 min)
-  STATE=""
-  LOG_URL=""
-  for i in $(seq 1 72); do
-    LINE=$(gh api "repos/$REPO/deployments/$DEPLOY_ID/statuses?per_page=1" --jq '.[0] | "\(.state)|\(.log_url // "")"' 2>/dev/null)
-    STATE="${LINE%%|*}"
-    LOG_URL="${LINE#*|}"
-    case "$STATE" in
-      success)            echo "RESULT=SUCCESS"; echo "LOG_URL=$LOG_URL"; break ;;
-      failure|error)      echo "RESULT=$STATE"; echo "LOG_URL=$LOG_URL"; break ;;
-      pending|in_progress|queued|"") sleep 5 ;;
-      *)                  echo "RESULT=UNKNOWN_STATE:$STATE"; echo "LOG_URL=$LOG_URL"; break ;;
-    esac
-  done
-  if [ -z "$STATE" ]; then
-    echo "RESULT=TIMEOUT - build still running after 6 min, check manually"
-  fi
-fi
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/check-deploy.mjs" --project-dir <project-dir> --sha "$(git rev-parse HEAD)" --timeout 600
 ```
 
-Decide based on `RESULT=`:
+It prints one JSON object (`state`, `url`, `inspectorUrl`) and exits with its verdict:
 
-- **`SUCCESS`** → ✅ Continue calmly to 8c.
-- **`failure` or `error`** → ❌ **Do NOT move on to 8c**. The prod deployment is broken. Procedure:
-  1. Read the `LOG_URL` that points to the Vercel build page - retrieve the log with:
-     ```bash
-     gh api "repos/$REPO/deployments/$DEPLOY_ID/statuses?per_page=1" --jq '.[0].target_url'
-     ```
-     Then use `vercel inspect --logs <target_url>` to read the full build logs (or `curl` the `LOG_URL` directly).
+- **0 (`READY`)** → ✅ Continue calmly to 8c.
+- **1 (`ERROR`, `CANCELED`, or no deployment for this commit)** → ❌ **Do NOT move on to 8c**. The prod deployment is broken, or the GitHub-to-Vercel integration did not register it. Procedure:
+  1. Open `inspectorUrl` (the Vercel build page) and read the build logs: `vercel inspect --logs <inspectorUrl>`. No deployment at all for this commit: the integration is not responding; mention in Part 2 that the user must reactivate it at https://vercel.com/integrations/github, and deploy with `vercel --prod` as a fallback (the guardrail asks the user to confirm).
   2. Identify the exact error (TS error, prerender error on a client page, missing env var, etc.).
   3. Fix the cause in the code (for example: wrap `useSearchParams` in a `<Suspense>`, fix a type, add a missing env var via `_push-env-vars`).
   4. `git add <the files you fixed> && git commit -m "fix: <description>" && git push` (stage by name; the push asks the user to confirm, which is expected)
-  5. **Re-run the verification block above** on the new SHA. Loop until `SUCCESS` (max 3 iterations - beyond that ask the user how to proceed).
-- **`NO_DEPLOY_REGISTERED`** → the GitHub-to-Vercel integration is not responding. Mention in Part 2 that the user must go to https://vercel.com/integrations/github to reactivate it, and do a manual `vercel --prod` for this project as a fallback.
-- **`TIMEOUT`** → the build exceeded 6 min. Probably a heavy project. Ask the user to verify manually on the Vercel dashboard and tell you if it is ok.
+  5. **Run the waiter again** on the new commit. Loop until `READY` (max 3 iterations - beyond that ask the user how to proceed).
+- **2 (timeout)** → the build exceeded 10 min. Probably a heavy project. Ask the user to check the Vercel dashboard and tell you whether it is ok.
+- **3 (not configured)** → the folder is not linked to Vercel, or the CLI is not logged in: say so, and check the deployment on the Vercel dashboard with the user.
 
-⚠️ **This verification step is NON-NEGOTIABLE**. A failed deployment that is not surfaced to the user is worse than a visible error: the site is broken in prod without anyone knowing. If you have not seen `RESULT=SUCCESS`, the bootstrap is not done.
+⚠️ **This verification step is NON-NEGOTIABLE**. A failed deployment that is not surfaced to the user is worse than a visible error: the site is broken in prod without anyone knowing. If the waiter has not answered `READY`, the bootstrap is not done.
 
 ### 8c - Mandatory final announcement
 
@@ -847,7 +825,7 @@ List everything that was configured during bootstrap, grouped by category. Only 
 > **Application:**
 > - T3 Stack scaffolded (Next.js + tRPC + Drizzle + Tailwind + shadcn)
 > - Home page + (other pages built)
-> - Legal pages: mentions-legales, politique-de-confidentialite
+> - Legal pages: mentions-legales, politique-de-confidentialite (or: none, private tool)
 > - 404 page polish
 > - (list each module that was configured)
 >

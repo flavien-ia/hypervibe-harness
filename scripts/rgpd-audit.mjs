@@ -37,6 +37,7 @@ import {
   notProcessor,
   sdkOf,
 } from "./privacy/services.mjs";
+import { isPrivateTool, projectLayout, registryFile } from "./privacy/layout.mjs";
 
 const args = process.argv.slice(2);
 const PRETTY = args.includes("--pretty");
@@ -119,10 +120,17 @@ for (const dir of new Set([WEB_ROOT, ROOT])) {
 // lib/ at the root) is a standard layout, and its code used to go unread while the report
 // stayed green (outside review, 3.3.0). Left out: dependencies, build output and tests at any
 // depth; at the root only, the files served as they are (public/) and the maintenance scripts.
-const CODE_FILE = /\.(ts|tsx|js|jsx|mjs|cjs)$/;
+// Stylesheets too: a font or an image loaded from a third party by the visitor's browser is the
+// textbook subprocessor one forgets, and it lives in @import url(...) and url(...) (outside
+// review, 3.3.1).
+const CODE_FILE = /\.(ts|tsx|js|jsx|mjs|cjs|css|scss|sass|less)$/;
 const TEST_FILE = /\.(test|spec)\.[a-z]+$/;
-const SKIPPED_ANYWHERE = new Set(["node_modules", ".next", ".git", ".vercel", ".turbo", ".cache", ".output", ".hypervibe", ".claude", "dist", "build", "out", "coverage", "storybook-static", "__tests__", "e2e", "tests", "test"]);
-const SKIPPED_AT_ROOT = new Set(["public", "scripts"]);
+// Build output and test folders are skipped at the ROOT only: `build`, `out` or `test` deeper
+// down can be the name of a route (`src/app/test/page.tsx`), and 3.3.1 stopped reading those
+// (outside review). Anywhere: dependencies, hidden folders, and `__tests__` (a private folder
+// for Next.js, never a route).
+const SKIPPED_ANYWHERE = new Set(["node_modules", ".next", ".git", ".vercel", ".turbo", ".cache", ".output", ".hypervibe", ".claude", "__tests__"]);
+const SKIPPED_AT_ROOT = new Set(["public", "scripts", "dist", "build", "out", "coverage", "storybook-static", "e2e", "tests", "test"]);
 
 function codeFiles() {
   const files = [];
@@ -141,7 +149,8 @@ function codeFiles() {
 }
 
 // Every code pattern any service looks for, plus the ones of the project's own entries (below).
-const registryPath = join(WEB_ROOT, "src/lib/subprocessors.json");
+const LAYOUT = projectLayout(WEB_ROOT);
+const registryPath = registryFile(WEB_ROOT);
 const registry = readJsonSafe(registryPath) || [];
 const customServices = registry
   .filter((e) => e && e.detect && typeof e.detect === "object")
@@ -163,18 +172,19 @@ const filesFound = new Set([...wantedFiles].filter((f) => fileExists(join(WEB_RO
 const facts = { deps: allDeps, env: envNames, code: codeFound, hosts: new Set(hostWhere.keys()), files: filesFound };
 
 // ─── Privacy policy and legal notice pages ────────────────────────────────
-function findPage(slug) {
-  const candidates = [];
-  for (const base of [join(WEB_ROOT, "src", "app"), join(WEB_ROOT, "app")]) {
-    for (const group of ["", "[locale]/", "(public)/", "(site)/", "(site)/(public)/"]) {
-      candidates.push(join(base, `${group}${slug}/page.tsx`));
-    }
+// Only in the folder Next.js serves (privacy/layout.mjs). A page found in the folder it
+// ignores is reported as such: it builds, and is never served.
+function findPage(slug, appDir = LAYOUT.appDir) {
+  for (const group of ["", "[locale]/", "(public)/", "(site)/", "(site)/(public)/"]) {
+    const c = join(appDir, `${group}${slug}/page.tsx`);
+    if (fileExists(c)) return c;
   }
-  for (const c of candidates) if (fileExists(c)) return c;
   return null;
 }
 const PRIVACY_POLICY_PAGE = findPage("politique-de-confidentialite");
 const MENTIONS_LEGALES_PAGE = findPage("mentions-legales");
+const PRIVACY_POLICY_IGNORED = PRIVACY_POLICY_PAGE ? null : findPage("politique-de-confidentialite", LAYOUT.ignoredAppDir);
+const MENTIONS_LEGALES_IGNORED = MENTIONS_LEGALES_PAGE ? null : findPage("mentions-legales", LAYOUT.ignoredAppDir);
 
 // ─── Known services, and the project's own entries ────────────────────────
 const detected = {};
@@ -278,6 +288,12 @@ const result = {
   registryExists: existsSync(registryPath),
   policyPagePath: PRIVACY_POLICY_PAGE ? posix(PRIVACY_POLICY_PAGE) : null,
   mentionsLegalesPath: MENTIONS_LEGALES_PAGE ? posix(MENTIONS_LEGALES_PAGE) : null,
+  appDir: posix(LAYOUT.appDir),
+  // Marked as a private tool by /bootstrap (no page for the public): no policy page is expected.
+  privateTool: isPrivateTool(WEB_ROOT, ROOT),
+  i18nRoutingPath: existsSync(LAYOUT.i18nRouting) ? posix(LAYOUT.i18nRouting) : null,
+  policyPageIgnoredPath: PRIVACY_POLICY_IGNORED ? posix(PRIVACY_POLICY_IGNORED) : null,
+  mentionsLegalesIgnoredPath: MENTIONS_LEGALES_IGNORED ? posix(MENTIONS_LEGALES_IGNORED) : null,
   registryKeys: [...registryKeys],
   detectedKeys: [...detectedKeys],
   detected,
@@ -299,6 +315,9 @@ if (PRETTY) {
   console.log(`Registry            : ${result.registryExists ? "✓ exists" : "✗ missing"} (${result.registryPath})`);
   console.log(`Privacy policy page : ${result.policyPagePath ? "✓ " + result.policyPagePath : "✗ missing"}`);
   console.log(`Mentions légales    : ${result.mentionsLegalesPath ? "✓ " + result.mentionsLegalesPath : "✗ missing"}`);
+  for (const p of [result.policyPageIgnoredPath, result.mentionsLegalesIgnoredPath].filter(Boolean)) {
+    console.log(`  ✗ ${p} is never served: Next.js serves ${result.appDir} in this project`);
+  }
   console.log("");
   console.log(`Detected subprocessors (${detectedKeys.size}):`);
   for (const k of detectedKeys) {
@@ -340,7 +359,7 @@ if (PRETTY) {
     for (const n of notProcessors) console.log(`  · ${n.host}: ${n.reason}`);
   }
   console.log("");
-  if (missing.length === 0 && stale.length === 0 && unidentified.length === 0 && unrecognised.length === 0 && unreadable.length === 0) {
+  if (missing.length === 0 && stale.length === 0 && unidentified.length === 0 && unrecognised.length === 0 && unreadable.length === 0 && !result.policyPageIgnoredPath && !result.mentionsLegalesIgnoredPath) {
     console.log("✅ Registry is up to date with everything the project is connected to.");
   } else {
     if (missing.length) console.log(`❌ Missing in registry: ${missing.join(", ")}`);

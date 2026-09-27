@@ -140,7 +140,14 @@ Store `PROVIDER_URL` and `PROVIDER_INSTRUCTIONS`.
 
 ### If Strategy = `auto-generate`
 
-Invoke `_generate-secret` (format `hex`, length `32` by default, or `base64url`/`64` for the NextAuth `AUTH_SECRET` which prefers something longer). Capture `NEW_VALUE`.
+Generate it and send it to the project in one command: the value goes from the generator straight into `.env` and the hosting, and never appears in the conversation, nor as an argument (format `hex`, length `32` by default, or `base64url`/`64` for the NextAuth `AUTH_SECRET`, which prefers something longer):
+
+```bash
+{ printf '%s=' "<SECRET_NAME>"; node "${CLAUDE_SKILL_DIR}/../../scripts/generate-secret.mjs" --format <hex|base64url> --length <32|64>; printf '\n'; } \
+  | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
+```
+
+Add `--target=all` to `push-env-vars.mjs` only if the development value must change too (rare: a compromised development secret).
 
 Show the user:
 
@@ -150,15 +157,22 @@ Show the user:
 
 Show the instructions:
 
-> ## Step for you
+> ## 🌐 An action from you
 >
-> 1. Open this page: <PROVIDER_URL>
+> 1. I am opening this page: <PROVIDER_URL>
 > 2. <PROVIDER_INSTRUCTIONS>
-> 3. Come back here and paste the new value into your reply.
+> 3. A small window will then open on your machine: paste the new value in there, not in our conversation, so that it is never written into this chat.
 >
 > ⚠️ **Important**: do not close the tab and do not navigate elsewhere before you have copied the value. Some providers (GitHub, Resend) show it **only once**.
 
-Wait for the user's reply. Capture `NEW_VALUE`. **Never display** the value in your own replies (neither in full nor partially) - not even to confirm it.
+Then open the masked window (`_collect-secret`, destination B). It writes the value into `.env` and the hosting itself:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" collect-env --lang <LANG> \
+  --keys "<SECRET_NAME>:secret" --project-dir "<WEB_DIR>" --url "<PROVIDER_URL>"
+```
+
+Add `--target production,preview,development` only if the development value must change too. Read the exit code: non-zero means the user cancelled, the key is NOT renewed, stop there and say so. **Never ask for the value in the conversation**, and never display it, not even partly.
 
 ### If Strategy = `neon-special`
 
@@ -169,21 +183,15 @@ See the dedicated Step 4.
 
 ### Standard case (all categories except `neon-special`)
 
-Invoke `_push-env-vars` with:
+Nothing to push again: in Step 3 the value went straight into `.env` and the hosting (the generator's pipe, or the masked window).
+
+→ For the user: *"Your new key is in place: on your local computer and on your live site."*
+
+**The steps below need the value again.** Each loads it from the project's `.env` into a shell variable, in the same command that uses it, and never prints it:
 
 ```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" "<SECRET_NAME>=<NEW_VALUE>"
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>")
 ```
-
-(default target = production + preview, the script handles the right placement based on the pattern)
-
-If the user also wants to overwrite dev (rare, but useful if the dev secret is compromised):
-
-```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --target=all "<SECRET_NAME>=<NEW_VALUE>"
-```
-
-→ For the user: *"I am replacing your new key everywhere: on your local computer and on your live site."*
 
 ### Neon special case (`DATABASE_URL` rotation)
 
@@ -234,7 +242,8 @@ Key → vault item mapping: `BREVO_API_KEY`→`BREVO.api_key` · `RESEND_API_KEY
 If `SECRET_NAME` is in this mapping, write the new value into the vault (the value goes through an env var, never via argv nor displayed):
 
 ```bash
-VAULT_PATH="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" VITEM="<vault ITEM>" VFIELD="<field>" NEW_VALUE="<NEW_VALUE>" \
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>")
+VAULT_PATH="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" VITEM="<vault ITEM>" VFIELD="<field>" NEW_VALUE="$NEW_VALUE" \
 node --input-type=module -e '
 import { pathToFileURL } from "node:url";
 const { putItem } = await import(pathToFileURL(process.env.VAULT_PATH).href);
@@ -269,7 +278,7 @@ If the secret IS in the table with a Cloudflare or Render checkmark → run the 
 
 ```bash
 SECRET_NAME="<SECRET_NAME>"
-NEW_VALUE="<NEW_VALUE>"
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>")
 # wrangler authenticates via CLOUDFLARE_API_TOKEN (which lives in the vault, no longer in env) - inject it inline.
 export CLOUDFLARE_API_TOKEN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get CLOUDFLARE api_token 2>/dev/null)
 REPO_ROOT=$(git -C "<WEB_DIR>" rev-parse --show-toplevel 2>/dev/null || echo "<WEB_DIR>")
@@ -303,56 +312,27 @@ Depending on the output:
 
 ### Push to Render Services (if applicable)
 
+Only the project's own services, and only those that already use the key. List them first, the project's manifest marking its own:
+
 ```bash
-SECRET_NAME="<SECRET_NAME>"
-NEW_VALUE="<NEW_VALUE>"
-# Render = full REST API, key in the vault (no more RENDER_API_KEY env var).
-RENDER_API_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RENDER api_key 2>/dev/null)
-if [ -z "$RENDER_API_KEY" ]; then
-  echo "RENDER_PUSH=no_api_key"
-else
-  SERVICES_JSON=$(curl -sS -H "Authorization: Bearer $RENDER_API_KEY" \
-    "https://api.render.com/v1/services?limit=50" 2>/dev/null)
-  if [ -z "$SERVICES_JSON" ]; then
-    echo "RENDER_PUSH=api_error"
-  else
-    echo "$SERVICES_JSON" | node -e "
-      const d = JSON.parse(require('fs').readFileSync(0,'utf8'));
-      (d || []).forEach(s => console.log((s.service||s).id));
-    " | while read -r SID; do
-      [ -z "$SID" ] && continue
-      # Check if this service has the env var declared (we don't push to
-      # services that don't already use it - that would clutter their config)
-      HAS=$(curl -sS -H "Authorization: Bearer $RENDER_API_KEY" \
-        "https://api.render.com/v1/services/$SID/env-vars?limit=100" 2>/dev/null | \
-        node -e "
-          const d = JSON.parse(require('fs').readFileSync(0,'utf8'));
-          const found = (d || []).some(e => (e.envVar||e).key === process.env.SECRET_NAME);
-          console.log(found ? 'yes' : 'no');
-        ")
-      if [ "$HAS" = "yes" ]; then
-        # Update via PUT - Render's API treats this as an upsert.
-        curl -sS -X PUT -H "Authorization: Bearer $RENDER_API_KEY" \
-          -H "Content-Type: application/json" \
-          -d "{\"value\":\"$NEW_VALUE\"}" \
-          "https://api.render.com/v1/services/$SID/env-vars/$SECRET_NAME" >/dev/null \
-          && echo "RENDER_PUSH_OK=$SID:$SECRET_NAME" \
-          || echo "RENDER_PUSH_FAILED=$SID:$SECRET_NAME"
-        # Trigger redeploy - Render only picks up new env values on next deploy
-        curl -sS -X POST -H "Authorization: Bearer $RENDER_API_KEY" \
-          -H "Content-Type: application/json" -d '{}' \
-          "https://api.render.com/v1/services/$SID/deploys" >/dev/null \
-          && echo "RENDER_REDEPLOY=$SID"
-      fi
-    done
-  fi
-fi
+node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" list --project-dir "<WEB_DIR>" --key "<SECRET_NAME>"
+```
+
+- Exit 4 (no Render key in the vault) → silent, the user has no Render. Exit 2 → the vault is locked: unlock it, run the same command again.
+- `services` empty → no Render service uses this key, skip.
+- Services marked `inManifest: true` are this project's: update them. A service NOT in the manifest may belong to another project of the same account: name it to the user and ask whether it belongs to this project before writing to it. Never "every service that declares the key".
+
+Then write the value into the chosen services. The script reads it from the project's `.env` (never from the command line) and redeploys each service so that it picks it up:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" set --project-dir "<WEB_DIR>" --key "<SECRET_NAME>" \
+  --service <srv-id> [--service <srv-id> ...]
 ```
 
 Depending on the output:
-- `RENDER_PUSH=no_api_key` → silent, the user has no Render configured.
-- `RENDER_PUSH_OK=...` + `RENDER_REDEPLOY=...` → announce `✅ Render Service <id>: ${SECRET_NAME} updated + redeploy triggered (~2-5 min)`.
-- `RENDER_PUSH_FAILED=...` → surface the error, offer the link `https://dashboard.render.com` for a manual fix.
+- `results[].written: true` → announce `✅ Render service <name>: <SECRET_NAME> updated, redeploy started (~2-5 min)`.
+- Exit 6 → a named service does not declare the key: nothing was written, check the list.
+- Exit 1 → Render refused or did not answer: surface the message, offer `https://dashboard.render.com` for a manual fix.
 
 ⚠️ **If the auto-push partially fails** (e.g. Vercel OK but Render KO): **do not conclude until all targets are in sync**. A partial rotation means some runtimes use the old key (which will soon be revoked) → they will break. Insist on the manual fix before moving to Step 6.
 
@@ -361,14 +341,14 @@ Depending on the output:
 
 If possible, validate that the new value works before concluding:
 
-| Pattern | Verification test |
-|---|---|
-| `STRIPE_SECRET_KEY` | `curl -fsSL https://api.stripe.com/v1/balance -u "<NEW_VALUE>:"` (should return 200) |
-| `BREVO_API_KEY` | `curl -fsSL https://api.brevo.com/v3/account -H "api-key: <NEW_VALUE>"` |
-| `RESEND_API_KEY` | `curl -fsSL https://api.resend.com/domains -H "Authorization: Bearer <NEW_VALUE>"` |
-| `OPENAI_API_KEY` | `curl -fsSL https://api.openai.com/v1/models -H "Authorization: Bearer <NEW_VALUE>"` |
-| `ANTHROPIC_API_KEY` | `curl -fsSL https://api.anthropic.com/v1/models -H "x-api-key: <NEW_VALUE>" -H "anthropic-version: 2023-06-01"` |
-| Auto-generated | No test possible (secret internal to the project) - skip |
+Load the value first (`NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>")`). It reaches `curl` on its standard input (`--config -`), never as an argument:
+
+- `STRIPE_SECRET_KEY`: `printf 'user = "%s:"\n' "$NEW_VALUE" | curl -fsS --config - https://api.stripe.com/v1/balance` (should return 200)
+- `BREVO_API_KEY`: `printf 'header = "api-key: %s"\n' "$NEW_VALUE" | curl -fsS --config - https://api.brevo.com/v3/account`
+- `RESEND_API_KEY`: `printf 'header = "Authorization: Bearer %s"\n' "$NEW_VALUE" | curl -fsS --config - https://api.resend.com/domains`
+- `OPENAI_API_KEY`: `printf 'header = "Authorization: Bearer %s"\n' "$NEW_VALUE" | curl -fsS --config - https://api.openai.com/v1/models`
+- `ANTHROPIC_API_KEY`: `printf 'header = "x-api-key: %s"\nheader = "anthropic-version: 2023-06-01"\n' "$NEW_VALUE" | curl -fsS --config - https://api.anthropic.com/v1/models`
+- Auto-generated: no test possible (a secret internal to the project), skip.
 
 If the test returns 200 → ✅ confirmed. If error → warn the user that the value does not seem valid, offer to try again.
 
