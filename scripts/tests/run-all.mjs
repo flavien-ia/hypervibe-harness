@@ -19,6 +19,8 @@ const SUITES = [
   ["bash guardrails", join(ROOT, "hooks", "test-hooks.mjs")],
   ["git hooks chain (a clone never runs its hooks)", join(ROOT, "scripts", "tests", "test-hooks-chain.mjs")],
   ["child processes and paths with spaces", join(ROOT, "scripts", "tests", "test-spawn-paths.mjs")],
+  ["workflow actions on a Node GitHub still runs", join(ROOT, "scripts", "tests", "test-workflow-actions.mjs")],
+  ["gh's sign-in asked of the active account", join(ROOT, "scripts", "tests", "test-gh-signin.mjs")],
   ["zip writer", join(ROOT, "scripts", "tests", "test-zip.mjs")],
   ["memory index trimming", join(ROOT, "scripts", "tests", "test-memory-index.mjs")],
   ["shared resources never deleted with a project", join(ROOT, "scripts", "tests", "test-shared-exclusion.mjs")],

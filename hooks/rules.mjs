@@ -472,6 +472,21 @@ const LAUNCHERS = {
     ],
     singleDashLong: true,
   },
+  // macOS (outside review, 3.3.5). `taskpolicy` runs its program under a policy (`-p <pid>` only
+  // changes a running process: nothing follows it). `sandbox-exec` runs its command in a profile.
+  // `script` records a terminal: on macOS its first operand is the file and the rest the command
+  // it runs; on Linux the command comes in -c, a command line of its own.
+  taskpolicy: { value: "ctldgp" },
+  "sandbox-exec": { value: "fnpD" },
+  script: {
+    value: "tTIOBmEoc",
+    long: [
+      "append", "command=", "echo=", "flush", "force", "help", "log-in=", "log-io=", "log-out=",
+      "log-timing=", "logging-format=", "output-limit=", "quiet", "return", "timing", "version",
+    ],
+    split: ["c", "command"],
+    operands: 1,
+  },
 };
 LAUNCHERS.gtimeout = LAUNCHERS.timeout;
 
@@ -555,12 +570,13 @@ function afterLauncher(seg) {
  *  collected: the escape prefixes are read from them. */
 function normalise(raw) {
   const env = new Map();
+  const cut = [];
   let s = raw.trim();
   for (let round = 0; round < 16; round += 1) {
     const before = s;
     // Braces first, as the shell expands them before anything runs: `{git,} add .` is
     // `git add .`, and an opener `{` stripped first would have hidden it.
-    s = expandBraces(s);
+    s = expandBraces(s, cut);
     // Openers and keywords a shell swallows before the command itself, and
     // the closers of the same blocks at the end.
     s = s.replace(/^(?:[({]\s*|(?:then|do|else|elif|if|while|until)\s+|!\s+)/, "");
@@ -587,7 +603,7 @@ function normalise(raw) {
     s = normaliseGit(s);
     if (s === before) break;
   }
-  return { env, seg: s.trim() };
+  return { env, seg: s.trim(), unread: cut.length > 0 };
 }
 
 /** Brace expansion, as the shell does it before running a command: `git add {.,.}` is
@@ -596,39 +612,60 @@ function normalise(raw) {
  *  expansion is lexical and deterministic, so it is within the reader's reach, done as the shell
  *  does it: an unquoted, unescaped `{...}` with a comma at its top level, or a sequence
  *  (`{a..c}`, `{1..3}`), never `${...}`, never an assignment word; an empty word it leaves is
- *  dropped. `git add src/{a,b}.ts` still passes, and a quoted `'{.,.}'` is a name. Past
- *  BRACE_LIMIT words a word is left as typed: this guard reads commands, it does not run them. */
+ *  dropped. `git add src/{a,b}.ts` still passes, and a quoted `'{.,.}'` is a name. Every
+ *  word is kept once while it unfolds: a duplicate changes nothing to the rules, and `.{,}`
+ *  repeated is `.` again. What still unfolds past BRACE_LIMIT words is left as typed, and put in
+ *  `cut`: the command is then asked about, because a word the guard could not unfold is not a word
+ *  with nothing in it (outside review, 3.3.5: thirteen `{,}` made `git add .` pass). A sequence
+ *  too long to unfold stays a name: its words are numbers, never a refused one. */
 const BRACE_LIMIT = 4096;
-function expandBraces(seg) {
+const BRACE_ROUNDS = 256;
+function expandBraces(seg, cut = null) {
   if (!seg.includes("{")) return seg;
   const out = [];
   for (const w of words(seg)) {
-    if (!w.raw.includes("{") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.raw)) out.push(w.raw);
-    else out.push(...braceWords(w.raw).filter((x) => x !== ""));
+    if (!w.raw.includes("{") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.raw)) {
+      out.push(w.raw);
+      continue;
+    }
+    const unfolded = braceWords(w.raw);
+    if (unfolded === null) {
+      cut?.push(w.raw);
+      out.push(w.raw);
+    } else {
+      out.push(...unfolded.filter((x) => x !== ""));
+    }
   }
   return out.join(" ");
 }
 
-/** The words one word expands to, braces expanded first to last, nested ones included. */
+/** The words one word expands to, braces expanded first to last, nested ones included, each
+ *  word kept once. null when it does not unfold within BRACE_LIMIT words and BRACE_ROUNDS rounds. */
 function braceWords(raw) {
   let results = [raw];
-  for (let round = 0; round < 64; round += 1) {
+  for (let round = 0; round < BRACE_ROUNDS; round += 1) {
     let changed = false;
     const next = [];
+    const seen = new Set();
+    const add = (w) => {
+      if (seen.has(w)) return;
+      seen.add(w);
+      next.push(w);
+    };
     for (const r of results) {
       const b = firstBrace(r);
       if (!b) {
-        next.push(r);
+        add(r);
         continue;
       }
       changed = true;
-      for (const item of b.items) next.push(`${r.slice(0, b.open)}${item}${r.slice(b.close + 1)}`);
-      if (next.length > BRACE_LIMIT) return [raw];
+      for (const item of b.items) add(`${r.slice(0, b.open)}${item}${r.slice(b.close + 1)}`);
+      if (next.length > BRACE_LIMIT) return null;
     }
     results = next;
-    if (!changed) break;
+    if (!changed) return results;
   }
-  return results;
+  return results.some((r) => firstBrace(r)) ? null : results;
 }
 
 /** Which characters of a word are quoted or escaped, and so never part of an expansion. */
@@ -1086,11 +1123,16 @@ export function decide(command, inherited = new Map()) {
     const { text: outer, inner } = parts[index];
     // What a substitution runs is judged first, as a command line of its own;
     // the segment is then read without it (`x=$(git push)` leaves `x=`).
-    const { env, seg } = normalise(outer);
+    const { env, seg, unread } = normalise(outer);
     for (const [k, v] of inherited) if (!env.has(k)) env.set(k, v);
     for (const payload of inner) {
       const verdict = decide(payload, env);
       if (verdict) keep(verdict.decision, verdict.reason);
+    }
+    // A brace the guard could not unfold (past BRACE_LIMIT words): what it stages or pushes
+    // cannot be read, so it is asked about rather than let through (outside review, 3.3.5).
+    if (unread) {
+      keep(ASK, "This command unfolds its braces past what the guard reads, so what it would run cannot be told. Write the words out, or confirm with the user first.");
     }
     if (!seg) continue;
 

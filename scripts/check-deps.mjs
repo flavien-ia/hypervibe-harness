@@ -462,7 +462,7 @@ function checkStorage() {
 // `/start` token on account B → operations went to A while we thought they'd
 // go to B).
 // -----------------------------------------------------------------------------
-function checkCloudflare() {
+async function checkCloudflare() {
   // Source 1+2: env var (current shell first, then User scope via helper)
   let envToken = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
   let envVarName = process.env.CLOUDFLARE_API_TOKEN
@@ -490,22 +490,19 @@ function checkCloudflare() {
   let envValid = false;
   let envReason = null;
   if (envToken && envToken.trim() !== "" && !/placeholder|your_/i.test(envToken)) {
+    // The token goes in a request of this process, never on a command line, where anything
+    // running on the machine can read it (SECURITY.md; until 3.3.5 it went to curl as an argument).
+    const cf = async (path) => {
+      const res = await fetch(`https://api.cloudflare.com/client/v4${path}`, { headers: { Authorization: `Bearer ${envToken}` }, signal: AbortSignal.timeout(10000) });
+      return res.json();
+    };
     try {
-      const escaped = envToken.replace(/"/g, '\\"');
-      const verifyRes = execSync(
-        `curl -s --max-time 10 -H "Authorization: Bearer ${escaped}" https://api.cloudflare.com/client/v4/user/tokens/verify`,
-        { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-      );
-      const parsed = JSON.parse(verifyRes);
+      const parsed = await cf("/user/tokens/verify");
       if (parsed.success === true && parsed.result?.status === "active") {
         envValid = true;
         // Get account ID from a separate call (token verify doesn't return it).
         try {
-          const accRes = execSync(
-            `curl -s --max-time 10 -H "Authorization: Bearer ${escaped}" https://api.cloudflare.com/client/v4/accounts?per_page=1`,
-            { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
-          );
-          const accParsed = JSON.parse(accRes);
+          const accParsed = await cf("/accounts?per_page=1");
           envAccountId = accParsed.result?.[0]?.id ?? null;
         } catch {/* non-fatal */}
       } else {
@@ -788,7 +785,7 @@ const result = {};
 for (const check of checks) {
   const fn = dispatchers[check];
   if (fn) {
-    result[check] = fn();
+    result[check] = await fn();
   } else {
     result[check] = { ok: false, reason: `check inconnu: ${check} (supportés: ${Object.keys(dispatchers).join(", ")})` };
   }

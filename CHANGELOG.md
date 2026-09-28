@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.3.6 (28 septembre 2026)
+
+### Améliorations
+- **Garde-fou** : des accolades répétées ne déguisent plus un ajout de tout le projet (`git add .` suivi de `{,}` répétés). Chaque mot n'est gardé qu'une fois pendant le dépliage, et une commande dont les accolades se déplient au-delà de ce que le garde-fou sait lire demande confirmation au lieu de passer.
+- **Garde-fou** : trois lanceurs de macOS de plus sont lus comme les autres, `taskpolicy`, `sandbox-exec` et `script`.
+- **Clé Cloudflare** : la vérification de l'installation et la mise en place d'un agent n'envoient plus la clé dans la ligne de commande d'un autre programme, où tout logiciel de la machine pouvait la lire.
+- **Automatismes GitHub** : les tâches planifiées, les tests et la mise en ligne par GitHub utilisent les versions des actions qui tournent sur Node 24. GitHub n'affiche plus d'avertissement à chaque exécution.
+- **Connexion GitHub** : la vérification de `/start` ne se trompe plus quand un ancien compte GitHub reste enregistré à côté de celui en service.
+
+### Coulisses
+- Trois recettes neuves : les versions des actions GitHub, aucune clé en argument de `curl` ou `wget`, la connexion GitHub vérifiée sur le compte actif.
+- Correctifs issus d'une relecture extérieure de la 3.3.5, et d'un essai en réel de la prochaine architecture.
+
 ## v3.3.5 (28 septembre 2026)
 
 ### Améliorations

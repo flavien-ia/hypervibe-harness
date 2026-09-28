@@ -24,7 +24,7 @@ const TOOLS = [
   { name: "node", version: "node --version", login: null },
   { name: "pnpm", version: "pnpm --version", login: null },
   { name: "git", version: "git --version", login: null },
-  { name: "gh", version: "gh --version", login: "gh auth status" },
+  { name: "gh", version: "gh --version", login: "gh api user --jq .login" },
   { name: "vercel", version: "vercel --version", login: "vercel whoami" },
   { name: "wrangler", version: "wrangler --version", login: "wrangler whoami" },
 ];

@@ -635,6 +635,34 @@ expect("xcrun --find clang", "pass");
 expect("xcrun --show-sdk-path", "pass");
 expect("arch -arm64 git --version", "pass");
 
+console.log("\n── Accolades au-dela de la limite, trois lanceurs de macOS (revue externe, 3.3.5) ──");
+// Un doublon ne change rien aux regles : chaque mot n'est garde qu'une fois pendant l'expansion.
+expect(`git add .${"{,}".repeat(13)}`, "deny");
+expect(`git add {.,.}${"{,}".repeat(12)}`, "deny");
+expect(`git add .${"{,}".repeat(70)}`, "deny");
+expect(`git add -{A,A}${"{,}".repeat(13)}`, "deny");
+// Au-dela de ce que le garde-fou lit, il demande : ne pas pouvoir deplier n'est pas « rien ».
+expect(`git add x${"{a,b}".repeat(13)}`, "ask");
+expect(`git add .${"{,}".repeat(300)}`, "ask");
+expect(`echo ${"{a,b}".repeat(13)}`, "ask");
+expect("taskpolicy -b git push origin main", "ask");
+expect("taskpolicy -c utility -t 2 git push origin main", "ask");
+expect("sandbox-exec -n no-network git push origin main", "ask");
+expect("sandbox-exec -f /tmp/profil.sb -D HOME=/tmp git push origin main", "ask");
+expect("script -q /dev/null git push origin main", "ask");
+expect("script -q -c 'git push origin main' /dev/null", "ask");
+expect("/usr/bin/script -q /dev/null git add -A", "deny");
+expect("sudo taskpolicy -b git add -A", "deny");
+// ... et ce qui y ressemble sans en etre.
+expect("script -q /dev/null pnpm test", "pass");
+expect("script -q session.log", "pass");
+expect("taskpolicy -b pnpm build", "pass");
+expect("taskpolicy -b -p 1234", "pass");
+expect("sandbox-exec -n no-network pnpm test", "pass");
+expect("for i in {1..5000}; do echo $i; done", "pass");
+expect(`echo ${"{a,b}".repeat(3)}`, "pass");
+expect("cp a.{js,ts} dir/", "pass");
+
 console.log("\n── Un dossier hooks/ recopie seul garde ses regles (revue externe, 3.2.6) ──");
 {
   const { spawnSync } = await import("node:child_process");

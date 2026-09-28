@@ -737,6 +737,27 @@ catch (e) { console.log(JSON.stringify({ code: e.code, message: e.message })); }
   check("putItem refuse une valeur vide avant d'ouvrir le coffre, et nomme le champ", sortie?.code === 1 && /api_key/.test(sortie?.message ?? "") && /empty value/.test(sortie?.message ?? ""), r.stdout + r.stderr);
 }
 
+// Une cle ne passe jamais en argument d'un programme : n'importe quel programme de la machine la lit.
+// Jusqu'en 3.3.5, check-deps.mjs la passait a curl, et setup-agent.mjs a curl par un shell.
+console.log("\n── Aucun script ne passe une cle a curl ou wget en argument (3.3.6) ──");
+{
+  const fautes = [];
+  const parcourir = (dir) => {
+    for (const nom of readdirSync(dir)) {
+      if (nom === "node_modules" || nom === "tests") continue;
+      const p = join(dir, nom);
+      if (statSync(p).isDirectory()) parcourir(p);
+      else if (p.endsWith(".mjs")) {
+        for (const [n, ligne] of readFileSync(p, "utf8").split("\n").entries()) {
+          if (/\b(?:curl|wget)\b.*(?:Bearer|Authorization|api-key|X-Auth).*\$\{/i.test(ligne)) fautes.push(`${relative(ROOT, p)}:${n + 1}`);
+        }
+      }
+    }
+  };
+  parcourir(join(ROOT, "scripts"));
+  check("aucun script ne met une cle dans la ligne de commande de curl ou wget", fautes.length === 0, fautes.join(" | "));
+}
+
 console.log(`\n${checks - failures}/${checks} verifications`);
 if (failures) {
   console.error(`${failures} ECHEC(S)`);

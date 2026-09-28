@@ -485,17 +485,30 @@ async function patchMemory() {
     }
     state.cfToken = cfToken;
 
+    // The token goes in a request of this process, never on a command line (SECURITY.md; until
+    // 3.3.5 it went to curl through a shell, readable by anything running on the machine).
+    const cf = async (path, body) => {
+      try {
+        const res = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+          method: body ? "POST" : "GET",
+          headers: { Authorization: `Bearer ${cfToken}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(30000),
+        });
+        const text = await res.text();
+        try {
+          return { json: JSON.parse(text), text };
+        } catch {
+          return { json: null, text };
+        }
+      } catch (e) {
+        return { json: null, text: String(e?.message || e) };
+      }
+    };
+
     // Resolve account ID
     log("Resolving Cloudflare account ID");
-    const accRes = spawnSync(
-      `curl -sS -H "Authorization: Bearer ${cfToken}" https://api.cloudflare.com/client/v4/accounts`,
-      { shell: true, encoding: "utf8" },
-    );
-    let accountId = null;
-    try {
-      const parsed = JSON.parse(accRes.stdout || "{}");
-      accountId = parsed?.result?.[0]?.id ?? null;
-    } catch {}
+    const accountId = (await cf("/accounts")).json?.result?.[0]?.id ?? null;
     if (!accountId) {
       fail(`Could not resolve Cloudflare account ID from the token. Either the token is invalid or it lacks access to /accounts. Re-create at https://dash.cloudflare.com/profile/api-tokens with the scopes from /start checklist + add 'Workers AI:Read'.`);
     }
@@ -504,17 +517,10 @@ async function patchMemory() {
 
     // Smoke test: try a tiny embedding to confirm the token has Workers AI scope
     log("Verifying Workers AI scope on the token");
-    const smokeRes = spawnSync(
-      `curl -sS -X POST -H "Authorization: Bearer ${cfToken}" -H "Content-Type: application/json" -d '{"text":"test"}' https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/baai/bge-large-en-v1.5`,
-      { shell: true, encoding: "utf8" },
-    );
-    let smokeOk = false;
-    try {
-      const smokeJson = JSON.parse(smokeRes.stdout || "{}");
-      smokeOk = !!smokeJson.success && Array.isArray(smokeJson.result?.data);
-    } catch {}
+    const smoke = await cf(`/accounts/${accountId}/ai/run/@cf/baai/bge-large-en-v1.5`, { text: "test" });
+    const smokeOk = !!smoke.json?.success && Array.isArray(smoke.json?.result?.data);
     if (!smokeOk) {
-      fail(`Cloudflare Workers AI smoke test failed. Your token probably lacks the 'Workers AI:Read' scope. Regenerate at https://dash.cloudflare.com/profile/api-tokens and ADD that scope. Raw response: ${(smokeRes.stdout || "").slice(0, 300)}`);
+      fail(`Cloudflare Workers AI smoke test failed. Your token probably lacks the 'Workers AI:Read' scope. Regenerate at https://dash.cloudflare.com/profile/api-tokens and ADD that scope. Raw response: ${(smoke.text || "").slice(0, 300)}`);
     }
     ok("Workers AI scope confirmed on the token");
 

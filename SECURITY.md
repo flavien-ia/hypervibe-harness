@@ -87,12 +87,14 @@ raw head of a command: `sudo`, `command`, `env`, `time`, a launcher (`npx`,
 are stripped or unfolded first, so a shape the rules did not foresee does not
 hide what they forbid. `xargs` is unfolded too, with the line it rebuilds from
 its input when that input is on the command line, and so are `find -exec`,
-`timeout`, `stdbuf`, `caffeinate`, and macOS's `arch` and `xcrun`. A
-launcher's options are read the way the tool reads them: a long option by its
-prefix, its value after `=` or in the next word, and `env -S` hands over a
-whole command (outside review, 3.3.2). Braces are expanded as the shell expands
-them before anything runs: `git add {.,.}` is `git add . .` (outside review,
-3.3.4).
+`timeout`, `stdbuf`, `caffeinate`, and macOS's `arch`, `xcrun`, `taskpolicy`,
+`sandbox-exec` and `script`. A launcher's options are read the way the tool
+reads them: a long option by its prefix, its value after `=` or in the next
+word, and `env -S` hands over a whole command (outside review, 3.3.2). Braces
+are expanded as the shell expands them before anything runs: `git add {.,.}`
+is `git add . .` (outside review, 3.3.4). Each word is kept once, so `.{,}`
+repeated is `.` again, and a command whose braces unfold past what the guard
+reads is asked about rather than let through (outside review, 3.3.5).
 The full table is in the README.
 
 Two properties matter here:
@@ -158,8 +160,9 @@ A secret the plugin writes (a generated key, a key typed into the masked
 window, a connection string) goes from command to command on the standard
 input: never on a command line, where anything running on the machine can read
 it, and never through the conversation. Until 3.3.3 four setup scripts, the
-OpenRouter key and a few skills broke that line; a recette now reads the
-scripts and the commands the skills give for it.
+OpenRouter key and a few skills broke that line, and until 3.3.5 two scripts
+still handed the Cloudflare token to curl as an argument; a recette now reads
+the scripts and the commands the skills give for it.
 A global git hook (gitleaks, installed by `/start`) blocks any commit containing
 a detected secret. The same global hooks can hand over to a repository's own
 `.hooks/pre-commit` and `.hooks/pre-push` (that is how the recette installed by
