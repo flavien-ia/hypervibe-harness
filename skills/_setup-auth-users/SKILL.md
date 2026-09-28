@@ -98,7 +98,7 @@ Invoke `_update-claude-md` with:
 
     tRPC `auth` router: `signup`, `deleteAccount`{{IF_EMAIL_OK}}, `requestPasswordReset`, `resetPassword`{{/IF_EMAIL_OK}}. All rate-limited by IP.
 
-    To add a user directly (troubleshooting): `printf '%s' "<password>" | node "<plugin>/scripts/hash-password.mjs"` (output = `salt:hash`), then `INSERT INTO <prefix>_user (id, email, password_hash, name) VALUES (gen_random_uuid()::text, '<email>', '<salt:hash>', '<name>')`.
+    To add a user directly (troubleshooting): the user types the password in the masked window, never in the conversation (`node "<plugin>/scripts/vault/launch.mjs" collect-env --keys "NEW_USER_PASSWORD:secret" --project-dir <app folder> --file .env.user-password`), its hash is `node "<plugin>/scripts/env-value.mjs" --project-dir <app folder> --file .env.user-password NEW_USER_PASSWORD | node "<plugin>/scripts/hash-password.mjs"` (output = `salt:hash`), then delete `.env.user-password` and `INSERT INTO <prefix>_user (id, email, password_hash, name) VALUES (gen_random_uuid()::text, '<email>', '<salt:hash>', '<name>')`.
     ```
 - `env-vars`:
   - `- \`AUTH_SECRET\` - NextAuth session secret`

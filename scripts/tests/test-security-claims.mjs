@@ -671,11 +671,70 @@ console.log("\n── Aucun secret par la conversation ni en argument dans les c
     if (/-f\s+"?value="?\$/.test(code)) fautes.push(`${nom} : gh workflow run -f value=$…`);
     if (/echo\s+"<[A-Z0-9_]*(?:SECRET|KEY|TOKEN|PASSWORD)[A-Z0-9_]*>"/.test(code)) fautes.push(`${nom} : echo "<secret>" |`);
     if (/Bearer <[A-Z0-9_]*(?:SECRET|KEY|TOKEN)[A-Z0-9_]*>/.test(code)) fautes.push(`${nom} : Bearer <secret> en argument de curl`);
+    // Une valeur recopiee par Claude dans les donnees de printf, dans un bloc comme dans un texte
+    // que la skill ecrit dans un projet (revue externe, 3.3.4).
+    if (/printf\s+'%s'\s+["']<[^"'<>]+>["']/.test(texte)) fautes.push(`${nom} : printf '%s' "<valeur>" fait recopier la valeur par Claude`);
+    // Une valeur du coffre envoyee en tube sans etre verifiee : coffre ferme, la commande suivante
+    // recoit une valeur vide (revue externe, 3.3.4).
+    if (/vault\.mjs"?\s+get\s+[A-Z0-9_]+\s+[a-z0-9_]+\s*\|/.test(code)) fautes.push(`${nom} : valeur du coffre en tube sans verification`);
     // Une valeur recopiee par Claude dans la liste des variables a pousser.
     for (const m of texte.matchAll(/^\s*- `([A-Z0-9_]*(?:SECRET|PRIVATE|PASSWORD)[A-Z0-9_]*)=<[^>`]+>`/gm)) if (!PUBLIC.test(m[1])) fautes.push(`${nom} : ${m[1]}=<valeur> passe par la conversation`);
     if (/Send me (?:the Client ID and the Client Secret|these two values)|Colle-moi le Client ID et le Client Secret/.test(texte)) fautes.push(`${nom} : le secret OAuth demande dans la conversation`);
   }
   check("aucune commande de skill ne met un secret en argument ni ne le fait passer par la conversation", fautes.length === 0, fautes.join(" | "));
+}
+
+// Une valeur relue (.env ou coffre) puis ECRITE quelque part (un secret de depot ou de Worker, le
+// .env et l'hebergeur, le coffre) doit arreter sa commande quand rien n'est revenu : sans garde,
+// la commande suivante ecrivait une valeur vide (revue externe, 3.3.4 : le coffre et un Worker par
+// /rotate-secret, les depots de l'organisation par /rotate-tokens).
+function relecturesNonVerifiees(nom, texte) {
+  const fautes = [];
+  for (const m of texte.replace(/\r\n/g, "\n").matchAll(/```bash\n([\s\S]*?)```/g)) {
+    const lignes = m[1].replace(/\\\n\s*/g, " ").split("\n");
+    const ecrit = /secret (?:set|put)|push-env-vars|putItem/.test(m[1]);
+    for (const [i, l] of lignes.entries()) {
+      const lu = /(?:^|\s)(?:export\s+)?([A-Z_][A-Z0-9_]*)=\$\(node\s[^)]*(?:env-value\.mjs|vault\.mjs"?\s+get)[^)]*\)(.*)$/.exec(l);
+      if (!lu || /\|\||&&/.test(lu[2]) || !ecrit) continue;
+      if (lignes.slice(i + 1).some((x) => x.includes(`"$${lu[1]}"`))) fautes.push(`${nom} : ${lu[1]} relue puis ecrite sans verification`);
+    }
+  }
+  return fautes;
+}
+
+console.log("\n── Une valeur relue puis ecrite s'arrete quand rien n'est revenu (revue externe, 3.3.4) ──");
+{
+  const dir = join(ROOT, "skills");
+  const fautes = [];
+  for (const nom of readdirSync(dir)) {
+    const f = join(dir, nom, "SKILL.md");
+    if (existsSync(f)) fautes.push(...relecturesNonVerifiees(nom, readFileSync(f, "utf8")));
+  }
+  check("aucune valeur relue du .env ou du coffre n'est ecrite sans verification", fautes.length === 0, fautes.join(" | "));
+}
+
+console.log("\n── Le coffre refuse une valeur vide, avant meme de s'ouvrir (revue externe, 3.3.4) ──");
+{
+  const { spawnSync: lancer } = await import("node:child_process");
+  const { tmpdir: temporaire } = await import("node:os");
+  const { mkdtempSync: dossier, rmSync: effacer } = await import("node:fs");
+  const { pathToFileURL: versUrl } = await import("node:url");
+  // Un dossier personnel neuf : aucune session du vrai coffre n'y est joignable, meme si le refus
+  // venait a disparaitre.
+  const maison = dossier(join(temporaire(), "hv-put-vide-"));
+  const vault = versUrl(join(ROOT, "scripts", "vault", "vault.mjs")).href;
+  const essai = `import { putItem } from ${JSON.stringify(vault)};
+try { putItem("RECETTE_VIDE", [{ name: "api_key", value: "  ", type: "secret" }]); console.log(JSON.stringify({ ecrit: true })); }
+catch (e) { console.log(JSON.stringify({ code: e.code, message: e.message })); }`;
+  const r = lancer(process.execPath, ["--input-type=module", "-e", essai], { encoding: "utf8", env: { ...process.env, HOME: maison, USERPROFILE: maison, BW_SESSION: "" } });
+  effacer(maison, { recursive: true, force: true });
+  let sortie = null;
+  try {
+    sortie = JSON.parse(r.stdout.trim().split("\n").pop());
+  } catch {
+    sortie = null;
+  }
+  check("putItem refuse une valeur vide avant d'ouvrir le coffre, et nomme le champ", sortie?.code === 1 && /api_key/.test(sortie?.message ?? "") && /empty value/.test(sortie?.message ?? ""), r.stdout + r.stderr);
 }
 
 console.log(`\n${checks - failures}/${checks} verifications`);

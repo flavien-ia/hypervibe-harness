@@ -605,6 +605,36 @@ expect("sudo --user root ls", "pass");
 expect("env -S 'pnpm test'", "pass");
 expect("echo ${HOME}", "pass");
 
+console.log("\n── Accolades depliees comme le shell, lanceurs de macOS (revue externe, 3.3.4) ──");
+// Le mot refuse n'apparait pas tel quel : le shell deplie les accolades avant de lancer.
+expect("git add {.,.}", "deny");
+expect("git add -{A,A}", "deny");
+expect("git add {src,.}", "deny");
+expect("git add {.,}", "deny");
+expect("git add -{A..A}", "deny");
+expect("{git,} add .", "deny");
+expect("git add {a,{b,.}}", "deny");
+expect("xcrun git add {.,.}", "deny");
+expect("arch -arm64 git push origin main", "ask");
+expect("arch -x86_64 git push origin main", "ask");
+expect("arch -arch arm64 git push origin main", "ask");
+expect("arch -e FOO=1 -arm64 git push origin main", "ask");
+expect("arch -arm64 git add -A", "deny");
+expect("xcrun git push origin main", "ask");
+expect("xcrun --sdk macosx git push origin main", "ask");
+expect("xcrun -sdk macosx git push origin main", "ask");
+expect("xcrun -r git push origin main", "ask");
+// ... et ce qui y ressemble sans en etre.
+expect("git add src/{a,b}.ts", "pass");
+expect("git add '{.,.}'", "pass");
+expect('git add "{.,.}"', "pass");
+expect("cp file.{js,ts} dir/", "pass");
+expect("echo ${HOME} {a,b}", "pass");
+expect("find . -name '*.ts' -exec grep -l foo {} \\;", "pass");
+expect("xcrun --find clang", "pass");
+expect("xcrun --show-sdk-path", "pass");
+expect("arch -arm64 git --version", "pass");
+
 console.log("\n── Un dossier hooks/ recopie seul garde ses regles (revue externe, 3.2.6) ──");
 {
   const { spawnSync } = await import("node:child_process");

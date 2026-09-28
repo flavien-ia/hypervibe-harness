@@ -458,6 +458,20 @@ const LAUNCHERS = {
   nohup: { long: ["help", "version"] },
   exec: { value: "a" },
   setsid: { long: ["ctty", "fork", "help", "version", "wait"] },
+  // macOS (outside review, 3.3.4). `arch` reads whole words after one dash: an architecture
+  // (`-arm64`, `-x86_64`), or `-arch <name>`, `-d <name>`, `-e <name=value>`.
+  arch: { words: { arch: true, d: true, e: true }, anyDash: true },
+  // `xcrun` runs the tool it names; `--find` only prints its path. Its long options are also
+  // written after a single dash (`-sdk macosx`).
+  xcrun: {
+    value: "f",
+    long: [
+      "find=", "help", "kill-cache", "log", "no-cache", "run", "sdk=", "show-sdk-build-version",
+      "show-sdk-path", "show-sdk-platform-path", "show-sdk-platform-version", "show-sdk-version",
+      "toolchain=", "verbose", "version",
+    ],
+    singleDashLong: true,
+  },
 };
 LAUNCHERS.gtimeout = LAUNCHERS.timeout;
 
@@ -480,6 +494,24 @@ function afterLauncher(seg) {
     if ((v === "-" && spec.dash) || (spec.number && /^-\d+$/.test(v))) {
       i += 1;
       continue;
+    }
+    // Options that are whole words after a single dash (`arch -arch arm64`, `xcrun -sdk
+    // macosx`): read as the launcher reads them, never letter by letter.
+    if (/^-[^-]/.test(v)) {
+      const name = v.slice(1);
+      if (spec.words && Object.hasOwn(spec.words, name)) {
+        i += spec.words[name] ? 2 : 1;
+        continue;
+      }
+      const single = spec.singleDashLong && name.length > 1 ? long.find((o) => bare(o) === name) : null;
+      if (single) {
+        i += single.endsWith("=") ? 2 : 1;
+        continue;
+      }
+      if (spec.anyDash) {
+        i += 1;
+        continue;
+      }
     }
     if (/^--[^=]/.test(v)) {
       const eq = v.indexOf("=");
@@ -526,6 +558,9 @@ function normalise(raw) {
   let s = raw.trim();
   for (let round = 0; round < 16; round += 1) {
     const before = s;
+    // Braces first, as the shell expands them before anything runs: `{git,} add .` is
+    // `git add .`, and an opener `{` stripped first would have hidden it.
+    s = expandBraces(s);
     // Openers and keywords a shell swallows before the command itself, and
     // the closers of the same blocks at the end.
     s = s.replace(/^(?:[({]\s*|(?:then|do|else|elif|if|while|until)\s+|!\s+)/, "");
@@ -553,6 +588,123 @@ function normalise(raw) {
     if (s === before) break;
   }
   return { env, seg: s.trim() };
+}
+
+/** Brace expansion, as the shell does it before running a command: `git add {.,.}` is
+ *  `git add . .`, `git add -{A,A}` is `git add -A -A`, `{git,} add .` is `git add .`. The
+ *  refused word never appears as typed, the same gesture as `:/` (outside review, 3.3.4). The
+ *  expansion is lexical and deterministic, so it is within the reader's reach, done as the shell
+ *  does it: an unquoted, unescaped `{...}` with a comma at its top level, or a sequence
+ *  (`{a..c}`, `{1..3}`), never `${...}`, never an assignment word; an empty word it leaves is
+ *  dropped. `git add src/{a,b}.ts` still passes, and a quoted `'{.,.}'` is a name. Past
+ *  BRACE_LIMIT words a word is left as typed: this guard reads commands, it does not run them. */
+const BRACE_LIMIT = 4096;
+function expandBraces(seg) {
+  if (!seg.includes("{")) return seg;
+  const out = [];
+  for (const w of words(seg)) {
+    if (!w.raw.includes("{") || /^[A-Za-z_][A-Za-z0-9_]*=/.test(w.raw)) out.push(w.raw);
+    else out.push(...braceWords(w.raw).filter((x) => x !== ""));
+  }
+  return out.join(" ");
+}
+
+/** The words one word expands to, braces expanded first to last, nested ones included. */
+function braceWords(raw) {
+  let results = [raw];
+  for (let round = 0; round < 64; round += 1) {
+    let changed = false;
+    const next = [];
+    for (const r of results) {
+      const b = firstBrace(r);
+      if (!b) {
+        next.push(r);
+        continue;
+      }
+      changed = true;
+      for (const item of b.items) next.push(`${r.slice(0, b.open)}${item}${r.slice(b.close + 1)}`);
+      if (next.length > BRACE_LIMIT) return [raw];
+    }
+    results = next;
+    if (!changed) break;
+  }
+  return results;
+}
+
+/** Which characters of a word are quoted or escaped, and so never part of an expansion. */
+function literalMask(r) {
+  const mask = new Array(r.length).fill(false);
+  let i = 0;
+  while (i < r.length) {
+    if (r[i] === "\\") {
+      mask[i] = true;
+      if (i + 1 < r.length) mask[i + 1] = true;
+      i += 2;
+    } else if (r[i] === "'") {
+      const close = r.indexOf("'", i + 1);
+      const stop = close < 0 ? r.length - 1 : close;
+      for (let k = i; k <= stop; k += 1) mask[k] = true;
+      i = stop + 1;
+    } else if (r[i] === '"') {
+      let j = i + 1;
+      while (j < r.length && r[j] !== '"') j += r[j] === "\\" ? 2 : 1;
+      const stop = Math.min(j, r.length - 1);
+      for (let k = i; k <= stop; k += 1) mask[k] = true;
+      i = stop + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return mask;
+}
+
+/** The first brace of a word the shell expands: where it opens and closes, and its items. */
+function firstBrace(r) {
+  const lit = literalMask(r);
+  for (let open = 0; open < r.length; open += 1) {
+    if (r[open] !== "{" || lit[open] || (open > 0 && r[open - 1] === "$" && !lit[open - 1])) continue;
+    let depth = 0;
+    const commas = [];
+    for (let k = open; k < r.length; k += 1) {
+      if (lit[k]) continue;
+      if (r[k] === "{") depth += 1;
+      else if (r[k] === "," && depth === 1) commas.push(k);
+      else if (r[k] === "}") {
+        depth -= 1;
+        if (depth > 0) continue;
+        if (commas.length) {
+          const items = [];
+          let from = open + 1;
+          for (const c of commas) {
+            items.push(r.slice(from, c));
+            from = c + 1;
+          }
+          items.push(r.slice(from, k));
+          return { open, close: k, items };
+        }
+        const seq = braceSequence(r.slice(open + 1, k));
+        if (seq) return { open, close: k, items: seq };
+        break;
+      }
+    }
+  }
+  return null;
+}
+
+/** `{1..5}`, `{a..e}`, with an optional step (`{1..9..2}`): the words of a sequence. */
+function braceSequence(body) {
+  const m = /^(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?$/.exec(body) ?? /^([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?$/.exec(body);
+  if (!m) return null;
+  const numeric = /^-?\d/.test(m[1]);
+  const a = numeric ? Number(m[1]) : m[1].charCodeAt(0);
+  const b = numeric ? Number(m[2]) : m[2].charCodeAt(0);
+  const step = Math.abs(Number(m[3] ?? 1)) || 1;
+  const out = [];
+  for (let x = a; a <= b ? x <= b : x >= b; x += a <= b ? step : -step) {
+    out.push(numeric ? String(x) : String.fromCharCode(x));
+    if (out.length > BRACE_LIMIT) return null;
+  }
+  return out;
 }
 
 /** The words of a segment, each as typed (`raw`) and as the command receives it (`value`:

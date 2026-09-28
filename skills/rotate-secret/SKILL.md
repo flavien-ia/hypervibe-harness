@@ -193,8 +193,11 @@ Nothing to push again: in Step 3 the value went straight into `.env` and the hos
 **The steps below need the value again.** Each loads it from the project's `.env` into a shell variable, in the same command that uses it, and never prints it:
 
 ```bash
-NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>")
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>") && [ -n "$NEW_VALUE" ] \
+  || { echo "<SECRET_NAME> is not in <WEB_DIR>/.env, or it is empty: nothing was sent. In a monorepo, WEB_DIR is the application's folder."; exit 1; }
 ```
+
+The check stops everything when the key is not where the command looks: `env-value.mjs` exits 4 for a key absent or empty, and without the check the next command left with an empty value (a mis-filled WEB_DIR in a monorepo wrote an EMPTY field into the vault, and sent an empty secret to a Worker: outside review, 3.3.4).
 
 ### Neon special case (`DATABASE_URL` rotation)
 
@@ -245,7 +248,8 @@ Key → vault item mapping: `BREVO_API_KEY`→`BREVO.api_key` · `RESEND_API_KEY
 If `SECRET_NAME` is in this mapping, write the new value into the vault (the value goes through an env var, never via argv nor displayed):
 
 ```bash
-NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>")
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>") && [ -n "$NEW_VALUE" ] \
+  || { echo "<SECRET_NAME> is not in <WEB_DIR>/.env, or it is empty: nothing was sent. In a monorepo, WEB_DIR is the application's folder."; exit 1; }
 VAULT_PATH="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" VITEM="<vault ITEM>" VFIELD="<field>" NEW_VALUE="$NEW_VALUE" \
 node --input-type=module -e '
 import { pathToFileURL } from "node:url";
@@ -281,7 +285,8 @@ If the secret IS in the table with a Cloudflare or Render checkmark → run the 
 
 ```bash
 SECRET_NAME="<SECRET_NAME>"
-NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>")
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>") && [ -n "$NEW_VALUE" ] \
+  || { echo "<SECRET_NAME> is not in <WEB_DIR>/.env, or it is empty: nothing was sent. In a monorepo, WEB_DIR is the application's folder."; exit 1; }
 # wrangler authenticates via CLOUDFLARE_API_TOKEN (which lives in the vault, no longer in env) - inject it inline.
 export CLOUDFLARE_API_TOKEN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get CLOUDFLARE api_token 2>/dev/null)
 REPO_ROOT=$(git -C "<WEB_DIR>" rev-parse --show-toplevel 2>/dev/null || echo "<WEB_DIR>")
@@ -344,7 +349,7 @@ Depending on the output:
 
 If possible, validate that the new value works before concluding:
 
-Load the value first (`NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>")`). It reaches `curl` on its standard input (`--config -`), never as an argument:
+Load the value first, and stop if it is not there (`NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" "<SECRET_NAME>") && [ -n "$NEW_VALUE" ] || exit 1`). It reaches `curl` on its standard input (`--config -`), never as an argument:
 
 - `STRIPE_SECRET_KEY`: `printf 'user = "%s:"\n' "$NEW_VALUE" | curl -fsS --config - https://api.stripe.com/v1/balance` (should return 200)
 - `BREVO_API_KEY`: `printf 'header = "api-key: %s"\n' "$NEW_VALUE" | curl -fsS --config - https://api.brevo.com/v3/account`

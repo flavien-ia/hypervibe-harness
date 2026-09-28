@@ -615,7 +615,8 @@ Show:
 
 If the user says **yes, disable it**:
 ```bash
-SK_TEST=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" STRIPE_SECRET_KEY)
+SK_TEST=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" STRIPE_SECRET_KEY) && [ -n "$SK_TEST" ] \
+  || { echo "STRIPE_SECRET_KEY is not in the project's .env: nothing was changed."; exit 1; }
 STRIPE_API_KEY="$SK_TEST" stripe webhook_endpoints update <test-wh-id> --disabled
 ```
 

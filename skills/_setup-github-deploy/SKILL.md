@@ -74,12 +74,14 @@ Extract `orgId` and `projectId`. They are needed for the workflow.
 
 ## Step 4 - Store the 3 secrets in GitHub
 
-`orgId` and `projectId` are identifiers, not secrets, so `--body` is fine for those. The **token is a secret**: putting it in `--body` would write it into the command line, which lands in the conversation exactly like a chat paste. `gh secret set` reads the value from **stdin** when `--body` is omitted, so pipe it straight out of the vault, in a single call, never printed:
+`orgId` and `projectId` are identifiers, not secrets, so `--body` is fine for those. The **token is a secret**: putting it in `--body` would write it into the command line, which lands in the conversation exactly like a chat paste. `gh secret set` reads the value from **stdin** when `--body` is omitted: read it from the vault into a variable, check it, then send it on stdin, never printed:
 
 ```bash
 gh secret set VERCEL_ORG_ID --body "<orgId from .vercel/project.json>"
 gh secret set VERCEL_PROJECT_ID --body "<projectId from .vercel/project.json>"
-node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get VERCEL api_token | gh secret set VERCEL_TOKEN
+VTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get VERCEL api_token) && [ -n "$VTOK" ] \
+  || { echo "The vault is closed, or holds no VERCEL api_token: nothing was sent to GitHub."; exit 1; }
+printf '%s' "$VTOK" | gh secret set VERCEL_TOKEN
 ```
 
 Verify all 3 are set:
@@ -87,7 +89,7 @@ Verify all 3 are set:
 gh secret list
 ```
 
-You should see `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN` listed. If one is missing, re-run the corresponding `gh secret set`.
+You should see `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`, and `VERCEL_TOKEN` listed. If one is missing, re-run the corresponding `gh secret set`. A closed vault stops the token's command before anything is sent (piped directly, the vault's exit 2 printed nothing and GitHub received an empty value: outside review, 3.3.4): open it (`node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>`), then run the same command again.
 
 ## Step 5 - Create the workflow file
 

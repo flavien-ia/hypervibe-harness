@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.3.5 (28 septembre 2026)
+
+### Améliorations
+- **Renouvellement d'une clé** : quand la clé n'est pas là où la commande la cherche (le mauvais dossier dans un monorepo, par exemple), le renouvellement s'arrête avant d'envoyer quoi que ce soit. Jusqu'ici, il pouvait écrire une valeur vide dans le coffre ou dans un Worker Cloudflare.
+- **Coffre-fort** : il refuse désormais une valeur vide, quel que soit l'outil qui lui écrit. Une étape qui échoue en amont ne peut plus effacer une clé globale.
+- **Garde-fou** : les accolades sont dépliées comme le shell les déplie avant de lancer une commande, ce qui ferme une façon détournée d'ajouter tout le projet d'un coup (`git add {.,.}`). Deux lanceurs de macOS, `arch` et `xcrun`, sont lus comme les autres.
+- **Mot de passe administrateur** : pour en changer, ou pour ajouter un utilisateur à la main, la consigne écrite dans le projet fait taper le mot de passe dans la fenêtre masquée, jamais dans la conversation.
+- **Passage de Stripe en live** : la désactivation du webhook de test s'arrête si la clé de test manque, au lieu de partir sans elle.
+
+### Coulisses
+- Le déploiement par GitHub des collaborateurs vérifie la clé lue au coffre avant de l'envoyer, et la migration de l'horloge partagée prend la clé d'un projet dans son `.env` au lieu de la faire recopier.
+- Les recettes repèrent désormais ces formes : une valeur recopiée dans une commande, une valeur du coffre envoyée sans contrôle, une valeur relue puis écrite sans vérification.
+- Correctifs issus d'une relecture extérieure de la 3.3.4.
+
 ## v3.3.4 (27 septembre 2026)
 
 ### Sécurité

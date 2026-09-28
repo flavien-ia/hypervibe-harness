@@ -87,9 +87,12 @@ raw head of a command: `sudo`, `command`, `env`, `time`, a launcher (`npx`,
 are stripped or unfolded first, so a shape the rules did not foresee does not
 hide what they forbid. `xargs` is unfolded too, with the line it rebuilds from
 its input when that input is on the command line, and so are `find -exec`,
-`timeout`, `stdbuf` and `caffeinate`. A launcher's options are read the way
-the tool reads them: a long option by its prefix, its value after `=` or in
-the next word, and `env -S` hands over a whole command (outside review, 3.3.2).
+`timeout`, `stdbuf`, `caffeinate`, and macOS's `arch` and `xcrun`. A
+launcher's options are read the way the tool reads them: a long option by its
+prefix, its value after `=` or in the next word, and `env -S` hands over a
+whole command (outside review, 3.3.2). Braces are expanded as the shell expands
+them before anything runs: `git add {.,.}` is `git add . .` (outside review,
+3.3.4).
 The full table is in the README.
 
 Two properties matter here:

@@ -79,7 +79,7 @@ Invoke `_update-claude-md` with:
   - body:
     ```
     Admin auth uses `ADMIN_PASSWORD_HASH_DEV` (dev) and `ADMIN_PASSWORD_HASH_PROD` (prod), selected via NODE_ENV.
-    To change it: `printf '%s' "<new-password>" | node "<path>/scripts/hash-password.mjs"` (output = `salt:hash`), then `_push-env-vars ADMIN_PASSWORD_HASH_PROD=<salt:hash>`.
+    To change it, the user types the new password in the masked window, never in the conversation: `node "<path>/scripts/vault/launch.mjs" collect-env --keys "NEW_ADMIN_PASSWORD:secret" --project-dir <app folder> --file .env.admin-password`; then hash it and push the hash in one go: `H=$(node "<path>/scripts/env-value.mjs" --project-dir <app folder> --file .env.admin-password NEW_ADMIN_PASSWORD | node "<path>/scripts/hash-password.mjs") && [ -n "$H" ] && printf 'ADMIN_PASSWORD_HASH_PROD=%s\n' "$H" | node "<path>/scripts/push-env-vars.mjs" --stdin`, and delete `.env.admin-password`.
     To generate a new random password AND hash it: `node "<path>/scripts/hash-password.mjs" --generate --length 24 --format alphanumeric` (2-line output: `password=<plain>` + `hash=<salt:hash>`).
     ```
 - `env-vars`:

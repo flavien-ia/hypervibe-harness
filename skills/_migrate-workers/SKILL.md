@@ -71,9 +71,11 @@ Parse the JSON:
 - `migrated` - what was carried over (backup targets, quota config, scheduled pings). Recap it in plain words.
 - `skipped` entries about mechanisms the user does not have are NORMAL, not errors.
 - `uploadedSecrets` / `missingSecrets` - with `--put-secrets` the Neon/Cloudflare/Brevo keys are uploaded from the vault automatically. If anything remains in `missingSecrets`, follow the guidance in the output.
-- `pingSecretsToReupload` (only when an old cron-dispatcher existed) - these secret VALUES cannot be read back from Cloudflare. For each name (e.g. `CRON_SECRET_MYAPP`), the value lives in the matching project's `.env` file under `CRON_SECRET`. If you know where that project is, read the value and upload it:
+- `pingSecretsToReupload` (only when an old cron-dispatcher existed) - these secret VALUES cannot be read back from Cloudflare. For each name (e.g. `CRON_SECRET_MYAPP`), the value lives in the matching project's `.env` file under `CRON_SECRET`. If you know where that project is, upload it from there: the value goes from that `.env` to the Worker without passing through the conversation, and nothing is sent when it is absent:
   ```bash
-  cd ~/.hypervibe-jobs && printf '%s' "<value>" | npx wrangler secret put <NAME>
+  V=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<that project's folder>" CRON_SECRET) && [ -n "$V" ] \
+    || { echo "CRON_SECRET is not in that project's .env: nothing was uploaded."; exit 1; }
+  cd ~/.hypervibe-jobs && printf '%s' "$V" | npx wrangler secret put <NAME>
   ```
   Otherwise ask the user where that project's folder is. Until a secret is uploaded, that specific scheduled task is skipped with a harmless log line, nothing crashes. Tell the user which ones still need their key.
 

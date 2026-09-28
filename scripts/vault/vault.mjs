@@ -211,8 +211,19 @@ export function deleteSecret(itemName) {
 /** Create or update an item NON-interactively (value supplied programmatically, not prompted).
  *  Used when the value comes from a file (e.g. a downloaded service-account JSON), not a keystroke.
  *  fields: [{ name, value, type: "secret"|"text" }]. Returns "created" | "updated". Throws { code }. */
-export function putItem(name, fields, { service, folder = "Global" } = {}) {
+export function putItem(name, fields, { service, folder = "Global", allowEmpty = false } = {}) {
   if (!/^[A-Za-z0-9_]+$/.test(name)) { const e = new Error(`Invalid item name: ${name}`); e.code = 1; throw e; }
+  // An empty value is refused, before the vault is even opened: the vault is the source of truth
+  // of the global keys, the ones the next projects copy, and fields are merged, so an empty value
+  // would replace the real one without a word. In a pipe it is what a step that failed upstream
+  // sends (outside review, 3.3.4, the family of push-env-vars.mjs's refusal). allowEmpty: on
+  // purpose.
+  const empty = (fields ?? []).filter((f) => !String(f?.value ?? "").trim()).map((f) => f?.name);
+  if (empty.length && !allowEmpty) {
+    const e = new Error(`Refused: ${empty.join(", ")} of ${name} would be set to an empty value. Nothing was written to the vault.`);
+    e.code = 1;
+    throw e;
+  }
   const { token } = readSession();
   runBw(["sync", "--quiet"], token);
   const folders = JSON.parse(runBw(["list", "folders"], token).stdout || "[]");

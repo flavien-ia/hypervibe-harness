@@ -42,7 +42,8 @@ const VARIABLE = "CLAUDE_" + "SKILL_DIR";
 const ancreNue = DOLLAR + VARIABLE;
 const ancreAccolades = DOLLAR + "{" + VARIABLE + "}";
 
-const CONTINUATION_LITTERALE = /[ \t]\\n[ \t]+-/;
+// Devant une option, ou devant ||, && ou | (la commande de /register-cron publiee en 2.3.4).
+const CONTINUATION_LITTERALE = /[ \t]\\n[ \t]+(?:-|\|\||&&|\|)/;
 const ANCRE_SANS_ACCOLADES = new RegExp("\\" + DOLLAR + "CLAUDE_(?:SKILL_DIR|PLUGIN_ROOT)(?![A-Za-z0-9_])");
 // Le dossier du plugin tape en dur (celui du poste de l'auteur) : il ne vaut
 // que la ou le plugin a ete televerse dans Claude Desktop, jamais dans un port.
@@ -52,6 +53,7 @@ const VARIANTE = /\.(codex|opencode)\.md$/;
 
 console.log("\nLes motifs eux-memes");
 verifier("une continuation ecrite \\n est reperee", CONTINUATION_LITTERALE.test('add --project-dir "<p>" \\n  --kind db-backup'));
+verifier("... et devant || ou un tube aussi", CONTINUATION_LITTERALE.test('[ -n "$X" ] \\n  || exit 1') && CONTINUATION_LITTERALE.test('printf x \\n  | node a.mjs'));
 verifier("une vraie continuation passe", !CONTINUATION_LITTERALE.test('add --project-dir "<p>" \\\n  --kind db-backup'));
 verifier("un \\n de printf ou de chaine JS passe", !CONTINUATION_LITTERALE.test('printf "ok\\n"; console.log("a\\n- b")'));
 verifier("un chemin Windows passe", !CONTINUATION_LITTERALE.test("C:\\Program Files\\nodejs"));
