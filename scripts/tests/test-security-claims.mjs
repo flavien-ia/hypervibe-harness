@@ -738,24 +738,119 @@ catch (e) { console.log(JSON.stringify({ code: e.code, message: e.message })); }
 }
 
 // Une cle ne passe jamais en argument d'un programme : n'importe quel programme de la machine la lit.
-// Jusqu'en 3.3.5, check-deps.mjs la passait a curl, et setup-agent.mjs a curl par un shell.
-console.log("\n── Aucun script ne passe une cle a curl ou wget en argument (3.3.6) ──");
+// Jusqu'en 3.3.5, check-deps.mjs la passait a curl, et setup-agent.mjs a curl par un shell. Jusqu'en
+// 3.3.6, les commandes des skills la donnaient a curl par une variable du shell (-H "... $TOK"), que
+// le shell remplace AVANT de lancer curl : la regle ne lisait que les scripts, et que ${...} (revue
+// externe, 3.3.6). La forme juste donne la cle a curl sur son entree standard :
+// printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl --config - ...
+console.log("\n── Aucune cle en argument de curl, de wget ou du CLI Vercel, nulle part (3.3.7) ──");
 {
+  const CLE = /auth|key|token|secret|pass|cookie/i;
+  const REMPLACE = /\$(?:\{|\(|[A-Za-z_])/;
+  // Les mots d'une commande, guillemets compris.
+  const mots = (ligne) => [...ligne.matchAll(/(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\.|[^\s"'\\])+/g)].map((m) => m[0]);
+  // Une valeur que le shell remplace : entre apostrophes rien, sauf le ${{ }} qu'un workflow
+  // remplace avant le shell.
+  const remplacee = (brut) => (/^'[^']*'$/.test(brut) ? /\$\{\{/.test(brut) : REMPLACE.test(brut));
+  const nu = (brut) => brut.replace(/^["']|["']$/g, "");
+  const fautive = (commande) => {
+    const liste = mots(commande);
+    const raisons = [];
+    const curl = liste.findIndex((m) => /(?:^|[/(])(?:curl|wget)(?:\.exe)?$/.test(m));
+    if (curl >= 0) {
+      for (let i = curl + 1; i < liste.length; i += 1) {
+        const m = liste[i];
+        // Une option qui prend sa valeur dans le mot suivant ou apres =, groupee ou non.
+        const longue = /^--(header|user|data(?:-raw|-binary|-urlencode)?|form(?:-string)?)(?:=(.*))?$/.exec(m);
+        const courte = /^-[A-Za-z]*([HudF])$/.exec(m);
+        if (!longue && !courte) {
+          if (/[?&](?:key|api_?key|apikey|token|access_token|secret)=[^&\s"']*\$/i.test(m) && remplacee(m)) raisons.push("cle dans l'adresse");
+          continue;
+        }
+        const genre = longue ? longue[1] : { H: "header", u: "user", d: "data", F: "form" }[courte[1]];
+        const valeur = longue?.[2] ?? liste[++i] ?? "";
+        if (!remplacee(valeur)) continue;
+        const texte = nu(valeur);
+        if (genre === "header" && CLE.test(texte.split(":")[0])) raisons.push("en-tete de cle");
+        else if (genre === "user") raisons.push("-u");
+        else if (/^(?:data|form)/.test(genre) && CLE.test(texte.split("=")[0])) raisons.push("cle dans le corps");
+      }
+    }
+    const vercel = liste.findIndex((m) => /(?:^|[/(])vercel$/.test(m));
+    if (vercel >= 0) {
+      for (let i = vercel + 1; i < liste.length; i += 1) {
+        const m = /^(?:--token|-t)(?:=(.*))?$/.exec(liste[i]);
+        if (m && remplacee(m[1] ?? liste[i + 1] ?? "")) raisons.push("--token du CLI Vercel");
+      }
+    }
+    return raisons;
+  };
+
+  // La regle se prouve d'abord sur les formes connues, dans les deux sens.
+  const temoins = [
+    ['curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user', true],
+    ['curl -sH "api-key: ${BREVO_API_KEY}" https://api.brevo.com/v3/account', true],
+    ['ZONE=$(curl -s -H "Authorization: Bearer $(node vault.mjs get CLOUDFLARE api_token)" https://api.cloudflare.com/client/v4/zones)', true],
+    ['RESP=$(curl -s "https://api.namecheap.com/xml.response?ApiUser=$U&ApiKey=$NAMECHEAP_API_KEY")', true],
+    ['curl -s -G --data-urlencode "ApiKey=$NAMECHEAP_API_KEY" https://api.namecheap.com/xml.response', true],
+    ['curl -u "$USER:$PASS" https://exemple.fr', true],
+    ['curl -s -X POST https://api.porkbun.com/api/json/v3/ping -d "{\\"apikey\\":\\"$PORKBUN_API_KEY\\"}"', true],
+    ["printf '{\"apikey\":\"%s\"}' \"$PORKBUN_API_KEY\" | curl -s -X POST https://api.porkbun.com/api/json/v3/ping --data-binary @-", false],
+    ["run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --yes", true],
+    ["url=$(vercel deploy --token=${{ secrets.VERCEL_TOKEN }} --yes)", true],
+    ['npx vercel pull --yes --token="$VERCEL_TOKEN"', true],
+    ["printf 'header = \"Authorization: Bearer %s\"\\n' \"$CFTOK\" | curl -s --config - https://api.cloudflare.com/client/v4/user", false],
+    ["printf 'data-urlencode = \"ApiKey=%s\"\\n' \"$K\" | curl -s -G --config - --data-urlencode \"ApiUser=$U\" https://api.namecheap.com/xml.response", false],
+    ['curl -s -H "Content-Type: application/json" -d "{\\"zone\\":\\"$ZONE_ID\\"}" "https://api.cloudflare.com/client/v4/zones/$ZONE_ID"', false],
+    ["curl -s -H 'Authorization: Bearer $LITTERAL' https://exemple.fr", false],
+    ["npx vercel deploy --prod --yes", false],
+  ];
+  const ratees = temoins.filter(([c, attendu]) => (fautive(c).length > 0) !== attendu).map(([c]) => c);
+  check("la regle reconnait les formes connues, et laisse passer la bonne", ratees.length === 0, ratees.join(" | "));
+
+  // Une chaine entre guillemets doubles laissee ouverte en fin de ligne (hors apostrophes) : la
+  // commande continue a la ligne suivante, comme un corps JSON ecrit sur plusieurs lignes.
+  const ouverte = (s) => {
+    let double = false;
+    let simple = false;
+    for (let i = 0; i < s.length; i += 1) {
+      const c = s[i];
+      if (c === "\\" && !simple) i += 1;
+      else if (c === "'" && !double) simple = !simple;
+      else if (c === '"' && !simple) double = !double;
+    }
+    return double;
+  };
   const fautes = [];
   const parcourir = (dir) => {
     for (const nom of readdirSync(dir)) {
-      if (nom === "node_modules" || nom === "tests") continue;
+      if (nom === "node_modules" || nom === ".git") continue;
       const p = join(dir, nom);
+      const rel = relative(ROOT, p).split("\\").join("/");
+      if (rel === "scripts/tests" || rel === "hooks/test-hooks.mjs") continue;
       if (statSync(p).isDirectory()) parcourir(p);
-      else if (p.endsWith(".mjs")) {
-        for (const [n, ligne] of readFileSync(p, "utf8").split("\n").entries()) {
-          if (/\b(?:curl|wget)\b.*(?:Bearer|Authorization|api-key|X-Auth).*\$\{/i.test(ligne)) fautes.push(`${relative(ROOT, p)}:${n + 1}`);
+      else if (/\.(?:md|mjs|js|cjs|ts|tsx|sh|ya?ml|toml|json|txt)$/.test(nom)) {
+        const lignes = readFileSync(p, "utf8").split(/\r?\n/);
+        for (let n = 0; n < lignes.length; n += 1) {
+          // Une commande entiere : les lignes continuees par une barre oblique inverse sont jointes,
+          // comme celles d'une chaine ouverte sur une ligne de curl ou de wget.
+          let commande = lignes[n];
+          const debut = n;
+          while (n + 1 < lignes.length && n - debut < 40) {
+            if (/\\$/.test(commande)) commande = commande.slice(0, -1) + " " + lignes[++n].trim();
+            else if (/\b(?:curl|wget)\b/.test(commande) && ouverte(commande)) commande += " " + lignes[++n].trim();
+            else break;
+          }
+          const raisons = fautive(commande);
+          // Dans le code, une commande construite par un gabarit JavaScript.
+          if (p.endsWith(".mjs") && /\b(?:curl|wget)\b.*(?:Bearer|Authorization|api-key|X-Auth).*\$(?:\{|[A-Za-z_])/i.test(commande)) raisons.push("gabarit JavaScript");
+          if (raisons.length) fautes.push(rel + ":" + (debut + 1) + " (" + [...new Set(raisons)].join(", ") + ")");
         }
       }
     }
   };
-  parcourir(join(ROOT, "scripts"));
-  check("aucun script ne met une cle dans la ligne de commande de curl ou wget", fautes.length === 0, fautes.join(" | "));
+  parcourir(ROOT);
+  check("aucune commande du harnais (skills, scripts, gabarits) ne met une cle en argument de curl, de wget ou du CLI Vercel", fautes.length === 0, fautes.join(" | "));
 }
 
 console.log(`\n${checks - failures}/${checks} verifications`);

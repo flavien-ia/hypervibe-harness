@@ -126,7 +126,7 @@ Forge a token + list the visible properties:
 
 ```bash
 TOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/gsc/gsc-token.mjs" --readonly 2>/dev/null); RC=$?
-[ $RC -eq 0 ] && curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $TOK" "https://www.googleapis.com/webmasters/v3/sites"
+[ $RC -eq 0 ] && printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - -o /dev/null -w "%{http_code}\n" "https://www.googleapis.com/webmasters/v3/sites"
 ```
 - token OK + HTTP 200 → done, GSC configured. Hand control back to `/gsc` (which continues with its audit).
 - exit 2/3 → vault locked: unlock, retry.

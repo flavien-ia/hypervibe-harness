@@ -59,7 +59,10 @@ export NAMECHEAP_USER=$(node "$VAULT" get NAMECHEAP user 2>/dev/null)
 export NAMECHEAP_API_KEY=$(node "$VAULT" get NAMECHEAP api_key 2>/dev/null)
 export NAMECHEAP_CLIENT_IP=$(curl -s ifconfig.me)
 if [ -n "$NAMECHEAP_USER" ] && [ -n "$NAMECHEAP_API_KEY" ] && [ -n "$NAMECHEAP_CLIENT_IP" ]; then
-  RESP=$(curl -s "https://api.namecheap.com/xml.response?ApiUser=$NAMECHEAP_USER&ApiKey=$NAMECHEAP_API_KEY&UserName=$NAMECHEAP_USER&ClientIp=$NAMECHEAP_CLIENT_IP&Command=namecheap.users.getBalances")
+  RESP=$(printf 'data-urlencode = "ApiKey=%s"\n' "$NAMECHEAP_API_KEY" | curl -s -G --config - \
+    --data-urlencode "ApiUser=$NAMECHEAP_USER" --data-urlencode "UserName=$NAMECHEAP_USER" \
+    --data-urlencode "ClientIp=$NAMECHEAP_CLIENT_IP" --data-urlencode "Command=namecheap.users.getBalances" \
+    "https://api.namecheap.com/xml.response")
   echo "$RESP" | grep -q 'Status="OK"' && echo "VALID" || echo "INVALID"
 fi
 ```
@@ -151,9 +154,8 @@ echo "SLD=$SLD  TLD=$TLD"
 API call (XML response):
 
 ```bash
-RESP=$(curl -s \
+RESP=$(printf 'data-urlencode = "ApiKey=%s"\n' "$NAMECHEAP_API_KEY" | curl -s --config - \
   --data-urlencode "ApiUser=$NAMECHEAP_USER" \
-  --data-urlencode "ApiKey=$NAMECHEAP_API_KEY" \
   --data-urlencode "UserName=$NAMECHEAP_USER" \
   --data-urlencode "ClientIp=$NAMECHEAP_CLIENT_IP" \
   --data-urlencode "Command=namecheap.domains.dns.setCustom" \
@@ -174,9 +176,8 @@ fi
 Verification (may show the old NS for a few minutes):
 
 ```bash
-curl -s \
+printf 'data-urlencode = "ApiKey=%s"\n' "$NAMECHEAP_API_KEY" | curl -s --config - \
   --data-urlencode "ApiUser=$NAMECHEAP_USER" \
-  --data-urlencode "ApiKey=$NAMECHEAP_API_KEY" \
   --data-urlencode "UserName=$NAMECHEAP_USER" \
   --data-urlencode "ClientIp=$NAMECHEAP_CLIENT_IP" \
   --data-urlencode "Command=namecheap.domains.dns.getList" \

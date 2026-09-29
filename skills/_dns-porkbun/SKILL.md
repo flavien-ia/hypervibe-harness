@@ -41,9 +41,11 @@ VAULT="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs"
 export PORKBUN_API_KEY=$(node "$VAULT" get PORKBUN api_key 2>/dev/null)
 export PORKBUN_SECRET_KEY=$(node "$VAULT" get PORKBUN secret_key 2>/dev/null)
 if [ -n "$PORKBUN_API_KEY" ] && [ -n "$PORKBUN_SECRET_KEY" ]; then
-  RESP=$(curl -s -X POST "https://api.porkbun.com/api/json/v3/ping" \
+  # The two keys go in the body, which curl reads on its standard input: never in its arguments.
+  RESP=$(printf '{"apikey":"%s","secretapikey":"%s"}' "$PORKBUN_API_KEY" "$PORKBUN_SECRET_KEY" \
+    | curl -s -X POST "https://api.porkbun.com/api/json/v3/ping" \
     -H "Content-Type: application/json" \
-    -d "{\"apikey\":\"$PORKBUN_API_KEY\",\"secretapikey\":\"$PORKBUN_SECRET_KEY\"}")
+    --data-binary @-)
   echo "$RESP" | grep -q '"status":"SUCCESS"' && echo "VALID" || echo "INVALID"
 fi
 ```
@@ -114,13 +116,10 @@ Content-Type: application/json
 Command:
 
 ```bash
-RESP=$(curl -s -X POST "https://api.porkbun.com/api/json/v3/domain/updateNs/<domain>" \
+RESP=$(printf '{"apikey":"%s","secretapikey":"%s","ns":["<ns1_cloudflare>","<ns2_cloudflare>"]}' "$PORKBUN_API_KEY" "$PORKBUN_SECRET_KEY" \
+  | curl -s -X POST "https://api.porkbun.com/api/json/v3/domain/updateNs/<domain>" \
   -H "Content-Type: application/json" \
-  -d "{
-    \"apikey\":\"$PORKBUN_API_KEY\",
-    \"secretapikey\":\"$PORKBUN_SECRET_KEY\",
-    \"ns\":[\"<ns1_cloudflare>\",\"<ns2_cloudflare>\"]
-  }")
+  --data-binary @-)
 echo "$RESP"
 ```
 
@@ -132,9 +131,10 @@ echo "$RESP"
 Verification:
 
 ```bash
-curl -s -X POST "https://api.porkbun.com/api/json/v3/domain/getNs/<domain>" \
+printf '{"apikey":"%s","secretapikey":"%s"}' "$PORKBUN_API_KEY" "$PORKBUN_SECRET_KEY" \
+  | curl -s -X POST "https://api.porkbun.com/api/json/v3/domain/getNs/<domain>" \
   -H "Content-Type: application/json" \
-  -d "{\"apikey\":\"$PORKBUN_API_KEY\",\"secretapikey\":\"$PORKBUN_SECRET_KEY\"}"
+  --data-binary @-
 ```
 
 Must return `{"status":"SUCCESS","ns":["<ns1>","<ns2>"]}`.

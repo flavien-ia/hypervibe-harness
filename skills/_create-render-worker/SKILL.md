@@ -285,19 +285,19 @@ Tell the user:
 Read the Render key from the vault, then list the services:
 ```bash
 K=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RENDER api_key)
-curl -s -H "Authorization: Bearer $K" "https://api.render.com/v1/services?limit=50"
+printf 'header = "Authorization: Bearer %s"\n' "$K" | curl -s --config - "https://api.render.com/v1/services?limit=50"
 ```
 
 The response is an array of `{ service: {...} }`. Find the object whose `service.name` == `<project-name>-worker` and read `service.id` plus its deployment state (the `serviceDetails`/`suspended` field, or via the latest deploy below).
 
 Check the latest deployment of this service:
 ```bash
-curl -s -H "Authorization: Bearer $K" "https://api.render.com/v1/services/<service-id>/deploys?limit=1"
+printf 'header = "Authorization: Bearer %s"\n' "$K" | curl -s --config - "https://api.render.com/v1/services/<service-id>/deploys?limit=1"
 ```
 `deploy.status` = `live` → all good. If `build_failed` / `update_failed` / `canceled`, fetch the logs to debug:
 ```bash
-OWNER=$(curl -s -H "Authorization: Bearer $K" "https://api.render.com/v1/owners?limit=1")   # read [0].owner.id
-curl -s -H "Authorization: Bearer $K" "https://api.render.com/v1/logs?ownerId=<owner-id>&resource=<service-id>&limit=50"
+OWNER=$(printf 'header = "Authorization: Bearer %s"\n' "$K" | curl -s --config - "https://api.render.com/v1/owners?limit=1")   # read [0].owner.id
+printf 'header = "Authorization: Bearer %s"\n' "$K" | curl -s --config - "https://api.render.com/v1/logs?ownerId=<owner-id>&resource=<service-id>&limit=50"
 ```
 The `logs[]` response has `{ timestamp, message, labels }`. Help the user debug from there.
 

@@ -156,13 +156,18 @@ The allowlists come first and the framing second, on purpose: framing
 Global keys live in a Bitwarden vault, and are typed into an OS window that the
 assistant never sees. They are never printed in the chat, never committed, never
 written to a file. Project secrets stay in the project's `.env` and in Vercel.
-A secret the plugin writes (a generated key, a key typed into the masked
-window, a connection string) goes from command to command on the standard
-input: never on a command line, where anything running on the machine can read
-it, and never through the conversation. Until 3.3.3 four setup scripts, the
-OpenRouter key and a few skills broke that line, and until 3.3.5 two scripts
-still handed the Cloudflare token to curl as an argument; a recette now reads
-the scripts and the commands the skills give for it.
+A secret the plugin writes or sends (a generated key, a key typed into the
+masked window, a connection string, the key an API call carries) goes from
+command to command on the standard input: never on a command line, where
+anything running on the machine can read it, and never through the
+conversation. curl gets its key as a config line on its standard input
+(`printf 'header = ...' | curl --config -`), and the Vercel CLI of a workflow
+from its environment. Until 3.3.3 four setup scripts, the OpenRouter key and a
+few skills broke that line; until 3.3.5 two scripts still handed the Cloudflare
+token to curl as an argument, and until 3.3.6 the skills' own commands did the
+same through a shell variable, which the shell expands before curl starts. A
+recette now reads every command the plugin ships (skills, scripts, templates),
+shell variables included.
 A global git hook (gitleaks, installed by `/start`) blocks any commit containing
 a detected secret. The same global hooks can hand over to a repository's own
 `.hooks/pre-commit` and `.hooks/pre-push` (that is how the recette installed by

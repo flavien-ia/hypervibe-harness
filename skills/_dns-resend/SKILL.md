@@ -52,8 +52,8 @@ Specific to **Resend**: if `email_provider !== "resend"` → abort (the calling 
 ## Step 2 - Create the domain in Resend (API)
 
 ```bash
-curl -s -X POST "https://api.resend.com/domains" \
-  -H "Authorization: Bearer $RTOK" -H "Content-Type: application/json" \
+printf 'header = "Authorization: Bearer %s"\n' "$RTOK" | curl -s --config - -X POST "https://api.resend.com/domains" \
+ -H "Content-Type: application/json" \
   -d '{"name":"<domain>","region":"eu-west-1"}'
 ```
 (Default region `eu-west-1` for FR/EU; otherwise `us-east-1`, `sa-east-1`, `ap-northeast-1`.)
@@ -70,7 +70,7 @@ Extract and store these records.
 
 ### 3.a - Zone ID
 ```bash
-ZONE_ID=$(curl -s -H "Authorization: Bearer $CFTOK" \
+ZONE_ID=$(printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones?name=<domain>" \
   | node -e "const d=JSON.parse(require('fs').readFileSync(0,'utf8')); console.log(d.result?.[0]?.id || '');")
 ```
@@ -80,13 +80,13 @@ Empty → error (the zone must exist, `/add-domain` created it). Abort.
 
 **TXT** (SPF, DKIM):
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CFTOK" -H "Content-Type: application/json" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST -H "Content-Type: application/json" \
   -d "{\"type\":\"TXT\",\"name\":\"<name>\",\"content\":\"<value>\",\"ttl\":3600,\"proxied\":false}" \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records"
 ```
 **MX** (bounce):
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CFTOK" -H "Content-Type: application/json" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST -H "Content-Type: application/json" \
   -d "{\"type\":\"MX\",\"name\":\"<name>\",\"content\":\"<value>\",\"priority\":<priority>,\"ttl\":3600,\"proxied\":false}" \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records"
 ```
@@ -98,11 +98,11 @@ curl -s -X POST -H "Authorization: Bearer $CFTOK" -H "Content-Type: application/
 
 Wait ~15 s (DNS propagation), then:
 ```bash
-curl -s -X POST "https://api.resend.com/domains/<id>/verify" -H "Authorization: Bearer $RTOK"
+printf 'header = "Authorization: Bearer %s"\n' "$RTOK" | curl -s --config - -X POST "https://api.resend.com/domains/<id>/verify"
 ```
 Poll the status:
 ```bash
-curl -s "https://api.resend.com/domains/<id>" -H "Authorization: Bearer $RTOK" \
+printf 'header = "Authorization: Bearer %s"\n' "$RTOK" | curl -s --config - "https://api.resend.com/domains/<id>" \
   | node -e "console.log(JSON.parse(require('fs').readFileSync(0,'utf8')).status)"
 ```
 `status` must change to `verified`. If `pending` → wait 30 s, retry up to 3 times. Still pending:

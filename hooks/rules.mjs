@@ -1073,14 +1073,97 @@ export const MANAGED_API_HOSTS = [
 // branch): elsewhere the plugin's skills PUT to create (a site in Search Console, a sender).
 const OVERWRITING_API_HOSTS = ["console.neon.tech", "api.vercel.com", "api.cloudflare.com"];
 
+// curl's short options that take a value, attached (`-XDELETE`) or in the next word.
+const CURL_VALUED = "AbcCdDEeFHKmoPQrTtuUwXxyYz";
+
+/** What printf prints: its format filled with its arguments, and reused while arguments remain
+ *  (bounded), as the shell's printf does. */
+function printfFilled(args) {
+  const [format = "", ...values] = args;
+  const spec = /%(%|[-+ #0-9.*]*[a-zA-Z])/g;
+  const takes = [...format.matchAll(spec)].some((m) => m[1] !== "%");
+  let v = 0;
+  let out = "";
+  for (let round = 0; round < 64; round += 1) {
+    out += format.replace(spec, (m, s) => (s === "%" ? "%" : (values[v++] ?? "")));
+    if (!takes || v >= values.length) break;
+  }
+  return escapesOf(out);
+}
+
+/** What segment `k` reads on its standard input, when the command line says it: a heredoc,
+ *  a here-string, or what the segment piped into it prints (a printf read both filled and as
+ *  written). null otherwise: a file or a program is not read. */
+function fedInput(parts, k) {
+  const part = parts[k];
+  if (!part) return null;
+  if (part.stdin.length) return part.stdin.join("\n");
+  if (!part.piped) return null;
+  const printed = producedBy(parts, k - 1);
+  if (printed === null) return null;
+  const before = words(normalise(parts[k - 1].text).seg);
+  if (before[0]?.value !== "printf") return printed;
+  const args = operandsOf(before.slice(1)).map((w) => w.value);
+  if (args[0] === "--") args.shift();
+  return `${printfFilled(args)}\n${printed}`;
+}
+
+/** The methods a curl config sets, one option per line as curl reads it: `request = "DELETE"`,
+ *  `request: PUT`, `--request PATCH`, `-X DELETE`, grouped (`-sXDELETE`). */
+function configMethods(config) {
+  const out = [];
+  for (const line of config.split("\n")) {
+    const m =
+      /^\s*(?:--)?request\b\s*[=:]?\s*["']?([A-Za-z]+)/.exec(line) ??
+      /^\s*-[A-Za-z]*X\s*["']?([A-Za-z]+)/.exec(line);
+    if (m) out.push(m[1]);
+  }
+  return out;
+}
+
 /** A raw curl that destroys at a managed API (DELETE), or overwrites where that can lose
- *  data or take a site down (PUT, PATCH). */
-function destructiveApiCall(seg) {
+ *  data or take a site down (PUT, PATCH). Its options are read as curl reads them, grouped
+ *  short ones included (`-sX DELETE`, `-sXDELETE`), and so is a config it takes on its
+ *  standard input when the command line says what it is (`printf '...' | curl --config -`, a
+ *  heredoc): that is how the plugin's skills give curl a key off the command line, and a
+ *  method or an address can ride in it just the same (outside review, 3.3.6). A config read
+ *  from a file is not read, like a script file: this guard reads commands, not files. */
+function destructiveApiCall(seg, parts = [], k = -1) {
   if (!/^curl\s/.test(seg)) return false;
-  const method = /(?:-X|--request)[\s=]*["']?(DELETE|PATCH|PUT)\b/i.exec(seg)?.[1]?.toUpperCase();
+  const list = operandsOf(words(seg).slice(1)).map((w) => w.value);
+  const methods = [];
+  let configFromInput = false;
+  for (let w = 0; w < list.length; w += 1) {
+    const v = list[w];
+    const long = /^--(request|config)(?:=(.*))?$/.exec(v);
+    if (long) {
+      const value = long[2] ?? list[++w] ?? "";
+      if (long[1] === "request") methods.push(value);
+      else if (FROM_STDIN.test(value)) configFromInput = true;
+      continue;
+    }
+    if (!/^-[^-]/.test(v)) continue;
+    for (let c = 1; c < v.length; c += 1) {
+      if (!CURL_VALUED.includes(v[c])) continue;
+      const value = c + 1 < v.length ? v.slice(c + 1) : (list[++w] ?? "");
+      if (v[c] === "X") methods.push(value);
+      if (v[c] === "K" && FROM_STDIN.test(value)) configFromInput = true;
+      break;
+    }
+  }
+  let text = seg;
+  const config = configFromInput ? fedInput(parts, k) : null;
+  if (config !== null) {
+    text += `\n${config}`;
+    methods.push(...configMethods(config));
+  }
+  // As written anywhere on the line too, as before: reading more can only ask more.
+  const written = /(?:-X|--request)[\s=]*["']?(DELETE|PATCH|PUT)\b/i.exec(text)?.[1];
+  if (written) methods.push(written);
+  const method = ["DELETE", "PATCH", "PUT"].find((m) => methods.some((x) => x.toUpperCase() === m));
   if (!method) return false;
   const hosts = method === "DELETE" ? MANAGED_API_HOSTS : OVERWRITING_API_HOSTS;
-  return hosts.some((host) => new RegExp(`https?://${host.replace(/\./g, "\\.")}(?=[/:?"'\\s]|$)`, "i").test(seg));
+  return hosts.some((host) => new RegExp(`https?://${host.replace(/\./g, "\\.")}(?=[/:?"'\\s]|$)`, "i").test(text));
 }
 
 /** The SQL a run-sql.mjs call is about to run, read as the script reads its arguments: the
@@ -1329,7 +1412,7 @@ export function decide(command, inherited = new Map()) {
     //     alone, now every management API the plugin's own scripts call (outside review,
     //     3.2.5: a Vercel project and a Cloudflare DNS record went unasked). Reads (GET) and
     //     creations (POST) pass.
-    if (destructiveApiCall(seg)) {
+    if (destructiveApiCall(seg, parts, index)) {
       keep(
         ASK,
         "This call deletes or rewrites something at a provider the plugin manages (a project, a database and its data, a DNS record, a key in service). Say exactly what is targeted, by name, and confirm with the user. Prefer the plugin's scripts, which check the provider's answers.",

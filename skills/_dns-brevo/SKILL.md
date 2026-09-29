@@ -55,8 +55,8 @@ This skill is specific to **Brevo**. If `email_ok = false` OR `email_provider !=
 ## Step 2 - Create the domain in Brevo (REST API)
 
 ```bash
-curl -s -X POST "https://api.brevo.com/v3/senders/domains" \
-  -H "api-key: $BTOK" -H "Content-Type: application/json" \
+printf 'header = "api-key: %s"\n' "$BTOK" | curl -s --config - -X POST "https://api.brevo.com/v3/senders/domains" \
+ -H "Content-Type: application/json" \
   -d '{"name":"<domain>"}'
 ```
 
@@ -76,7 +76,7 @@ The Cloudflare token (`$CFTOK`) comes from the vault (Preamble above).
 ### 3.a - Get the zone ID
 
 ```bash
-ZONE_ID=$(curl -s -H "Authorization: Bearer $CFTOK" \
+ZONE_ID=$(printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones?name=<domain>" \
   | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.[0]?.id || '');")
 ```
@@ -88,7 +88,7 @@ If `ZONE_ID` is empty -> abort (the zone must exist, `/add-domain` created it ju
 For each of the three records (`brevo_code`, `dkim_record`, `dmarc_record`), set `name` to its `host_name` (use the domain root `<domain>` when `host_name` is `@`, otherwise `<host_name>.<domain>`) and `content` to its `value`:
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CFTOK" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST \
   -H "Content-Type: application/json" \
   -d "{\"type\":\"TXT\",\"name\":\"<name>\",\"content\":\"<value>\",\"ttl\":3600,\"proxied\":false}" \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records"
@@ -103,8 +103,8 @@ curl -s -X POST -H "Authorization: Bearer $CFTOK" \
 Wait ~15 seconds to give the DNS time to propagate, then ask Brevo to verify:
 
 ```bash
-curl -s -X PUT "https://api.brevo.com/v3/senders/domains/<domain>/authenticate" \
-  -H "api-key: $BTOK"
+printf 'header = "api-key: %s"\n' "$BTOK" | curl -s --config - -X PUT "https://api.brevo.com/v3/senders/domains/<domain>/authenticate" \
+
 ```
 
 If the verification fails (DNS not yet propagated):

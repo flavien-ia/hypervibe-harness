@@ -123,7 +123,7 @@ List the projects via the **Neon REST API** (key `NEON.api_key` from the vault) 
 ```bash
 NTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON api_key)
 NORG=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON org_id 2>/dev/null)
-curl -s -H "Authorization: Bearer $NTOK" "https://console.neon.tech/api/v2/projects?limit=400${NORG:+&org_id=$NORG}"
+printf 'header = "Authorization: Bearer %s"\n' "$NTOK" | curl -s --config - "https://console.neon.tech/api/v2/projects?limit=400${NORG:+&org_id=$NORG}"
 ```
 (`_get-secret` pattern for `NTOK`: RC 2/3 → unlock; RC 4 → add `NEON` to the vault.)
 
@@ -313,7 +313,7 @@ The registration output already confirms `deployed: true` and gives `workerUrl`.
 
 ```bash
 ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN)
-curl -s -X POST -H "Authorization: Bearer $ADMIN" "<workerUrl>/trigger?name=neon-backups"
+printf 'header = "Authorization: Bearer %s"\n' "$ADMIN" | curl -s --config - -X POST "<workerUrl>/trigger?name=neon-backups"
 ```
 
 To watch it run live:

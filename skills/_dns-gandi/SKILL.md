@@ -35,8 +35,7 @@ The PAT lives in the **vault** (item `GANDI`, field `api_token`). First make sur
 ```bash
 VAULT="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs"
 export GANDI_API_TOKEN=$(node "$VAULT" get GANDI api_token 2>/dev/null)
-[ -n "$GANDI_API_TOKEN" ] && curl -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $GANDI_API_TOKEN" \
+[ -n "$GANDI_API_TOKEN" ] && printf 'header = "Authorization: Bearer %s"\n' "$GANDI_API_TOKEN" | curl -s --config - -o /dev/null -w "%{http_code}" \
   https://api.gandi.net/v5/organization/user-info
 ```
 
@@ -71,8 +70,7 @@ Then load it into the session and validate it without logging it:
 
 ```bash
 export GANDI_API_TOKEN=$(node "$VAULT" get GANDI api_token)
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $GANDI_API_TOKEN" \
+HTTP=$(printf 'header = "Authorization: Bearer %s"\n' "$GANDI_API_TOKEN" | curl -s --config - -o /dev/null -w "%{http_code}" \
   https://api.gandi.net/v5/organization/user-info)
 [ "$HTTP" = "200" ] && echo "VALID" || echo "INVALID (HTTP $HTTP)"
 ```
@@ -95,8 +93,7 @@ Content-Type: application/json
 Exact command:
 
 ```bash
-curl -s -X PUT \
-  -H "Authorization: Bearer $GANDI_API_TOKEN" \
+printf 'header = "Authorization: Bearer %s"\n' "$GANDI_API_TOKEN" | curl -s --config - -X PUT \
   -H "Content-Type: application/json" \
   -d "{\"nameservers\":[\"<ns1_cloudflare>\",\"<ns2_cloudflare>\"]}" \
   -w "\nHTTP:%{http_code}\n" \
@@ -113,7 +110,7 @@ curl -s -X PUT \
 Verify success:
 
 ```bash
-curl -s -H "Authorization: Bearer $GANDI_API_TOKEN" \
+printf 'header = "Authorization: Bearer %s"\n' "$GANDI_API_TOKEN" | curl -s --config - \
   "https://api.gandi.net/v5/domain/domains/<domain>" \
   | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.nameservers || d);"
 ```

@@ -63,7 +63,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --na
 
 ```bash
 K=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RENDER api_key)
-curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $K" "https://api.render.com/v1/owners?limit=1"
+printf 'header = "Authorization: Bearer %s"\n' "$K" | curl -s --config - -o /dev/null -w "%{http_code}\n" "https://api.render.com/v1/owners?limit=1"
 ```
 
 Expected: `200`. If `401`, the key is wrong → ask the user again. Otherwise, say:

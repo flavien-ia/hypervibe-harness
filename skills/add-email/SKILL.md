@@ -296,7 +296,7 @@ Extract the domain. Check it is not already verified (Resend API, key from the v
 
 ```bash
 RTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RESEND api_key)
-curl -s "https://api.resend.com/domains" -H "Authorization: Bearer $RTOK"
+printf 'header = "Authorization: Bearer %s"\n' "$RTOK" | curl -s --config - "https://api.resend.com/domains"
 ```
 
 If the domain is there with `status == "verified"` then go to Case 3. Otherwise check Cloudflare:
@@ -309,7 +309,7 @@ cf_ok=$(echo "$result" | node -e "console.log(JSON.parse(require('fs').readFileS
 If `cf_ok = true`, check that the domain is in a CF zone:
 
 ```bash
-curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones?name=<domain>" \
   | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.[0]?.id ? 'EXISTS' : 'NOT_FOUND');"
 ```

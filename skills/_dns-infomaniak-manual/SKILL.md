@@ -92,8 +92,7 @@ Then load it and validate it:
 
 ```bash
 export INFOMANIAK_API_TOKEN=$(node "$VAULT" get INFOMANIAK api_token)
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "Authorization: Bearer $INFOMANIAK_API_TOKEN" \
+HTTP=$(printf 'header = "Authorization: Bearer %s"\n' "$INFOMANIAK_API_TOKEN" | curl -s --config - -o /dev/null -w "%{http_code}" \
   "https://api.infomaniak.com/1/profile")
 [ "$HTTP" = "200" ] && echo "VALID" || echo "INVALID (HTTP $HTTP)"
 ```

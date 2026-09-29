@@ -82,8 +82,8 @@ If a Neon database is present, read the key from the vault (`_get-secret`, item 
 # List the projects, then read each one individually: the list endpoint does NOT
 # carry the consumption counters, only the per-project endpoint does.
 NORG=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get NEON org_id 2>/dev/null)
-curl -s "https://console.neon.tech/api/v2/projects?limit=400${NORG:+&org_id=$NORG}" -H "Authorization: Bearer $KEY"
-curl -s "https://console.neon.tech/api/v2/projects/<id>" -H "Authorization: Bearer $KEY"
+printf 'header = "Authorization: Bearer %s"\n' "$KEY" | curl -s --config - "https://console.neon.tech/api/v2/projects?limit=400${NORG:+&org_id=$NORG}"
+printf 'header = "Authorization: Bearer %s"\n' "$KEY" | curl -s --config - "https://console.neon.tech/api/v2/projects/<id>"
 ```
 
 For each project, the fields that matter are `data_transfer_bytes` (egress), `compute_time_seconds`, `active_time_seconds` and `consumption_period_start`/`_end`.

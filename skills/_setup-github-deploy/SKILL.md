@@ -141,8 +141,12 @@ jobs:
 
       - name: Deploy preview
         id: deploy
+        # The CLI reads its token from VERCEL_TOKEN: never --token on its command line,
+        # where the runner's process list shows it.
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
-          url=$(vercel deploy --token=${{ secrets.VERCEL_TOKEN }} --yes)
+          url=$(vercel deploy --yes)
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
       - name: Comment deploy URL on commit
@@ -166,7 +170,9 @@ jobs:
         run: npm install -g vercel
 
       - name: Deploy production
-        run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --yes
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prod --yes
 ```
 
 > **Note:** if the production branch is not `main`, replace `main` with the correct branch name throughout.

@@ -500,6 +500,27 @@ expect('curl -s -X PUT "https://www.googleapis.com/webmasters/v3/sites/sc-domain
 expect("curl -s -X PUT https://api.brevo.com/v3/senders/domains/exemple.fr/authenticate", "pass");
 expect("curl -s -X DELETE https://api.exemple.fr/v1/choses/3", "pass");
 expect("curl -s -X DELETE https://api.vercel.com.exemple.fr/v9/projects/x", "pass");
+// La forme des skills depuis 3.3.7 : la cle arrive a curl sur son entree standard. La methode et
+// l'adresse restent lues, et ce qui voyage dans cette configuration l'est aussi (revue externe, 3.3.6).
+expect(`printf 'header = "Authorization: Bearer %s"\\n' "$K" | curl -sf --config - -X DELETE https://console.neon.tech/api/v2/projects/p/branches/b`, "ask");
+expect(`CFTOK=$(node vault.mjs get CLOUDFLARE api_token) && printf 'header = "Authorization: Bearer %s"\\n' "$CFTOK" | curl -s --config - -X DELETE \\\n  "https://api.cloudflare.com/client/v4/zones/$Z/dns_records/$RID"`, "ask");
+expect(`printf 'header = "Authorization: Bearer %s"\\n' "$K" | curl -s --config - https://console.neon.tech/api/v2/projects`, "pass");
+expect(`printf 'header = "Authorization: Bearer %s"\\n' "$TOK" | curl -s --config - -X PUT "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3Aexemple.fr"`, "pass");
+expect(`printf 'request = "DELETE"\\n' | curl -s --config - https://api.vercel.com/v9/projects/prj_1`, "ask");
+expect(`printf 'header = "Authorization: Bearer %s"\\nurl = "https://api.vercel.com/v9/projects/prj_1"\\nrequest = "DELETE"\\n' "$VT" | curl -s -K -`, "ask");
+expect(`printf 'request = "%s"\\n' DELETE | curl --config - https://api.vercel.com/v9/projects/prj_1`, "ask");
+expect(`echo '-X DELETE' | curl -s -K - https://api.vercel.com/v9/projects/prj_1`, "ask");
+expect("curl -s --config - https://api.vercel.com/v9/projects/prj_1 <<'EOF'\nrequest: DELETE\nEOF", "ask");
+expect(`curl -s -K - https://api.vercel.com/v9/projects/prj_1 <<< 'request = "DELETE"'`, "ask");
+expect(`printf 'header = "Authorization: Bearer %s"\\n' "$VT" | curl -s --config - -X POST https://api.vercel.com/v10/projects`, "pass");
+// Les options groupees, lues comme curl les lit.
+expect("curl -sX DELETE https://api.vercel.com/v9/projects/prj_1", "ask");
+expect("curl -sXDELETE https://api.vercel.com/v9/projects/prj_1", "ask");
+expect("curl -fsSX PATCH https://api.vercel.com/v9/projects/prj_1 -d '{}'", "ask");
+expect("curl --request=DELETE https://api.vercel.com/v9/projects/prj_1", "ask");
+expect("curl -sH 'Accept: application/json' https://api.vercel.com/v9/projects", "pass");
+// Une configuration lue dans un fichier ne l'est pas, comme un script : la frontiere est choisie.
+expect("curl -s -K ./requete.cfg https://api.vercel.com/v9/projects/prj_1", "pass");
 {
   // La regle couvre toutes les API de gestion que les scripts de ce harnais appellent : un
   // fournisseur ajoute a un script sans l'etre a la regle casse cette verification, au lieu de

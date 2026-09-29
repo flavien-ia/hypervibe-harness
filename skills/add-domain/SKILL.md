@@ -132,7 +132,7 @@ Once the user has run `/start`, re-invoke `_check-deps cloudflare` to confirm. O
 ### 5.a - Check whether the zone already exists
 
 ```bash
-ZONE_RESPONSE=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+ZONE_RESPONSE=$(printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones?name=<domain>")
 ZONE_ID=$(echo "$ZONE_RESPONSE" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.[0]?.id || '');")
 ```
@@ -142,11 +142,11 @@ ZONE_ID=$(echo "$ZONE_RESPONSE" | node -e "const d = JSON.parse(require('fs').re
 Retrieve the `account_id` then POST the zone:
 
 ```bash
-ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+ACCOUNT_ID=$(printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/accounts" \
   | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.[0]?.id || '');")
 
-CREATE_RESPONSE=$(curl -s -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+CREATE_RESPONSE=$(printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - -X POST \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"<domain>\",\"account\":{\"id\":\"$ACCOUNT_ID\"},\"type\":\"full\"}" \
   "https://api.cloudflare.com/client/v4/zones")
@@ -157,7 +157,7 @@ ZONE_ID=$(echo "$CREATE_RESPONSE" | node -e "const d = JSON.parse(require('fs').
 ### 5.c - Retrieve the assigned nameservers
 
 ```bash
-NS_INFO=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+NS_INFO=$(printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID")
 NS1=$(echo "$NS_INFO" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.name_servers?.[0] || '');")
 NS2=$(echo "$NS_INFO" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.name_servers?.[1] || '');")
@@ -209,7 +209,7 @@ Use the Cloudflare REST API via curl - `ZONE_ID` was stored in Step 5.
 
 ```bash
 # List all the records in the zone
-RECORDS=$(curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+RECORDS=$(printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?per_page=100")
 
 # Extract the IDs of the records to delete (A on @ and CNAME on www.<domain>)
@@ -222,7 +222,7 @@ const toDelete = d.result.filter(r =>
 );
 for (const r of toDelete) console.log(r.id);
 " | while read RID; do
-  curl -s -X DELETE -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - -X DELETE \
     "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RID"
 done
 ```
@@ -231,13 +231,13 @@ done
 
 ```bash
 # A record: @ -> 76.76.21.21 (apex, proxy off)
-curl -s -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - -X POST \
   -H "Content-Type: application/json" \
   -d "{\"type\":\"A\",\"name\":\"<domain>\",\"content\":\"76.76.21.21\",\"ttl\":3600,\"proxied\":false}" \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records"
 
 # CNAME record: www -> cname.vercel-dns.com (proxy off)
-curl -s -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - -X POST \
   -H "Content-Type: application/json" \
   -d "{\"type\":\"CNAME\",\"name\":\"www\",\"content\":\"cname.vercel-dns.com\",\"ttl\":3600,\"proxied\":false}" \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records"
@@ -248,9 +248,9 @@ curl -s -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
 ### 7.c - Check that the records are in place
 
 ```bash
-curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=<domain>"
-curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+printf 'header = "Authorization: Bearer %s"\n' "$CLOUDFLARE_API_TOKEN" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=www.<domain>"
 ```
 

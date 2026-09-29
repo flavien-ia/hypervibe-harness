@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.3.7 (29 septembre 2026)
+
+### Améliorations
+- **Clés de vos services** : les commandes que Claude lance pour parler à Cloudflare, Google Search Console, Brevo, Resend, Neon, Render et aux registrars de domaines ne mettent plus la clé dans la ligne de commande de `curl`, où tout programme de la machine pouvait la lire. La clé passe par l'entrée standard, comme le faisait déjà `/rotate-secret`. Cela touche notamment `/add-domain`, `/start`, `/gsc`, `/new-email-address` et `/quotas`.
+- **Mise en ligne par GitHub** : le jeton Vercel arrive à l'outil de mise en ligne par son environnement, et plus par sa ligne de commande.
+- **Garde-fou** : un appel qui supprime ou réécrit chez un fournisseur reste repéré sous la nouvelle forme, y compris quand la méthode voyage avec la clé, et les options groupées comme `-sX DELETE` sont lues comme curl les lit.
+- **Migration de l'horloge partagée** : les commandes de vérification qu'elle affiche ne mettent plus le jeton d'administration en argument, et la valeur à renvoyer est lue dans le `.env` du projet au lieu d'être recopiée.
+
+### Coulisses
+- La recette lit maintenant toutes les commandes du plugin (skills, scripts, gabarits), variables du shell comprises. Elle trouve 83 commandes dans la 3.3.6 et aucune dans la 3.3.7.
+- Correctifs issus d'une relecture extérieure de la 3.3.6.
+
 ## v3.3.6 (28 septembre 2026)
 
 ### Améliorations

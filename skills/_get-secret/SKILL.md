@@ -57,8 +57,10 @@ LAUNCH="${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs"
 VAULT="${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs"
 VAL=$(node "$VAULT" get CLOUDFLARE api_token); RC=$?
 if [ $RC -eq 0 ]; then
-  # Use $VAL directly, here, without ever displaying it:
-  curl -s -H "Authorization: Bearer $VAL" https://api.cloudflare.com/client/v4/...
+  # Use $VAL directly, here, without ever displaying it, and never as an argument: the shell
+  # expands a variable BEFORE curl starts, so -H "...$VAL" would put the key in curl's arguments,
+  # readable by anything running on the machine. curl reads it on its standard input:
+  printf 'header = "Authorization: Bearer %s"\n' "$VAL" | curl -s --config - https://api.cloudflare.com/client/v4/...
 fi
 echo "rc=$RC"   # log ONLY the code, never $VAL
 ```

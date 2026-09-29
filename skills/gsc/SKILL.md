@@ -96,7 +96,7 @@ The service account has the full scope (read + write + verification) -> the whol
 
 List the visible properties:
 ```bash
-curl -s -H "Authorization: Bearer $TOK" "https://www.googleapis.com/webmasters/v3/sites"
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - "https://www.googleapis.com/webmasters/v3/sites"
 ```
 Returns `siteEntry[]` (`siteUrl` + `permissionLevel`).
 
@@ -112,8 +112,8 @@ Briefly explain (Domain = covers the whole site, verified by DNS) then launch th
 
 **(a) Get the DNS verification token**:
 ```bash
-curl -s -X POST "https://www.googleapis.com/siteVerification/v1/token" \
-  -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - -X POST "https://www.googleapis.com/siteVerification/v1/token" \
+ -H "Content-Type: application/json" \
   -d '{"site":{"type":"INET_DOMAIN","identifier":"<domain>"},"verificationMethod":"DNS_TXT"}'
 ```
 -> returns `{"token":"google-site-verification=XXXX"}`. This is the value to place in a root TXT.
@@ -122,15 +122,15 @@ curl -s -X POST "https://www.googleapis.com/siteVerification/v1/token" \
 
 **(c) Verify ownership** (once the TXT has propagated), while also delegating access to the human via `owners`:
 ```bash
-curl -s -X POST "https://www.googleapis.com/siteVerification/v1/webResource?verificationMethod=DNS_TXT" \
-  -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - -X POST "https://www.googleapis.com/siteVerification/v1/webResource?verificationMethod=DNS_TXT" \
+ -H "Content-Type: application/json" \
   -d '{"site":{"type":"INET_DOMAIN","identifier":"<domain>"},"owners":["<user_google_email>"]}'
 ```
 Ask the user for their Google address (the one for their Search Console) for the `owners` - this guarantees them access in the GSC UI in addition to the service account.
 
 **(d) Add the property in GSC** (after successful verification):
 ```bash
-curl -s -X PUT "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3A<domain>" -H "Authorization: Bearer $TOK"
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - -X PUT "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3A<domain>"
 ```
 Mandatory order: (a) token -> (b) TXT -> (c) verify -> (d) add (otherwise 403).
 
@@ -146,9 +146,9 @@ The domain is managed by Cloudflare (after `/add-domain`). Cloudflare token from
 ```bash
 CFTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get CLOUDFLARE api_token); RC=$?
 # RC=2/3 -> unlock ; RC=4 -> the Cloudflare key is not in the vault (suggest launch.mjs add --name CLOUDFLARE --service Cloudflare --fields "api_token:secret")
-ZONE=$(curl -s -H "Authorization: Bearer $CFTOK" "https://api.cloudflare.com/client/v4/zones?name=<domain>" | python -c "import json,sys;z=json.load(sys.stdin)['result'];print(z[0]['id'] if z else '')")
-curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records" \
-  -H "Authorization: Bearer $CFTOK" -H "Content-Type: application/json" \
+ZONE=$(printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - "https://api.cloudflare.com/client/v4/zones?name=<domain>" | python -c "import json,sys;z=json.load(sys.stdin)['result'];print(z[0]['id'] if z else '')")
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records" \
+ -H "Content-Type: application/json" \
   -d '{"type":"TXT","name":"@","content":"google-site-verification=XXXX","ttl":300}'
 ```
 Show the user what is being added (TXT type, name @, value), noting that it changes nothing about the site.
@@ -173,12 +173,12 @@ Look for `src/app/sitemap.ts` (or `apps/web/src/app/sitemap.ts`). Absent -> tell
 ### 3.2 - Submit (PUT)
 ```bash
 SITE="sc-domain%3A<domain>"; FEED="https%3A%2F%2F<domain>%2Fsitemap.xml"
-curl -s -X PUT -H "Authorization: Bearer $TOK" "https://www.googleapis.com/webmasters/v3/sites/$SITE/sitemaps/$FEED"
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - -X PUT "https://www.googleapis.com/webmasters/v3/sites/$SITE/sitemaps/$FEED"
 ```
 
 ### 3.3 - Check the status
 ```bash
-curl -s -H "Authorization: Bearer $TOK" "https://www.googleapis.com/webmasters/v3/sites/$SITE/sitemaps"
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - "https://www.googleapis.com/webmasters/v3/sites/$SITE/sitemaps"
 ```
 > ✅ Sitemap submitted. Google will gradually visit each page. Status "pending" at first, that's normal.
 
@@ -194,8 +194,8 @@ If the property is new / "insufficient data": warn that it takes **2-3 days** fo
 ### 4.2 - Indexing coverage
 Inspect the key pages (from the sitemap) via the URL Inspection API:
 ```bash
-curl -s -X POST "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect" \
-  -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - -X POST "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect" \
+ -H "Content-Type: application/json" \
   -d '{"inspectionUrl":"https://<domain>/","siteUrl":"sc-domain:<domain>"}'
 ```
 (`siteUrl` raw in the body.) Iterate over the main URLs (quota ~2000/day, 600/min - sample if a large site, and flag it). Present:
@@ -207,8 +207,8 @@ curl -s -X POST "https://searchconsole.googleapis.com/v1/urlInspection/index:ins
 
 ### 4.3 - Performance (last 28 days)
 ```bash
-curl -s -X POST "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3A<domain>/searchAnalytics/query" \
-  -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" \
+printf 'header = "Authorization: Bearer %s"\n' "$TOK" | curl -s --config - -X POST "https://www.googleapis.com/webmasters/v3/sites/sc-domain%3A<domain>/searchAnalytics/query" \
+ -H "Content-Type: application/json" \
   -d '{"startDate":"<D-28>","endDate":"<D>","dimensions":["query"],"rowLimit":100}'
 ```
 (Redo with `"dimensions":["page"]` for the top pages; without `dimensions` for the aggregate.)

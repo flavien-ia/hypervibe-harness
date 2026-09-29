@@ -14,8 +14,10 @@
 // secret per project. Secret VALUES cannot be read back from Cloudflare, so
 // they are reported in `pingSecretsToReupload`: each value lives in the
 // matching project's .env (CRON_SECRET) and must be re-uploaded to the
-// unified worker (`cd ~/.hypervibe-jobs && printf '%s' "<value>" | npx
-// wrangler secret put CRON_SECRET_<PROJECT>`). Until then, those pings log
+// unified worker, read from that .env and never copied by hand (`V=$(node
+// scripts/env-value.mjs --project-dir <project> CRON_SECRET) && [ -n "$V" ] &&
+// printf '%s' "$V" | npx wrangler secret put CRON_SECRET_<PROJECT>` from
+// ~/.hypervibe-jobs). Until then, those pings log
 // "missing secret" and are skipped (no crash, no false ping).
 //
 // DECOMMISSION OF THE OLD WORKERS IS NOT DONE HERE. The output lists the
@@ -206,13 +208,13 @@ async function main() {
     missingSecrets,
     pingSecretsToReupload,
     pingSecretsNote: pingSecretsToReupload.length
-      ? "Secret values cannot be read back from Cloudflare. For each name listed, find the matching project's CRON_SECRET in its .env and upload it to the unified worker: cd ~/.hypervibe-jobs && printf '%s' \"<value>\" | npx wrangler secret put <NAME>. Until then those pings are skipped with a 'missing secret' log (harmless)."
+      ? "Secret values cannot be read back from Cloudflare. For each name listed, find the matching project's CRON_SECRET in its .env and upload it to the unified worker, read from that .env and never copied by hand: V=$(node <plugin>/scripts/env-value.mjs --project-dir <that project's folder> CRON_SECRET) && [ -n \"$V\" ] && cd ~/.hypervibe-jobs && printf '%s' \"$V\" | npx wrangler secret put <NAME>. Until then those pings are skipped with a 'missing secret' log (harmless)."
       : undefined,
     workerUrl,
     verification: [
       `ADMIN=$(node ../_read-user-env.mjs HYPERVIBE_JOBS_ADMIN_TOKEN)  # from the plugin scripts dir`,
-      `curl -s -X POST -H "Authorization: Bearer $ADMIN" "<workerUrl>/trigger?name=neon-backups"   # forces a snapshot run`,
-      `curl -s -X POST -H "Authorization: Bearer $ADMIN" "<workerUrl>/trigger?name=quota-monitor"  # forces a quota check`,
+      `printf 'header = "Authorization: Bearer %s"\\n' "$ADMIN" | curl -s -X POST --config - "<workerUrl>/trigger?name=neon-backups"   # forces a snapshot run (the token on curl's standard input)`,
+      `printf 'header = "Authorization: Bearer %s"\\n' "$ADMIN" | curl -s -X POST --config - "<workerUrl>/trigger?name=quota-monitor"  # forces a quota check`,
       `cd "${DIR}" && npx wrangler tail   # watch the runs live`,
     ],
     decommission_after_verification: decommission,

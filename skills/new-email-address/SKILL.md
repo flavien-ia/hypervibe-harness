@@ -59,7 +59,7 @@ Wait for the answer.
 ## Step 3 - Check the Cloudflare zone
 
 ```bash
-ZONE_RESPONSE=$(curl -s -H "Authorization: Bearer $CFTOK" \
+ZONE_RESPONSE=$(printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones?name=<domain>")
 ZONE_ID=$(echo "$ZONE_RESPONSE" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.[0]?.id || '');")
 ACCOUNT_ID=$(echo "$ZONE_RESPONSE" | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.[0]?.account?.id || '');")
@@ -78,7 +78,7 @@ Abort.
 Enabling is idempotent on Cloudflare's side: calling the endpoint even if it is already active does not break anything, but returns a different status. We capture it and move on.
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CFTOK" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/enable" > /dev/null
 ```
 
@@ -107,7 +107,7 @@ Use the argument directly as `<dest>` and move on to Step 7.
 ### 6.b - Otherwise: list the already verified destinations
 
 ```bash
-DESTS=$(curl -s -H "Authorization: Bearer $CFTOK" \
+DESTS=$(printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/email/routing/addresses")
 VERIFIED_LIST=$(echo "$DESTS" | node -e "
 const d = JSON.parse(require('fs').readFileSync(0, 'utf8'));
@@ -145,7 +145,7 @@ Re-check in `$DESTS` whether `<dest>` is present AND `verified` is not null.
 **Otherwise (new destination or unverified destination)**:
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CFTOK" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST \
   -H "Content-Type: application/json" \
   -d "{\"email\":\"<dest>\"}" \
   "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/email/routing/addresses"
@@ -164,7 +164,7 @@ Then:
 ### Literal rule (exact prefix)
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CFTOK" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST \
   -H "Content-Type: application/json" \
   -d "{\"enabled\":true,\"name\":\"Route <prefix> to <dest>\",\"matchers\":[{\"type\":\"literal\",\"field\":\"to\",\"value\":\"<prefix>@<domain>\"}],\"actions\":[{\"type\":\"forward\",\"value\":[\"<dest>\"]}]}" \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules"
@@ -173,7 +173,7 @@ curl -s -X POST -H "Authorization: Bearer $CFTOK" \
 ### Catch-all rule (if the user asked for `*`)
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CFTOK" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST \
   -H "Content-Type: application/json" \
   -d "{\"enabled\":true,\"name\":\"Catch-all to <dest>\",\"matchers\":[{\"type\":\"all\"}],\"actions\":[{\"type\":\"forward\",\"value\":[\"<dest>\"]}]}" \
   "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/email/routing/rules"

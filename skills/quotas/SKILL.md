@@ -126,20 +126,20 @@ If it does not, register it:
 1. **Recipient** = the Cloudflare account email:
    ```bash
    CFTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get CLOUDFLARE api_token)
-   curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user
+   printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - https://api.cloudflare.com/client/v4/user
    ```
    → take `result.email`.
 2. **Provider and sender** - the provider is the email key present in the vault (`RESEND` or `BREVO`, the one chosen during `/start`; both present → Brevo; none → skip the registration and show the "no email key" message below):
    - **Brevo** → the first verified sender:
      ```bash
      BREVO_API_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get BREVO api_key)
-     curl -s https://api.brevo.com/v3/senders -H "api-key: $BREVO_API_KEY"
+     printf 'header = "api-key: %s"\n' "$BREVO_API_KEY" | curl -s --config - https://api.brevo.com/v3/senders
      ```
      → take the first entry with `"active": true`. If there is none → skip the registration and show the "no verified sender" message below.
    - **Resend** → the first verified domain:
      ```bash
      RESEND_API_KEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RESEND api_key)
-     curl -s https://api.resend.com/domains -H "Authorization: Bearer $RESEND_API_KEY"
+     printf 'header = "Authorization: Bearer %s"\n' "$RESEND_API_KEY" | curl -s --config - https://api.resend.com/domains
      ```
      → take the first entry with `"status": "verified"` and use `alerts@<that-domain>` as the sender. If there is none → skip the registration and show the "no verified domain" message below. **Never fall back to `onboarding@resend.dev`**: it only delivers to the Resend account owner's own address, so the alert would be lost silently whenever the recipient differs.
 3. **Register** (also uploads the CLOUDFLARE_API_TOKEN + email key secrets, read from the vault):

@@ -315,7 +315,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" add --lang <LANG> --na
 Then **validate** the token (read from the vault, never displayed):
 ```bash
 CFTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get CLOUDFLARE api_token)
-curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user/tokens/verify | grep -q '"success":true' && echo "VALID" || echo "INVALID"
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - https://api.cloudflare.com/client/v4/user/tokens/verify | grep -q '"success":true' && echo "VALID" || echo "INVALID"
 ```
 - **VALID** → ✅ Cloudflare ready (token in the vault).
 - **INVALID** → propose again (token copied wrong / incomplete permissions): re-run the `add` to overwrite, then re-validate.
@@ -368,11 +368,11 @@ Then register the **quota watch job** (daily check via the CF GraphQL API, alert
 
 1. `node "$PLUGIN_DIR/scripts/shared-worker/register.mjs" --list` → if the `jobs` array already contains a job named `quota-monitor`, skip (silent).
 2. Otherwise discover the recipient, the provider and the sender:
-   - **Recipient** = the Cloudflare account email: `curl -s -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user` → take `result.email` (CFTOK read from the vault as above).
+   - **Recipient** = the Cloudflare account email: `printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - https://api.cloudflare.com/client/v4/user` → take `result.email` (CFTOK read from the vault as above).
    - **Provider** = the email key present in the vault (`RESEND` or `BREVO` - the one collected in Step 7bis; both present → Brevo).
    - **Sender**, per provider:
-     - **Brevo** → the first verified sender: `BREVO_API_KEY=$(node "$PLUGIN_DIR/scripts/vault/vault.mjs" get BREVO api_key); curl -s https://api.brevo.com/v3/senders -H "api-key: $BREVO_API_KEY"` → take the first entry with `"active": true`. If there is none → ask the user to verify a sender on https://app.brevo.com/senders (their own address, one confirmation click). Do not block if the user declines, just continue (the job can be registered later via `/quotas`).
-     - **Resend** → the first verified domain: `RESEND_API_KEY=$(node "$PLUGIN_DIR/scripts/vault/vault.mjs" get RESEND api_key); curl -s https://api.resend.com/domains -H "Authorization: Bearer $RESEND_API_KEY"` → take the first entry with `"status": "verified"` and use `alerts@<that-domain>` as the sender. If there is none → tell the user the alert emails will activate by themselves once a domain is verified on Resend (`/add-domain` sets one up, or https://resend.com/domains), and continue without registering (the `/quotas` safety net registers the job later). **Never fall back to `onboarding@resend.dev`**: that test sender only delivers to the Resend account owner's own address, so the alert would be lost silently whenever the recipient differs.
+     - **Brevo** → the first verified sender: `BREVO_API_KEY=$(node "$PLUGIN_DIR/scripts/vault/vault.mjs" get BREVO api_key); printf 'header = "api-key: %s"\n' "$BREVO_API_KEY" | curl -s --config - https://api.brevo.com/v3/senders` → take the first entry with `"active": true`. If there is none → ask the user to verify a sender on https://app.brevo.com/senders (their own address, one confirmation click). Do not block if the user declines, just continue (the job can be registered later via `/quotas`).
+     - **Resend** → the first verified domain: `RESEND_API_KEY=$(node "$PLUGIN_DIR/scripts/vault/vault.mjs" get RESEND api_key); printf 'header = "Authorization: Bearer %s"\n' "$RESEND_API_KEY" | curl -s --config - https://api.resend.com/domains` → take the first entry with `"status": "verified"` and use `alerts@<that-domain>` as the sender. If there is none → tell the user the alert emails will activate by themselves once a domain is verified on Resend (`/add-domain` sets one up, or https://resend.com/domains), and continue without registering (the `/quotas` safety net registers the job later). **Never fall back to `onboarding@resend.dev`**: that test sender only delivers to the Resend account owner's own address, so the alert would be lost silently whenever the recipient differs.
 3. Register (also uploads the CLOUDFLARE_API_TOKEN + email key secrets, read from the vault): `node "$PLUGIN_DIR/scripts/shared-worker/register.mjs" --kind quota --recipient <email> --sender-email <sender> --email-provider <brevo|resend> --put-secrets`
 
 **Why a custom job rather than Cloudflare's native "Billing Alerts"**: Cloudflare's Billing Alerts are reserved for Pro+ plans, and the CF API is under-documented for free accounts (the first version used `billing_usage_alert` but it triggered false alerts because of an ambiguous threshold format). The shared worker does exactly what we want, on a single Cloudflare cron slot for the whole account.
@@ -452,7 +452,7 @@ Run **all** these commands and read the output of **each one** carefully:
 export PATH="$PATH:/c/Program Files/GitHub CLI:/c/Program Files/nodejs:/c/Users/$USERNAME/AppData/Roaming/npm"
 node "${CLAUDE_SKILL_DIR}/../../scripts/audit-clis.mjs" --json
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status 2>/dev/null
-CFTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get CLOUDFLARE api_token 2>/dev/null) && curl -s --max-time 15 -H "Authorization: Bearer $CFTOK" https://api.cloudflare.com/client/v4/user/tokens/verify | grep -o '"success":[a-z]*'
+CFTOK=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get CLOUDFLARE api_token 2>/dev/null) && printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - --max-time 15 https://api.cloudflare.com/client/v4/user/tokens/verify | grep -o '"success":[a-z]*'
 ```
 
 The helper caps every CLI check with its own timeout: one unreachable service can no
@@ -642,7 +642,7 @@ Validate (read from the vault, never displayed):
 
 ```bash
 RKEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RESEND api_key)
-curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $RKEY" https://api.resend.com/domains | grep -q 200 && echo "VALID" || echo "INVALID"
+printf 'header = "Authorization: Bearer %s"\n' "$RKEY" | curl -s --config - -o /dev/null -w "%{http_code}" https://api.resend.com/domains | grep -q 200 && echo "VALID" || echo "INVALID"
 ```
 
 > ✅ Your Resend key is in your vault. `/add-email` will use it directly.
@@ -671,7 +671,7 @@ Validate (read from the vault, never displayed):
 
 ```bash
 BKEY=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get BREVO api_key)
-curl -s -o /dev/null -w "%{http_code}" -H "api-key: $BKEY" https://api.brevo.com/v3/account | grep -q 200 && echo "VALID" || echo "INVALID"
+printf 'header = "api-key: %s"\n' "$BKEY" | curl -s --config - -o /dev/null -w "%{http_code}" https://api.brevo.com/v3/account | grep -q 200 && echo "VALID" || echo "INVALID"
 ```
 
 > ✅ Your Brevo key is in your vault. `/add-email` will use it directly. One last thing for the alert emails: verify your own address as a sender on https://app.brevo.com/senders (one confirmation click in your inbox) - I check it at the shared-clock step and it is not blocking.

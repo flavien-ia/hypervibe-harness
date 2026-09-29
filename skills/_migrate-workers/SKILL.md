@@ -83,12 +83,12 @@ Parse the JSON:
 
 ```bash
 ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN)
-curl -s -H "Authorization: Bearer $ADMIN" "<workerUrl>/status"
+printf 'header = "Authorization: Bearer %s"\n' "$ADMIN" | curl -s --config - "<workerUrl>/status"
 ```
 
 Check every migrated job is listed with the right schedule (`nextDue` populated). Then force a real run of ONE migrated job and verify its effect:
 
-- **If backups were migrated**: `curl -s -X POST -H "Authorization: Bearer $ADMIN" "<workerUrl>/trigger?name=neon-backups"`, wait ~30 seconds, then verify via the Neon API that a fresh branch named `bk-<project>-r-<today>` exists on at least one target (Neon key from the vault). This is the strong proof.
+- **If backups were migrated**: `printf 'header = "Authorization: Bearer %s"\n' "$ADMIN" | curl -s --config - -X POST "<workerUrl>/trigger?name=neon-backups"`, wait ~30 seconds, then verify via the Neon API that a fresh branch named `bk-<project>-r-<today>` exists on at least one target (Neon key from the vault). This is the strong proof.
 - **If only scheduled tasks were migrated**: trigger one ping job the same way and confirm the target endpoint answered (or watch `cd ~/.hypervibe-jobs && npx wrangler tail` while triggering).
 
 Do not continue until a verification passes. If it fails, say so honestly, LEAVE the legacy mechanisms in place (they still work), and troubleshoot.

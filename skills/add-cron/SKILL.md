@@ -305,8 +305,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           CRON_APP_URL: ${{ secrets.CRON_APP_URL }}
         run: |
-          curl -fsSL -X POST \
-            -H "Authorization: Bearer $CRON_SECRET" \
+          printf 'header = "Authorization: Bearer %s"\n' "$CRON_SECRET" | curl -fsSL --config - -X POST \
             "$CRON_APP_URL/api/cron/<TASK_NAME>"
 ```
 

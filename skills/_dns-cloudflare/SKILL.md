@@ -53,7 +53,7 @@ cf_ok=$(echo "$result" | node -e "console.log(JSON.parse(require('fs').readFileS
 ## Step 2 - Verify that the zone exists
 
 ```bash
-curl -s -H "Authorization: Bearer $CFTOK" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/zones?name=<domain>" \
   | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); const z = d.result?.[0]; if (z) console.log('FOUND', z.id, z.status); else console.log('NOT_FOUND');"
 ```
@@ -67,7 +67,7 @@ curl -s -H "Authorization: Bearer $CFTOK" \
 First get the user's `account_id`:
 
 ```bash
-ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CFTOK" \
+ACCOUNT_ID=$(printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - \
   "https://api.cloudflare.com/client/v4/accounts" \
   | node -e "const d = JSON.parse(require('fs').readFileSync(0, 'utf8')); console.log(d.result?.[0]?.id || '');")
 ```
@@ -75,7 +75,7 @@ ACCOUNT_ID=$(curl -s -H "Authorization: Bearer $CFTOK" \
 Then create the zone:
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CFTOK" \
+printf 'header = "Authorization: Bearer %s"\n' "$CFTOK" | curl -s --config - -X POST \
   -H "Content-Type: application/json" \
   -d "{\"name\":\"<domain>\",\"account\":{\"id\":\"$ACCOUNT_ID\"},\"type\":\"full\"}" \
   "https://api.cloudflare.com/client/v4/zones" \

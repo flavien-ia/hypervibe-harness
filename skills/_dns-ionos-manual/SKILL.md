@@ -90,8 +90,7 @@ Then rebuild the key (IONOS format = `prefix.secret`) and validate:
 
 ```bash
 API_KEY="$(node "$VAULT" get IONOS prefix).$(node "$VAULT" get IONOS secret)"
-HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-  -H "X-API-Key: $API_KEY" \
+HTTP=$(printf 'header = "X-API-Key: %s"\n' "$API_KEY" | curl -s --config - -o /dev/null -w "%{http_code}" \
   "https://api.hosting.ionos.com/dns/v1/zones")
 [ "$HTTP" = "200" ] && echo "VALID" || echo "INVALID (HTTP $HTTP)"
 ```
