@@ -131,8 +131,9 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/detect-projects-dir.mjs" --cwd "$(pwd)"
 ```
 
 The script returns `candidates` (existing folders that already hold projects,
-including the Desktop / OneDrive / Documents variants), a `recommended` hint and
-an `ambiguous` flag. Decide like this:
+including the Desktop / OneDrive / Documents variants, and the folder you are in,
+or its parent, whatever its name, when it holds projects), a `recommended` hint
+and an `ambiguous` flag. It reads `$(pwd)` as Git Bash writes it (`/c/...`). Decide like this:
 
 - **`ambiguous: false` and `recommended` already exists** → announce it in plain
   words and use it: *"I'll create your app in `<path>`, where your other

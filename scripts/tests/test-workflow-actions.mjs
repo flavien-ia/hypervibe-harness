@@ -31,24 +31,58 @@ for (const top of ["templates", "skills", "scripts"]) {
   }
 }
 
+/** The setup-node steps of a text that do not turn its automatic cache off. setup-node v5 turns a
+ *  cache on by itself when package.json declares a package manager, and looks for that package
+ *  manager before anything installed it: the run stops there (Team trial, 30/09/2026). The harness
+ *  pins pnpm in package.json for a host that builds an image, and a project may declare it itself. */
+export function setupNodeWithCache(text) {
+  const lines = text.split(/\r?\n/);
+  const indentOf = (l) => /^ */.exec(l)[0].length;
+  const missing = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^( *)(?:- )?uses:\s*actions\/setup-node@/.exec(lines[i]);
+    if (!m) continue;
+    let end = i + 1;
+    while (end < lines.length && (lines[end].trim() === "" || indentOf(lines[end]) > m[1].length)) end += 1;
+    if (!lines.slice(i + 1, end).some((l) => /^\s*package-manager-cache:\s*false\s*$/.test(l))) missing.push(i + 1);
+  }
+  return missing;
+}
+
 const older = [];
+const cached = [];
 let read = 0;
+let setupNodeSteps = 0;
 for (const f of files) {
   const rel = relative(ROOT, f).split("\\").join("/");
   if (rel.startsWith("scripts/tests/")) continue; // the recettes' fixtures
   read += 1;
-  for (const m of readFileSync(f, "utf8").matchAll(/uses:\s*(actions\/[A-Za-z0-9_-]+)@v(\d+)/g)) {
+  const text = readFileSync(f, "utf8");
+  for (const m of text.matchAll(/uses:\s*(actions\/[A-Za-z0-9_-]+)@v(\d+)/g)) {
     const first = FIRST_ON_NODE_24[m[1]];
     if (first && Number(m[2]) < first) older.push(`${rel}: ${m[1]}@v${m[2]}`);
+    if (m[1] === "actions/setup-node") setupNodeSteps += 1;
   }
+  for (const line of setupNodeWithCache(text)) cached.push(`${rel}:${line}`);
 }
 
 let failures = 0;
+let checks = 0;
 function check(name, ok, detail = "") {
+  checks += 1;
   if (!ok) failures += 1;
   console.log(`${ok ? "OK  " : "FAIL"} ${name}${!ok && detail ? ` (${detail})` : ""}`);
 }
 check("every action the harness writes into a workflow runs on Node 24", older.length === 0, older.join(" | "));
 check("... and the files that carry workflows were read", read > 10, String(read));
-console.log(`\n${2 - failures}/2 checks`);
+check("every setup-node step turns its automatic cache off (a declared pnpm would stop the run)", cached.length === 0, cached.join(" | "));
+check("... on steps really read", setupNodeSteps > 0, String(setupNodeSteps));
+const witness = ["      - uses: actions/setup-node@v5", "        with:", "          node-version: 22", "", "      - name: next"].join("\n");
+check("... the check sees a step that leaves the cache on", setupNodeWithCache(witness).length === 1);
+check(
+  "... and not one that turns it off, nor the next step's settings",
+  setupNodeWithCache(witness.replace("node-version: 22", "node-version: 22\n          package-manager-cache: false")).length === 0 &&
+    setupNodeWithCache(`${witness}\n        with:\n          package-manager-cache: false`).length === 1,
+);
+console.log(`\n${checks - failures}/${checks} checks`);
 process.exitCode = failures ? 1 : 0;

@@ -29,6 +29,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # No automatic cache: with a package manager declared in package.json, setup-node looks
+          # for it before anything installed it, and the run stops here (Team trial, 30/09/2026).
+          package-manager-cache: false
       - name: Installer les dépendances
         run: |
           corepack enable

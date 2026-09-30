@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.3.8 (30 septembre 2026)
+
+### Améliorations
+- **`/start` vérifie l'application GitHub de Vercel** : une fois Vercel connecté, `/start` vérifie que l'application GitHub de Vercel est installée sur votre compte GitHub, avec l'accès à tous vos dépôts. C'est elle qui permet à chaque `git push` de remettre votre site en ligne tout seul. Si elle manque, ou si elle est limitée à certains dépôts, `/start` ouvre la bonne page et vous guide pas à pas. Jusqu'ici, le problème ne se voyait qu'après le premier `/bootstrap`, quand les mises en ligne suivantes ne partaient pas.
+- **`/bootstrap` trouve votre dossier de projets** : sous Windows, un chemin avec des espaces était mal lu, et un dossier de projets au nom libre était ignoré au profit d'un dossier `DEV` qui n'existait pas. `/bootstrap` propose désormais le dossier où vous travaillez, ou son parent, dès qu'il contient déjà des projets.
+- **Tests automatiques sur GitHub** : les tests posés par `/add-test` s'arrêtaient dès leur deuxième étape dans un projet qui déclare pnpm dans son `package.json`. La dernière version d'un outil de GitHub y cherchait pnpm avant qu'il soit installé. C'est corrigé.
+
+### Coulisses
+- Nouvelles vérifications à chaque version : aucune commande lancée par un script ne dépend du terminal de Mac et Linux, chaque automatisme GitHub installe Node sans ce comportement, et le choix du dossier de projets est rejoué sur les cas qui l'avaient trompé.
+
 ## v3.3.7 (29 septembre 2026)
 
 ### Améliorations

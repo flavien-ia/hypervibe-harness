@@ -477,6 +477,42 @@ Map each `status` from the audit helper directly - do not re-interpret raw outpu
 
 **Never tick ✅ a tool that responded with an error, a timeout, or "not logged in".** A displayed version is not enough: you also need the login for the CLIs that require it (gh, vercel) OR the Cloudflare token (from the vault) for wrangler.
 
+### Vercel's GitHub application (right after "Vercel connected")
+
+Only once the audit says **GitHub CLI `ready`** and **Vercel CLI `ready`**. The link between a GitHub repository and a Vercel project goes through **Vercel's GitHub application**: without it, or limited to some repositories, the first `/bootstrap` puts the site online but the following `git push`es do not deploy it, and it was only found out then (`GH_VERCEL_CONNECT_FAILED`, `GH_VERCEL_INTEGRATION_MISSING`). Check it now, once:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel-github-app.mjs"
+```
+
+It reads, without changing anything, what Vercel says of its application on the GitHub account `gh` is signed in to (the one `/bootstrap` creates the repositories in). One JSON line, its `status`:
+
+- `installed` → ✅ **Vercel's GitHub application: installed, all repositories**. Nothing to say.
+- `missing` → ⚠️ not installed on this account. It is an authorization in the browser: guide it, never do it in the user's place. Open the page:
+  ```bash
+  node "${CLAUDE_SKILL_DIR}/../../scripts/open-url.mjs" "https://vercel.com/integrations/github"
+  ```
+  > One more thing, so that your future `git push`es put your site online by themselves: Vercel needs its application on your GitHub account.
+  > 1. On the page that just opened, click **Add GitHub Account** and authorize access
+  > 2. Choose **All repositories** (recommended: the projects you create later will be seen too)
+  > 3. Confirm the install
+  >
+  > ⚠️ Signing in to Vercel "with GitHub" is not enough: it is a sign-in, not the right to read your repositories.
+  >
+  > Tell me **"done"** when it is done.
+- `restricted` → ⚠️ installed, but Vercel says its access is restricted: usually limited to **Only select repositories**, which does not see the projects created later (the sneakiest case: the user thinks everything is connected). Open `configureUrl` from the JSON (the installation's settings on GitHub):
+  ```bash
+  node "${CLAUDE_SKILL_DIR}/../../scripts/open-url.mjs" "<configureUrl>"
+  ```
+  > Vercel's application is installed on your GitHub, but limited to some repositories: the projects you create later would not be seen, and their `git push`es would not put them online.
+  > 1. On the page that just opened, **Repository access** section → choose **All repositories**
+  > 2. **Save**
+  >
+  > Tell me **"done"** when it is done.
+- `unknown` → the check could not be made (`reason` says why: `gh` not signed in, no Vercel login, Vercel unreachable or refusing the key). Say it in one sentence, give the `missing` guide as an **optional point**, and move on. **Never tick ✅ without this proof.**
+
+After **"done"**, run the check again. Still `missing` or `restricted`: show the guide once more. If it stays so (a `restricted` that stays with **All repositories** chosen is stuck on Vercel's side), keep the ⚠️ line in the report and move on: it does not block `/start`, and `/bootstrap` says it again when it matters.
+
 ### Report presentation (mandatory)
 
 Display an exhaustive report based **strictly** on what was detected:
@@ -488,6 +524,7 @@ Display an exhaustive report based **strictly** on what was detected:
 > ✅ Git: vX.X.X
 > ⚠️ GitHub CLI: installed but not connected
 > ❌ Vercel CLI: not installed
+> ⚠️ Vercel's GitHub application: limited to some repositories (not blocking)
 > ✅ Wrangler CLI + Cloudflare token (vault): ready
 > ✅ Vault: operational (unlocked)
 > 🔑 Neon: key in the vault
@@ -502,7 +539,7 @@ The unlocked vault (✅) is a **blocking prerequisite** (see Strict branching be
 
 ### Strict branching
 
-- **If AND ONLY IF the 6 essentials (Node, pnpm, Git, GitHub CLI connected, Vercel connected, Wrangler+Cloudflare token) are ✅** AND the vault is unlocked → move on to step 8. Note the state of Neon and the email key without blocking.
+- **If AND ONLY IF the 6 essentials (Node, pnpm, Git, GitHub CLI connected, Vercel connected, Wrangler+Cloudflare token) are ✅** AND the vault is unlocked → move on to step 8. Note the state of Neon, the email key and Vercel's GitHub application without blocking.
 - **Otherwise (even a single missing or not-connected tool)** → stay here, **NEVER say "everything is installed and connected"**, **NEVER move on to step 8**.
 
 ### Case: interrupted script or partial installation
