@@ -11,8 +11,10 @@ compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; 
 
 ```bash
 # Detect the project's root organization
-node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs" 2>/dev/null
+eval "$(node "${CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs" 2>/dev/null)"
 ```
+
+Always through `eval "$(...)"`: the script prints the export lines, token included, and only `eval` keeps them out of the conversation.
 
 (Not strictly required here, but handy if you hit a case where Wrangler is needed - typically not.)
 

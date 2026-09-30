@@ -20,7 +20,7 @@ Adds a task that runs automatically at a fixed time in your project. Ideal for s
 4. **Automatic clock choice**: Hypervibe decides for itself which clock to use (you have no choice to make):
   - **Your shared clock** (the default, for virtually everything): a single mechanism that serves **all** your projects. Precise to the minute, and zero extra cost no matter how many tasks you add. It is the same clock that already handles your database backups and your quota watch.
   - **Dedicated Cloudflare Worker** (rare): only when the task needs its own isolated resources on Cloudflare (its own R2, KV or D1 space, or a secret that must not be shared with your other projects).
-  - **GitHub Action** (fallback): used only when Cloudflare is not set up on your computer. Free and unlimited, but with **a possible 30-60 min delay**.
+  - **GitHub Action** (fallback): used only when Cloudflare is not set up on your computer. Free on a public repository, and within GitHub's 2,000 free minutes a month on a private one (each run counts at least one minute), but with **a possible 30-60 min delay**.
 
 5. **Automatic configuration**: Hypervibe scaffolds everything, the protected endpoint `/api/cron/<name>` on the Next.js side, the `CRON_SECRET` key (generated if missing), the registration of the schedule on the chosen clock (and the GitHub secrets if the GitHub clock is used).
 

@@ -271,7 +271,7 @@ console.log("vault:" + putItem(process.env.VITEM, [{ name: process.env.VFIELD, v
 | `ANTHROPIC_API_KEY` | ✅ (already done in Step 4) | - | - |
 | `RESEND_API_KEY` | ✅ | - | ✅ (agent if emails) |
 | `BREVO_API_KEY` | ✅ | - | ✅ (agent if emails) |
-| `CRON_SECRET` | ✅ | ✅ (worker call-back to Next.js) | - |
+| `CRON_SECRET` | ✅ | ✅ (the shared clock, and any dedicated cron worker) | - |
 | `DATABASE_URL` | ✅ | - | ✅ (agent reads the DB) |
 | `CLOUDFLARE_API_TOKEN` | ✅ (if NEXT_PUBLIC) | - | ✅ (agent pgvector / Workers AI) |
 | `AUTH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, OAuth secrets | ✅ only | - | - |
@@ -317,6 +317,21 @@ Depending on the output:
 - `CF_PUSH=no_workers` → the user has no CF Worker, silent skip.
 - `CF_PUSH_OK=...` → announce `✅ Cloudflare Worker <name>: ${SECRET_NAME} updated`.
 - `CF_PUSH_FAILED=...` → surface the error, offer the user to push manually with `npx wrangler secret put <SECRET_NAME>` in the Worker's folder.
+
+### Push to the shared clock (`CRON_SECRET` only)
+
+The shared clock (`hypervibe-jobs`) calls this project's scheduled routes with its own copy of the key, `CRON_SECRET_<PROJECT>`. It does not live in the project's folder, so the block above never sees it: without this step, every scheduled task of the project answers 401 from its next run on. `<PROJECT_NAME>` is the name `/add-cron` registered the tasks under: the one `_detect-project-root` gives.
+
+```bash
+NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" CRON_SECRET) && [ -n "$NEW_VALUE" ] \
+  || { echo "CRON_SECRET is not in <WEB_DIR>/.env, or it is empty: nothing was sent to the clock."; exit 1; }
+CRON_SECRET_VALUE="$NEW_VALUE" node "${CLAUDE_SKILL_DIR}/../../scripts/shared-worker/register.mjs" --rotate-secret --project-name "<PROJECT_NAME>"
+```
+
+Depending on the JSON:
+- `"action":"secret-replaced"` → announce `✅ Shared clock: CRON_SECRET updated for its scheduled task(s)`.
+- `"action":"no-job"` → no task of this project runs on the shared clock: nothing to do there, silent.
+- `"Shared worker not provisioned"` → the user has no shared clock: silent skip. Any other error → surface it: until the clock holds the new key, the project's scheduled tasks answer 401.
 
 ### Push to Render Services (if applicable)
 

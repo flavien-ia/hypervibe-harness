@@ -50,6 +50,12 @@ import {
   listWranglerSecrets,
   putWranglerSecret,
   getCfAccountId,
+  clockAccountId,
+  deploymentState,
+  accountSubdomain,
+  servesWorkersDev,
+  workersDevBlock,
+  enableWorkersDev,
 } from "./_lib.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -98,7 +104,12 @@ async function main() {
       }
       if (flags["force-redeploy"]) reasons.push("--force-redeploy asked");
       if (token) {
-        if (!(await isDeployed(token))) reasons.push("the worker is not deployed on the account: the real run would deploy it");
+        const state = await isDeployed(token);
+        if (state === "absent") reasons.push("the worker is not deployed on the account: the real run would deploy it");
+        if (state === "unknown") reasons.push("the deployment state could not be read (network, throttling or a refusal): the real run would deploy to be sure");
+        if (await controlPlaneOffButAvailable(token)) {
+          reasons.push("the clock's control plane (/status, /trigger) is off although the account has a workers.dev address: the real run would switch it on and redeploy");
+        }
       } else {
         reasons.push("CLOUDFLARE_API_TOKEN not readable (vault locked): the deployment state is unknown");
       }
@@ -110,7 +121,7 @@ async function main() {
     }
     let jobs = null;
     if (scaffolded) { try { jobs = readRegistry(DIR).jobs.length; } catch { jobs = null; } }
-    out({ ok: true, dryRun: true, status, dir: DIR, workerName: WORKER_NAME, workerUrl, jobs, adminTokenVar: ADMIN_TOKEN_VAR, reasons });
+    out({ ok: true, dryRun: true, status, dir: DIR, workerName: WORKER_NAME, workerUrl, controlPlane: workerUrl ? "on" : "off", jobs, adminTokenVar: ADMIN_TOKEN_VAR, reasons });
     return;
   }
 
@@ -138,13 +149,19 @@ async function main() {
       gitCommitAll(DIR, "chore: update worker.js to the latest plugin version");
       healed.push("worker.js updated to latest plugin version");
     }
+    // A clock written with `workers_dev = false` has no /status nor /trigger: switched back on
+    // as soon as the account has the workers.dev address wrangler needs for it.
+    if (!flags["no-deploy"] && (await controlPlaneOffButAvailable(token)) && enableWorkersDev(DIR)) {
+      gitCommitAll(DIR, "fix: switch the clock's control plane (workers.dev) back on");
+      healed.push("control plane switched on: /status and /trigger answer again");
+    }
   }
 
   // ── Deploy ────────────────────────────────────────────────────────────
   let workerUrl = null;
   let deployed = "unknown";
   if (!flags["no-deploy"]) {
-    const needsDeploy = !scaffolded || flags["force-redeploy"] || healed.length > 0 || !(await isDeployed(token));
+    const needsDeploy = !scaffolded || flags["force-redeploy"] || healed.length > 0 || (await isDeployed(token)) !== "deployed";
     if (needsDeploy) {
       log("Deploying the worker...");
       const dep = wranglerDeploy(DIR, token);
@@ -179,6 +196,9 @@ async function main() {
     dir: DIR,
     workerName: WORKER_NAME,
     workerUrl,
+    // "off": no /status nor /trigger on this clock (an account without a workers.dev address);
+    // the skills then skip the manual trigger instead of calling an address that never answers.
+    controlPlane: workerUrl ? "on" : "off",
     deployed,
     jobs: registry.jobs.length,
     adminTokenVar: ADMIN_TOKEN_VAR,
@@ -206,16 +226,16 @@ async function scaffold(token) {
   copyFileSync(join(SCRIPT_DIR, "worker.js"), join(DIR, "worker.js"));
   copyFileSync(join(SCRIPT_DIR, "jobs.js"), join(DIR, "jobs.js"));
 
+  // The control plane (/status, /trigger) needs the account's workers.dev address; until 3.3.8
+  // every clock was written without it, and never answered them.
+  const subdomain = await accountSubdomain(token, accountId);
   writeFileSync(
     join(DIR, "wrangler.toml"),
     `name = "${WORKER_NAME}"
 main = "worker.js"
 compatibility_date = "2024-12-01"
 account_id = "${accountId}"
-# This worker only answers to cron triggers, never to HTTP. Without this line
-# wrangler assumes a workers.dev route and refuses to deploy on an account
-# that never registered a workers.dev subdomain.
-workers_dev = false
+${workersDevBlock(subdomain.state === "present")}
 
 [triggers]
 crons = ["* * * * *"]
@@ -272,33 +292,26 @@ skills rather than by hand whenever possible.
 
 // ── Deployment probes ─────────────────────────────────────────────────────
 
-async function isDeployed(token) {
-  try {
-    const accountId = flags["account-id"] || (await getCfAccountId(token));
-    if (!accountId) return false;
-    const res = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/services/${WORKER_NAME}`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    return res.ok;
-  } catch {
-    return false;
-  }
+/** The account the clock lives on: the one asked for, else the one its wrangler.toml records,
+ *  else (first scaffold only) the token's. */
+async function accountFor(token) {
+  return flags["account-id"] || clockAccountId(DIR) || (await getCfAccountId(token));
 }
 
+/** "deployed" | "absent" | "unknown": an unknown is never read as absent. */
+async function isDeployed(token) {
+  return deploymentState(token, await accountFor(token), WORKER_NAME);
+}
+
+/** The clock does not serve its workers.dev address, yet the account has one. */
+async function controlPlaneOffButAvailable(token) {
+  if (!token || servesWorkersDev(DIR)) return false;
+  return (await accountSubdomain(token, await accountFor(token))).state === "present";
+}
+
+/** The clock's control-plane address, or null when it has none (workers_dev off). */
 async function computeWorkerUrl(token) {
-  try {
-    const accountId = flags["account-id"] || (await getCfAccountId(token));
-    if (!accountId) return null;
-    const res = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    const sub = data.result?.subdomain;
-    return sub ? `https://${WORKER_NAME}.${sub}.workers.dev` : null;
-  } catch {
-    return null;
-  }
+  if (!servesWorkersDev(DIR)) return null;
+  const sub = await accountSubdomain(token, await accountFor(token));
+  return sub.state === "present" ? `https://${WORKER_NAME}.${sub.subdomain}.workers.dev` : null;
 }

@@ -141,5 +141,24 @@ const full = () => ({
   check("every inventory section the deletion empties is read by a sharing rule", deleted.length > 5 && uncovered.length === 0, uncovered.join(", "));
 }
 
+// ── A project's own registration on the shared clock (3.3.9) ──
+// Marked shared by mistake (the clock is shared, the flag followed), a scheduled task and a
+// backup target were taken out of the deletion, and the clock would have kept backing up a
+// deleted database. The rule is read before any exclusion.
+{
+  const { sharedIgnoredReason } = await import(pathToFileURL(join(HERE, "..", "delete-project", "_shared-exclusion.mjs")).href);
+  const task = { kind: "cron-job", name: "digest", shared: true };
+  const backup = { kind: "db-backup", name: "vitrine", shared: true };
+  check("a scheduled task marked shared stays in the deletion", Boolean(sharedIgnoredReason(task, [task])));
+  check("a backup target marked shared stays in it while its database is not shared", Boolean(sharedIgnoredReason(backup, [backup, { kind: "neon-project", id: "np-1" }])));
+  check("and leaves it once the database itself is declared shared", sharedIgnoredReason(backup, [backup, { kind: "neon-project", id: "np-1", shared: true }]) === null);
+  check("the shared clock itself keeps its flag", sharedIgnoredReason({ kind: "cf-worker", name: "hypervibe-jobs", shared: true }, []) === null);
+  check("an entry not marked shared has nothing to ignore", sharedIgnoredReason({ kind: "cron-job", name: "digest" }, []) === null);
+  const { readFileSync } = await import("node:fs");
+  const discover = readFileSync(join(HERE, "..", "delete-project", "discover-resources.mjs"), "utf8");
+  const reads = discover.indexOf("sharedIgnoredReason(r, manifest.resources)");
+  check("discover-resources.mjs reads the rule before excluding anything", reads > 0 && discover.indexOf("excludeShared({") > reads && discover.includes("if (r.shared && !ignored)"));
+}
+
 console.log(`\n${checks - failures}/${checks} verifications`);
 if (failures) process.exit(1);

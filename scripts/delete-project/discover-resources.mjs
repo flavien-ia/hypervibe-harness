@@ -25,7 +25,7 @@ import { fileURLToPath } from "node:url";
 import { getSecret, sessionStatus } from "../vault/vault.mjs";
 import { spawnSpec } from "../_spawn.mjs";
 import { indexLinesFor } from "./_memory-index.mjs";
-import { excludeShared } from "./_shared-exclusion.mjs";
+import { excludeShared, sharedIgnoredReason } from "./_shared-exclusion.mjs";
 import { keepRules } from "./_keep-rules.mjs";
 import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
 import { readLinkedProject, teamIdFromOrgId } from "../_vercel-auth.mjs";
@@ -896,7 +896,11 @@ async function reconcileManifest() {
   const cfHeaders = { Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}` };
   for (const r of manifest.resources) {
     const entry = { ...r };
-    if (r.shared) {
+    // A project's own registration on the shared clock marked shared by mistake stays in the
+    // deletion (sharedIgnoredReason): the clock would otherwise keep working for a gone project.
+    const ignored = sharedIgnoredReason(r, manifest.resources);
+    if (ignored) entry.sharedIgnored = ignored;
+    if (r.shared && !ignored) {
       entry.status = "shared";
       // A declared shared resource found by a name scan leaves the deletion
       // inventory, whatever its kind (only workers until 18/09/2026, five kinds

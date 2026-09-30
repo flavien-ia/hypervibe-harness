@@ -242,6 +242,96 @@ export async function getCfAccountId(token) {
   return zones?.result?.[0]?.account?.id || null;
 }
 
+// ── The clock on its account: where, whether it is there, whether it answers ──
+
+/** The account a scaffolded clock deploys to, as its wrangler.toml records it: the one to probe.
+ *  Never guessed again from the token, which may see several accounts. */
+export function clockAccountId(dir) {
+  try {
+    return /^\s*account_id\s*=\s*"([0-9a-fA-F]{32})"\s*$/m.exec(readFileSync(join(dir, "wrangler.toml"), "utf8"))?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Is the clock's worker on the account? "deployed", "absent" (the API said so), or "unknown"
+ *  (network, throttling, a refusal, no account): an unknown is never read as absent. Reading a
+ *  failed probe as "not deployed" is what could deploy an empty registry over an organisation's
+ *  clock (2.3.8). `fetchImpl` is the recettes' seam. */
+export async function deploymentState(token, accountId, workerName, fetchImpl = fetch) {
+  if (!token || !accountId) return "unknown";
+  try {
+    const res = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/services/${workerName}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) return "deployed";
+    if (res.status === 404) return "absent";
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/** The account's workers.dev subdomain, where the clock's control plane (/status, /trigger)
+ *  answers: { state: "present", subdomain } | { state: "absent" } | { state: "unknown" }. */
+export async function accountSubdomain(token, accountId, fetchImpl = fetch) {
+  if (!token || !accountId) return { state: "unknown" };
+  try {
+    const res = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return { state: "unknown", status: res.status };
+    const data = await res.json();
+    return data.result?.subdomain ? { state: "present", subdomain: data.result.subdomain } : { state: "absent" };
+  } catch {
+    return { state: "unknown" };
+  }
+}
+
+/** Whether the clock serves its workers.dev address, per its wrangler.toml (wrangler's default,
+ *  when the line is absent, is yes). A clock that does not has no /status nor /trigger at all. */
+export function servesWorkersDev(dir) {
+  try {
+    const m = /^\s*workers_dev\s*=\s*(true|false)\s*$/m.exec(readFileSync(join(dir, "wrangler.toml"), "utf8"));
+    return m ? m[1] === "true" : true;
+  } catch {
+    return false;
+  }
+}
+
+const WORKERS_DEV_ON = [
+  "# The control plane (/status, /trigger) answers on the account's workers.dev address, behind",
+  "# the ADMIN_TOKEN secret. It is switched off only on an account that has no workers.dev",
+  "# subdomain, where wrangler would refuse to deploy.",
+  "workers_dev = true",
+];
+const WORKERS_DEV_OFF = [
+  "# This account has no workers.dev subdomain: wrangler refuses to deploy a worker that serves one,",
+  "# so the clock answers to its cron trigger only, and has no /status nor /trigger until the",
+  "# account registers a subdomain (the next ensure.mjs run then switches it on).",
+  "workers_dev = false",
+];
+
+/** The workers_dev block of a new clock's wrangler.toml, comment included. */
+export function workersDevBlock(on) {
+  return (on ? WORKERS_DEV_ON : WORKERS_DEV_OFF).join("\n");
+}
+
+/** Switches the clock's workers.dev address on in its wrangler.toml, replacing the line and the
+ *  comment right above it. True when the file changed. Clocks created from 3.x until 3.3.8 were
+ *  all written with `workers_dev = false`, so their /status and /trigger never answered. */
+export function enableWorkersDev(dir) {
+  const file = join(dir, "wrangler.toml");
+  const lines = readFileSync(file, "utf8").split(/\r?\n/);
+  const at = lines.findIndex((l) => /^\s*workers_dev\s*=\s*false\s*$/.test(l));
+  if (at < 0) return false;
+  let from = at;
+  while (from > 0 && /^\s*#/.test(lines[from - 1])) from -= 1;
+  lines.splice(from, at - from + 1, ...WORKERS_DEV_ON);
+  writeFileSync(file, lines.join("\n"));
+  return true;
+}
+
 // ── misc ─────────────────────────────────────────────────────────────────
 
 export function stripTrail(url) {

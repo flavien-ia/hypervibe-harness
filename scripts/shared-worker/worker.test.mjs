@@ -506,6 +506,78 @@ function jsonResponse(obj, status = 200) {
   rmSync(tmp, { recursive: true, force: true });
 }
 
+// ── 6. Backups spread over their hour, one database per manual trigger ───
+// A run of the free plan may make 50 calls and a backup makes about three: every database at
+// once went over the cap from about fifteen of them, the failure email with it (until 3.3.8).
+
+{
+  const tmp = mkdtempSync(join(tmpdir(), "hvjobs-spread-"));
+  copyFileSync(join(SCRIPT_DIR, "worker.js"), join(tmp, "worker.js"));
+  const targets = Array.from({ length: 30 }, (_, i) => ({ name: `projet-${i + 1}`, projectId: `pid-${i + 1}` }));
+  writeFileSync(
+    join(tmp, "jobs.js"),
+    "export default " + JSON.stringify({ version: 1, jobs: [{ kind: "snapshot", name: "neon-backups", cron: "0 3 1,15 * *", targets }] }) + ";\n",
+  );
+  const mod = await import(pathToFileURL(join(tmp, "worker.js")).href);
+  const worker = mod.default;
+  const pending = [];
+  const ctx = { waitUntil: (p) => pending.push(p) };
+  const env = { NEON_API_KEY: "neon-key", ADMIN_TOKEN: "admin-t" };
+  const trigger = (query) =>
+    worker.fetch(new Request(`https://w.test/trigger?${query}`, { method: "POST", headers: { authorization: "Bearer admin-t" } }), env, ctx);
+
+  check("spread: a database's minute is stable and within the hour", typeof mod.slotOf === "function" && mod.slotOf("projet-1") === mod.slotOf("projet-1") && mod.slotOf("x") >= 0 && mod.slotOf("x") <= 59);
+
+  // Every minute of the backup hour, as the clock ticks: the calls each run makes.
+  mockFetch((call) => (call.method === "GET" ? jsonResponse({ branches: [{ id: "br-main", name: "main", default: true }] }) : jsonResponse({}, 201)));
+  let most = 0;
+  const backedUp = new Set();
+  for (let minute = 0; minute < 60; minute++) {
+    calls.length = 0;
+    pending.length = 0;
+    await worker.scheduled({ scheduledTime: Date.UTC(2026, 9, 15, 3, minute) }, env, ctx);
+    await Promise.all(pending);
+    most = Math.max(most, calls.length);
+    for (const c of calls) {
+      const m = /\/projects\/(pid-\d+)\/branches/.exec(c.url);
+      if (m) backedUp.add(m[1]);
+    }
+  }
+  check("spread: every database is backed up in the hour", backedUp.size === 30);
+  check(`spread: no run of the hour goes near the 50 calls of the free plan (most: ${most})`, most > 0 && most <= 25);
+  calls.length = 0;
+  pending.length = 0;
+  await worker.scheduled({ scheduledTime: Date.UTC(2026, 9, 15, 4, 0) }, env, ctx);
+  await Promise.all(pending);
+  check("spread: nothing runs outside the backup hour", calls.length === 0);
+
+  // By hand, with many databases: one named per call.
+  const all = await trigger("name=neon-backups");
+  check("manual: 30 databases at once is refused, the databases listed", all.status === 400 && (await all.json()).targets?.length === 30);
+  calls.length = 0;
+  pending.length = 0;
+  const one = await trigger("name=neon-backups&target=projet-7");
+  await Promise.all(pending);
+  check("manual: one database named -> 202, and only it is backed up", one.status === 202 && calls.length > 0 && calls.every((c) => c.url.includes("/projects/pid-7/")));
+  check("manual: an unknown database -> 404", (await trigger("name=neon-backups&target=nope")).status === 404);
+  restoreFetch();
+  rmSync(tmp, { recursive: true, force: true });
+}
+
+// ── 7. A quota watch that could not read says so by email ────────────────
+// Its errors went to the log only, followed by "all quotas under their thresholds": a watch
+// whose key was revoked looked exactly like a quiet one (until 3.3.8).
+
+{
+  const cfg = { cloudflareAccountId: "acc-1", recipient: "user@test.fr", senderEmail: "sender@test.fr", senderName: "Test", r2ThresholdGb: 9 };
+  mockFetch((call) => (call.url.includes("graphql") ? new Response("forbidden", { status: 403 }) : jsonResponse({ messageId: "x" }, 201)));
+  await runQuotaJob({ kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: cfg }, { CLOUDFLARE_API_TOKEN: "cf-tok", BREVO_API_KEY: "brevo-key" });
+  const mail = calls.find((c) => c.url.includes("brevo"));
+  check("watch unread: an email goes out", !!mail);
+  check("watch unread: it says what could not be read", Boolean(mail?.body?.includes("pas pu lire")));
+  restoreFetch();
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);

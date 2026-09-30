@@ -82,11 +82,12 @@ writeFileSync(
   `import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
-  // Verify the request comes from our Cloudflare Worker.
+  // Verify the request comes from our Cloudflare Worker. Closed while CRON_SECRET is
+  // missing: the comparison would otherwise accept "Bearer undefined".
+  const secret = process.env.CRON_SECRET;
   const authHeader = req.headers.get("authorization");
-  const expected = \`Bearer \${process.env.CRON_SECRET}\`;
 
-  if (!authHeader || authHeader !== expected) {
+  if (!secret || authHeader !== \`Bearer \${secret}\`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -104,6 +105,12 @@ export async function GET(req: Request) {
     console.error("[CRON:${taskName}] Error:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
+}
+
+// The shared clock calls in POST: the same route answers both, so moving the task onto it
+// never ends in a 405.
+export async function POST(req: Request) {
+  return GET(req);
 }
 `,
 );

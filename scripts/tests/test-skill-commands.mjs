@@ -78,16 +78,86 @@ console.log(`\nLes ${markdowns.length} fichiers Markdown des skills`);
 const continuations = [];
 const ancres = [];
 const chemins = [];
+const jetonsImprimes = [];
+// wrangler-env-init.mjs imprime les lignes `export CLOUDFLARE_API_TOKEN=...` : lance nu, le
+// jeton finit dans la conversation (/_create-agent jusqu'en 3.3.8). Seul `eval "$(...)"` le
+// garde dans le shell.
+const LANCE_ENV_INIT = /\bnode\s+"[^"]*wrangler-env-init\.mjs"/;
+const ENV_INIT_SOUS_EVAL = /eval\s+"\$\(\s*node\s+"[^"]*wrangler-env-init\.mjs"/;
 for (const f of markdowns) {
   readFileSync(f.p, "utf8").split(/\r?\n/).forEach((ligne, i) => {
     if (CONTINUATION_LITTERALE.test(ligne)) continuations.push(`${f.rel}:${i + 1}`);
     if (ANCRE_SANS_ACCOLADES.test(ligne)) ancres.push(`${f.rel}:${i + 1}`);
     if (CHEMIN_CODE_EN_DUR.test(ligne)) chemins.push(`${f.rel}:${i + 1}`);
+    if (LANCE_ENV_INIT.test(ligne) && !ENV_INIT_SOUS_EVAL.test(ligne)) jetonsImprimes.push(`${f.rel}:${i + 1}`);
   });
 }
 verifier("aucune continuation de ligne ecrite \\n", continuations.length === 0, continuations.slice(0, 5).join(", "));
 verifier("aucune ancre sans accolades", ancres.length === 0, ancres.slice(0, 5).join(", "));
 verifier("aucun dossier de plugin tape en dur", chemins.length === 0, chemins.slice(0, 7).join(", "));
+verifier("wrangler-env-init.mjs toujours sous eval (le jeton ne s'imprime jamais)", jetonsImprimes.length === 0, jetonsImprimes.slice(0, 5).join(", "));
+{
+  // Temoin : la regle voit la forme fautive, et laisse passer la bonne.
+  const nu = `node "${DOLLAR}{CLAUDE_SKILL_DIR}/../../scripts/wrangler-env-init.mjs" 2>/dev/null`;
+  const sousEval = `eval "$(${nu})"`;
+  verifier("temoin : wrangler-env-init lance nu est vu", LANCE_ENV_INIT.test(nu) && !ENV_INIT_SOUS_EVAL.test(nu));
+  verifier("temoin : wrangler-env-init sous eval passe", LANCE_ENV_INIT.test(sousEval) && ENV_INIT_SOUS_EVAL.test(sousEval));
+}
+
+// L'horloge GitHub (3.3.9). Sur un depot prive chaque passage compte au moins une minute du quota
+// d'Actions : elle n'est pas illimitee. GitHub ne met en sommeil que les taches planifiees des
+// depots publics : un keepalive cree sans lire la visibilite poussait chaque mois un commit vide
+// dans les depots prives de l'organisation. Et un rafraichissement du coffre partage dont on ne
+// lit pas le code de sortie laisse conclure qu'une cle manque quand le coffre est verrouille.
+const keepalives = [];
+const illimitees = [];
+const sansCodes = [];
+const APPEL_COFFRE = /apply-bienvenue\.mjs" --project "[^"]*" --no-clone/g;
+const codesLus = (suite) => suite.includes("`2` / `3`") && suite.includes("`4`");
+for (const f of markdowns) {
+  const texte = readFileSync(f.p, "utf8");
+  if (texte.includes("keepalive.yml") && !texte.includes("visibility")) keepalives.push(f.rel);
+  if (f.skill === "add-cron" && /illimit|unlimited/i.test(texte)) illimitees.push(f.rel);
+  for (const m of texte.matchAll(APPEL_COFFRE)) {
+    if (!codesLus(texte.slice(m.index, m.index + 2000))) sansCodes.push(f.rel);
+  }
+}
+verifier("un keepalive ne se cree qu'apres avoir lu la visibilite du depot", keepalives.length === 0, keepalives.join(", "));
+verifier("l'horloge GitHub n'est jamais dite illimitee", illimitees.length === 0, illimitees.join(", "));
+verifier("chaque rafraichissement du coffre partage lit ses codes de sortie", sansCodes.length === 0, sansCodes.join(", "));
+{
+  // Temoin : un appel suivi de son tableau passe, un appel nu est vu.
+  const appel = 'node "x/apply-bienvenue.mjs" --project "p" --no-clone --no-verify';
+  verifier("temoin : un appel au coffre sans ses codes est vu", [...appel.matchAll(APPEL_COFFRE)].length === 1 && !codesLus(appel + "\nRe-check."));
+  verifier("temoin : un appel suivi de ses codes passe", codesLus(appel + "\n| `2` / `3` | verrouille |\n| `4` | absent |"));
+}
+
+// Une route de tache planifiee ne compare jamais l'en-tete a `Bearer ${process.env.CRON_SECRET}`
+// fabrique sur place : tant que la variable manque, cette chaine vaut "Bearer undefined", que
+// n'importe qui peut envoyer (3.3.9). Textes des skills, et scripts qui ecrivent des routes.
+const ATTENDU_OUVERT = /Bearer \\?\$\{process\.env\.CRON_SECRET\}/;
+const routesOuvertes = [];
+const scripts = [];
+const parcourirScripts = (dossier) => {
+  for (const e of readdirSync(dossier, { withFileTypes: true })) {
+    const p = join(dossier, e.name);
+    if (e.isDirectory()) {
+      if (e.name !== "tests" && e.name !== "node_modules") parcourirScripts(p);
+    } else if (/\.(?:mjs|js)$/.test(e.name)) scripts.push(p);
+  }
+};
+parcourirScripts(join(ROOT, "scripts"));
+for (const p of [...markdowns.map((f) => f.p), ...scripts]) {
+  readFileSync(p, "utf8").split(/\r?\n/).forEach((ligne, i) => {
+    if (ATTENDU_OUVERT.test(ligne)) routesOuvertes.push(`${p.slice(ROOT.length + 1).split("\\").join("/")}:${i + 1}`);
+  });
+}
+verifier("une route de tache planifiee reste fermee tant que CRON_SECRET manque", routesOuvertes.length === 0, routesOuvertes.slice(0, 5).join(", "));
+verifier(
+  "temoin : l'attendu fabrique sur place est vu, meme echappe dans un gabarit",
+  ATTENDU_OUVERT.test("if (auth !== `Bearer ${process.env.CRON_SECRET}`) {") && ATTENDU_OUVERT.test("const expected = \\`Bearer \\${process.env.CRON_SECRET}\\`;"),
+);
+verifier("temoin : la forme fermee passe", !ATTENDU_OUVERT.test("if (!secret || auth !== `Bearer ${secret}`) {"));
 
 console.log("\nTextes par outil et ports.json");
 const variantes = markdowns.filter((f) => VARIANTE.test(f.rel));

@@ -1554,6 +1554,24 @@ export function decide(command, inherited = new Map()) {
       );
       continue;
     }
+
+    // 9 bis. The plugin's other scripts that redeploy the shared clock: register.mjs (every
+    //    change of the registry ends in `wrangler deploy`, after bringing worker.js up to the
+    //    plugin's version; its --rotate-secret is a `secret put`, rule 3b), migrate-live.mjs, and
+    //    db-backup-remove-target.mjs from /delete-project. SECURITY.md promises a question before a
+    //    worker deploy "also when one of the plugin's own scripts would do it": until 3.3.9 only
+    //    the two above asked. --list, --no-deploy and --dry-run deploy nothing and stay free;
+    //    --decommission-confirme is /delete-project's, after its own double confirmation.
+    const clockScript =
+      (/^(?:register|migrate-live)\.mjs$/.test(launchedBase) && sharedClock) ||
+      (launchedBase === "db-backup-remove-target.mjs" && (!/[\\/]/.test(launchedPath) || /delete-project[\\/][^\\/]+$/.test(launchedPath)));
+    if (clockScript && !/--(?:list|no-deploy|dry-run|decommission-confirme)\b/.test(seg)) {
+      keep(
+        ASK,
+        "This redeploys the shared clock (its registry, and its code when it is behind the plugin), code that runs with the account's keys. Confirm with the user before the run.",
+      );
+      continue;
+    }
   }
 
   return worst;

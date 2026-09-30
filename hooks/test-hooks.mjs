@@ -333,6 +333,19 @@ expect("node ./ensure.mjs", "ask");
 expect("node scripts/setup/ensure.mjs", "pass");
 expect("node autre-projet/worker-check.mjs", "pass");
 
+// Rule 9 bis (3.3.9): the plugin's other scripts that redeploy the shared clock ask as well,
+// in the forms the skills write; what deploys nothing stays free.
+expect('node "C:/p/scripts/shared-worker/register.mjs" --kind ping --task-name t --cron "0 * * * *" --app-url https://a.test --project-name p --put-secrets', "ask");
+expect('result=$(CRON_SECRET_VALUE="$X" node scripts/shared-worker/register.mjs --kind snapshot --target-name p)', "ask");
+expect('CRON_SECRET_VALUE="$NEW" node scripts/shared-worker/register.mjs --rotate-secret --project-name p', "ask");
+expect("node scripts/shared-worker/migrate-live.mjs --put-secrets", "ask");
+expect("node scripts/delete-project/db-backup-remove-target.mjs --project p", "ask");
+expect("cd scripts/shared-worker && node register.mjs --kind quota --recipient a@b.test", "ask");
+expect("node scripts/shared-worker/register.mjs --list", "pass");
+expect("node scripts/shared-worker/register.mjs --kind ping --no-deploy", "pass");
+expect("node scripts/shared-worker/migrate-live.mjs --no-deploy", "pass");
+expect("node autre-projet/scripts/register.mjs --kind ping", "pass");
+
 // ... et la meme famille, trouvee en corrigeant : un commentaire qui contient une
 // apostrophe, une commande envoyee en arriere-plan, un calcul qui contient `<<`, une
 // ligne continuee par une barre oblique inverse.

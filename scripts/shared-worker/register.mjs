@@ -16,6 +16,10 @@
 //   --remove --name <jobName>
 //       Remove any job by name.
 //
+//   --rotate-secret --project-name <kebab>
+//       Replace the project's CRON_SECRET_<PROJECT> on the clock with the value of the
+//       CRON_SECRET_VALUE env var (after the site's CRON_SECRET changed). No registry change.
+//
 //   --kind ping --task-name <kebab> --cron "<5-field UTC>" --app-url <https://...>
 //          --project-name <kebab> [--web-dir <path>]
 //       Register a scheduled HTTP ping to <app-url>/api/cron/<task-name>.
@@ -87,6 +91,7 @@ async function main() {
 
   if (flags.list) return doList();
   if (flags.remove && flags.name) return finalize(doRemove(flags.name), []);
+  if (flags["rotate-secret"]) return doRotateSecret();
 
   switch (flags.kind) {
     case "ping":
@@ -116,6 +121,34 @@ function doRemove(name) {
   }
   writeRegistry(DIR, registry);
   return { action: "removed", job: name, commitMsg: `jobs: remove ${name}` };
+}
+
+// The site's CRON_SECRET changed (a rotation, or the secret provisioned again): every ping job
+// of the project must present the new value, or the site answers 401 from then on. A secret
+// already on the clock is otherwise never replaced (finalize skips present ones), which is how
+// a rotation used to break every scheduled task of the project (3.3.8). The value comes from
+// CRON_SECRET_VALUE only, never an argument, and the registry does not change.
+function doRotateSecret() {
+  const project = flags["project-name"];
+  if (!project || !isKebab(project)) fail("--rotate-secret needs --project-name <kebab>.");
+  const value = process.env.CRON_SECRET_VALUE || "";
+  if (!value) fail("CRON_SECRET_VALUE is empty: nothing was sent to the clock (read the value first).");
+  const secretName = `CRON_SECRET_${slugUpper(project)}`;
+  const jobs = readRegistry(DIR)
+    .jobs.filter((j) => j.kind === "ping" && (j.project === project || j.secretName === secretName))
+    .map((j) => j.name);
+  if (!jobs.length) {
+    out({ ok: true, action: "no-job", secret: secretName, jobs, note: "No task of this project runs on the shared clock: nothing to replace there." });
+  }
+  const token = readUserEnv("CLOUDFLARE_API_TOKEN");
+  if (!token) {
+    fail(`CLOUDFLARE_API_TOKEN not found: the new ${secretName} could not be put on the clock, whose tasks will answer 401 until it is.`, {
+      howTo: "Unlock the vault, then run this again.",
+    });
+  }
+  const put = putWranglerSecret(DIR, token, secretName, value);
+  if (!put.ok) fail(`The clock refused the new ${secretName}: ${put.reason}`);
+  out({ ok: true, action: "secret-replaced", secret: secretName, jobs });
 }
 
 async function doPing() {
@@ -364,10 +397,11 @@ function renderRoute(taskName) {
   return `import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
+  const secret = process.env.CRON_SECRET;
   const authHeader = req.headers.get("authorization");
-  const expected = \`Bearer \${process.env.CRON_SECRET}\`;
 
-  if (!authHeader || authHeader !== expected) {
+  // Closed while CRON_SECRET is missing: the comparison would otherwise accept "Bearer undefined".
+  if (!secret || authHeader !== \`Bearer \${secret}\`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

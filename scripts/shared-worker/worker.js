@@ -78,7 +78,7 @@ export default {
       return;
     }
 
-    const due = jobs.filter((j) => j.enabled !== false && safeCronMatch(j, when));
+    const due = jobs.filter((j) => j.enabled !== false && isDue(j, when));
     if (!due.length) return;
 
     console.log(`Tick ${when.toISOString()}: ${due.length} job(s) due: ${due.map((j) => j.name).join(", ")}`);
@@ -86,7 +86,7 @@ export default {
       ctx.waitUntil(
         // `when` travels with the job: the failure alert throttles itself on the
         // schedule, so it must reason about the minute the tick was meant for.
-        runJob(job, env, when).catch((err) =>
+        runJob(job, env, when, { scheduled: true }).catch((err) =>
           console.error(`[${job.name}] FAILED: ${err?.message || err}`),
         ),
       );
@@ -96,7 +96,7 @@ export default {
   // Manual control plane (protected by the ADMIN_TOKEN secret):
   //   GET  /            - unauthenticated health ping
   //   GET  /status      - registry + next due time per job
-  //   POST /trigger?name=<job> - run one job immediately
+  //   POST /trigger?name=<job>[&target=<database>] - run one job immediately (a backup job: one database)
   async fetch(req, env, ctx) {
     const url = new URL(req.url);
 
@@ -131,12 +131,22 @@ export default {
       if (!name) return json({ error: "Missing ?name=<job>" }, 400);
       const job = listJobs().find((j) => j.name === name);
       if (!job) return json({ error: `Unknown job "${name}"` }, 404);
+      // A backup job with many databases runs one of them per call: all at once goes over the
+      // calls one run may make on the free plan (50), the failure email with them.
+      const target = url.searchParams.get("target");
+      if (job.kind === "snapshot") {
+        const names = (job.targets || []).map((t) => t.name);
+        if (target && !names.includes(target)) return json({ error: `Unknown target "${target}" of job "${name}"`, targets: names }, 404);
+        if (!target && names.length > MANUAL_ALL_MAX) {
+          return json({ error: `Name one database with &target=<name>: backing up ${names.length} at once goes over the calls one run may make.`, targets: names }, 400);
+        }
+      }
       ctx.waitUntil(
-        runJob(job, env).catch((err) =>
+        runJob(job, env, new Date(), { target }).catch((err) =>
           console.error(`[${job.name}] MANUAL RUN FAILED: ${err?.message || err}`),
         ),
       );
-      return json({ triggered: name, note: "See `wrangler tail` for the run logs." }, 202);
+      return json({ triggered: name, ...(target ? { target } : {}), note: "See `wrangler tail` for the run logs." }, 202);
     }
 
     return json({ error: "Not found" }, 404);
@@ -159,12 +169,13 @@ function json(obj, status = 200) {
 
 // ── Job dispatch ─────────────────────────────────────────────────────────
 
-export async function runJob(job, env, when = new Date()) {
+export async function runJob(job, env, when = new Date(), options = {}) {
   switch (job.kind) {
     case "ping":
       return runPingJob(job, env, when);
     case "snapshot":
-      return runSnapshotJob(job, env);
+      // Scheduled: the databases whose minute this is. By hand: the one named, or all of them.
+      return runSnapshotJob(job, env, undefined, options.target ? { target: options.target } : options.scheduled ? { minute: when.getUTCMinutes() } : {});
     case "quota":
       return runQuotaJob(job, env);
     default:
@@ -319,8 +330,13 @@ async function sendPingFailureEmail(env, cfg, job, cause, detail) {
 //   Steady-state max per target: 2 rolling + 3 aging = 5 branches
 
 // `jobs` is only passed by the tests: the live worker reads its own registry.
-export async function runSnapshotJob(job, env, jobs) {
-  const targets = Array.isArray(job.targets) ? job.targets : [];
+export async function runSnapshotJob(job, env, jobs, select = {}) {
+  const all = Array.isArray(job.targets) ? job.targets : [];
+  const targets = select.target
+    ? all.filter((t) => t.name === select.target)
+    : Number.isInteger(select.minute)
+      ? all.filter((t) => slotOf(t.name) === select.minute)
+      : all;
   if (!env.NEON_API_KEY) {
     console.error(`[${job.name}] NEON_API_KEY secret missing - skipping.`);
     return;
@@ -540,7 +556,9 @@ export async function runQuotaJob(job, env) {
   const errors = results.filter((r) => r && r._error);
   for (const e of errors) console.error(`[${job.name}] ${e._error}`);
 
-  if (!alerts.length) {
+  // A check that could not read (a revoked key, an API down) is news too: said by email, never
+  // hidden behind "all quotas under their thresholds", or a dead watch looks like a quiet one.
+  if (!alerts.length && !errors.length) {
     console.log(`[${job.name}] all quotas under their thresholds.`);
     return;
   }
@@ -551,8 +569,8 @@ export async function runQuotaJob(job, env) {
   }
 
   try {
-    await sendQuotaEmail(env, cfg, alerts);
-    console.log(`[${job.name}] alert email sent to ${cfg.recipient} (${alerts.length} trigger(s)).`);
+    await sendQuotaEmail(env, cfg, alerts, errors);
+    console.log(`[${job.name}] alert email sent to ${cfg.recipient} (${alerts.length} trigger(s), ${errors.length} check(s) that could not read).`);
   } catch (e) {
     console.error(`[${job.name}] email send failed: ${e.message}`);
   }
@@ -747,10 +765,15 @@ async function checkNeonUsage(env, cfg) {
   return alerts;
 }
 
-async function sendQuotaEmail(env, cfg, alerts) {
-  const subject = alerts.length === 1
-    ? `[Hypervibe] Quota ${alerts[0].service} a depasse le seuil`
-    : `[Hypervibe] ${alerts.length} quotas ont depasse le seuil`;
+async function sendQuotaEmail(env, cfg, alerts, errors = []) {
+  const subject = !alerts.length
+    ? `[Hypervibe] La veille des quotas n'a pas pu lire ${errors.length} service(s)`
+    : alerts.length === 1
+      ? `[Hypervibe] Quota ${alerts[0].service} a depasse le seuil`
+      : `[Hypervibe] ${alerts.length} quotas ont depasse le seuil`;
+  const unread = errors.length
+    ? `<h3 style="margin-top: 24px;">Ce que la veille n'a pas pu lire</h3><p>Sans ces lectures, un depassement ne serait pas vu. Une cle revoquee ou expiree se renouvelle, puis se remet sur l'horloge ; un service en panne se relit au prochain passage.</p><ul style="font-size:14px;">${errors.map((e) => `<li>${escapeHtml(e._error)}</li>`).join("")}</ul>`
+    : "";
 
   const rows = alerts
     .map(
@@ -776,8 +799,9 @@ async function sendQuotaEmail(env, cfg, alerts) {
   const htmlContent = `
     <div style="font-family: -apple-system, system-ui, sans-serif; max-width: 720px; margin: 0 auto; color: #222;">
       <h2 style="color: #d4830f;">Alerte quota Hypervibe</h2>
-      <p>Au moins un de tes services a depasse le seuil que tu as configure. Voici le detail :</p>
-      <table style="border-collapse: collapse; width: 100%; font-size: 14px;">
+      ${alerts.length ? `<p>Au moins un de tes services a depasse le seuil que tu as configure. Voici le detail :</p>` : ""}
+      ${unread}
+      ${alerts.length ? `<table style="border-collapse: collapse; width: 100%; font-size: 14px;">` : "<!-- "}
         <thead style="background: #f4f4f4;">
           <tr>
             <th style="padding:8px;border:1px solid #ddd;text-align:left;">Service</th>
@@ -789,7 +813,7 @@ async function sendQuotaEmail(env, cfg, alerts) {
           </tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>
+      ${alerts.length ? "</table>" : " -->"}
       ${hints ? `<h3 style="margin-top: 24px;">Ou regarder</h3><ul style="font-size:14px;">${hints}</ul>` : ""}
       <h3 style="margin-top: 24px;">Que faire ?</h3>
       <ul>
@@ -927,6 +951,38 @@ async function sendAlertEmail(env, cfg, subject, htmlContent) {
     const text = await res.text();
     throw new Error(`Resend HTTP ${res.status}: ${text.slice(0, 200)}`);
   }
+}
+
+// ── Backups spread over their hour ───────────────────────────────────────
+// A run of the free plan may make 50 calls, and a backup makes about three: every database at
+// once went over the cap from about fifteen of them, and the failure email, a call too, could
+// not leave (3.3.8). Each database now has its own minute in the hour the backup job is
+// scheduled for, the same one every time; a manual trigger names one when there are many.
+const MANUAL_ALL_MAX = 10;
+
+/** The minute (0-59) a database is backed up in, from its name (FNV-1a): stable, no state. */
+export function slotOf(name) {
+  let h = 0x811c9dc5;
+  for (const ch of String(name)) {
+    h ^= ch.codePointAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h % 60;
+}
+
+/** The same schedule, any minute of its hour. */
+export function anyMinute(cron) {
+  const parts = String(cron).trim().split(/\s+/);
+  if (parts.length !== 5) return cron;
+  parts[0] = "*";
+  return parts.join(" ");
+}
+
+/** Is this job due now? A backup job is, in its hour, at the minute of one of its databases. */
+export function isDue(job, when) {
+  if (job.kind !== "snapshot") return safeCronMatch(job, when);
+  if (!safeCronMatch({ ...job, cron: anyMinute(job.cron) }, when)) return false;
+  return (job.targets || []).some((t) => slotOf(t.name) === when.getUTCMinutes());
 }
 
 // ── Cron matcher (5-field UTC: minute hour dom month dow) ────────────────

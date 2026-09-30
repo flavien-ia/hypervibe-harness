@@ -226,6 +226,7 @@ The inventory carries a `manifest` section when the project declares its resourc
 - `seen-in-scan` / `injected` - it is in the tables above; an `injected` one was found by its **exact identifier** even though its name looks nothing like the project. Mark these rows as *"declared by the project"*: they are the most trustworthy part of the inventory.
 - `missing` - declared but verified gone from the account. Mention it in one line (nothing to delete, the manifest is just stale).
 - `shared` - declared as shared infrastructure: it is in section 2.4, never in the deletion scope, whatever its name matches.
+- `sharedIgnored` (a note, next to the status) - a registration of this project on the shared clock that the manifest marks shared by mistake (a scheduled task, or the backup of a database the manifest does not declare shared): it stays in the deletion scope, since the clock would otherwise keep working for a project that is gone. Say so in one line in the review.
 - `unverified` - declared but not checkable automatically (dns-zone, email-route, cron-job, github-repo...). **List these in 2.1 too**, marked *"declared by the project - please confirm it is really this project's"*: a declaration is a strong signal, but it is not a live verification.
 
 Conversely, a resource found ONLY by name similarity (no `declared: true`) deserves the opposite caution: say it was **guessed from its name**, and have the user confirm it truly belongs to this project before it enters the scope.

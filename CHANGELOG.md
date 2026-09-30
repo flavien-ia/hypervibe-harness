@@ -1,5 +1,23 @@
 # Changelog
 
+## v3.3.9 (30 septembre 2026)
+
+Version de correction consacrée à l'horloge partagée (tâches planifiées, sauvegardes, veille des quotas), nourrie par le retour d'un utilisateur qui y a migré huit projets.
+
+### Améliorations
+- **Sauvegardes des bases** : chaque base a désormais sa propre minute dans l'heure de sauvegarde. Au-delà d'une dizaine de bases, les sauvegardes lancées toutes ensemble dépassaient la limite de l'offre gratuite de Cloudflare et échouaient.
+- **Veille des quotas** : quand elle n'a pas pu lire un service, elle vous le dit par email au lieu de se taire.
+- **Renouvellement de la clé des tâches planifiées** : `/rotate-secret` la pose aussi sur l'horloge. Sans ça, toutes les tâches du projet étaient refusées après une rotation.
+- **Horloge GitHub** : elle n'est plus présentée comme illimitée (sur un dépôt privé, chaque passage compte une minute du quota gratuit), et sa petite tâche d'entretien mensuelle n'est plus ajoutée qu'aux dépôts publics, les seuls que GitHub met en sommeil.
+- **Horloge partagée** : une vérification qui échoue (réseau, limite de débit) n'est plus prise pour une horloge absente, et son accès de contrôle (état, déclenchement manuel) est rallumé sur les comptes qui le permettent.
+- **Suppression d'un projet** : ses tâches et sa sauvegarde partent avec lui, même marquées « partagées » par erreur.
+- **Reprise d'un projet existant** : sa base est retrouvée dans toutes les organisations Neon de la clé, et le message dit pourquoi quand elle ne l'est pas.
+
+### Sécurité
+- **Garde-fou** : il demande confirmation avant tout script du plugin qui redéploie l'horloge partagée, comme le promet la page de sécurité.
+- **Tâches planifiées** : leur adresse reste fermée tant que la clé manque.
+- **Création d'un agent** : la clé Cloudflare ne s'affiche plus dans la conversation.
+
 ## v3.3.8 (30 septembre 2026)
 
 ### Améliorations

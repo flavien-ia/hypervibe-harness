@@ -53,7 +53,7 @@ The account-wide `hypervibe-jobs` worker, shared across ALL the user's projects 
 A Cloudflare Worker created specifically for this task. Only justified when the task itself needs an isolated Cloudflare binding (its own R2 / KV / D1 / Durable Object) or a secret that must NOT coexist with other projects' secrets. Consumes 1 of the 5 free cron slots on the account.
 
 ### 3. GitHub Action (fallback without Cloudflare)
-A YAML workflow in the project's GitHub repo. Used ONLY when Cloudflare is not configured on the machine and the user does not want to configure it. Free and unlimited, but **delays of 30-60 min are possible** during peak load.
+A YAML workflow in the project's GitHub repo. Used ONLY when Cloudflare is not configured on the machine and the user does not want to configure it. Free on a public repository; on a private one, each run counts at least one minute against the account's Actions minutes (2,000 a month on GitHub's free plan, shared by all its private repositories): an hourly task uses about 720, a task every 15 minutes 2,880. **Delays of 30-60 min are possible** during peak load.
 
 ---
 
@@ -169,7 +169,7 @@ If the description explicitly mentions a need for an isolated Cloudflare R2 / KV
 Also build `REASON` (1 non-tech sentence) for the final summary:
 - `shared`: *"I put it on your shared clock: precise to the minute, it serves all your projects at zero extra cost"*
 - `cf-dedicated`: *"I gave it its own dedicated clock because this task needs its own isolated storage"*
-- `gh`: *"Cloudflare is not set up on this machine, so I used the GitHub clock - free and unlimited, but it can run 30-60 minutes late. If that ever matters, run /start to enable Cloudflare and tell me to move the task."*
+- `gh`: *"Cloudflare is not set up on this machine, so I used the GitHub clock - free, though on a private repository each run uses at least one of GitHub's 2,000 free minutes a month, and it can run 30-60 minutes late. If that ever matters, run /start to enable Cloudflare and tell me to move the task."*
 
 If `CHOICE=gh` AND the task smells timing-critical (frequency > 1x/hour, "exactly at midnight", "reset", user-visible consequence when late), be honest in the final summary about the concrete impact of a possible delay.
 
@@ -254,8 +254,9 @@ Create `<WEB_DIR>/src/app/api/cron/<TASK_NAME>/route.ts` (route protected by `CR
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
-  const auth = req.headers.get("authorization");
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  // Closed while CRON_SECRET is missing: the comparison would otherwise accept "Bearer undefined".
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -309,8 +310,13 @@ jobs:
             "$CRON_APP_URL/api/cron/<TASK_NAME>"
 ```
 
-#### 6e. Create the keepalive workflow (if absent)
-Check `.github/workflows/keepalive.yml`. If it does not exist, create it:
+#### 6e. Keepalive workflow: on a public repository only
+GitHub only puts the scheduled tasks of **public** repositories to sleep, after 60 days without activity. On a private repository this workflow would only spend minutes and push an empty commit every month, which triggers a deploy. Read the repository's visibility:
+```bash
+gh repo view --json visibility -q .visibility
+```
+- `PRIVATE` or `INTERNAL`: no keepalive, go on to 6f.
+- `PUBLIC`: if `.github/workflows/keepalive.yml` does not exist, create it:
 
 ```yaml
 name: Keepalive
@@ -369,7 +375,7 @@ Add as the section intro (created only once):
 Scheduled tasks. A clock pings the `/api/cron/<name>` endpoint on the Next.js side, protected by `CRON_SECRET`. The business logic lives in Next.js. 3 possible clocks:
 - **Shared hypervibe-jobs worker** (default): one account-wide Cloudflare worker for all projects (pings, backups, quota watch), registry git-versioned in `~/.hypervibe-jobs/`, timing to the minute, 1 CF slot total
 - **Dedicated Cloudflare Worker**: only when the task needs isolated resources (own R2/KV/D1), 1 CF slot per task
-- **GitHub Action**: fallback without Cloudflare, best-effort (±30-60 min), automatic monthly keepalive
+- **GitHub Action**: fallback without Cloudflare, best-effort (±30-60 min), each run counts at least one Actions minute on a private repository, monthly keepalive on a public one only
 ```
 
 And `env-vars`:
@@ -410,7 +416,7 @@ Choose the right block according to `CHOICE`, incorporating `REASON` in non-tech
 >
 > It will trigger **<CRON_HUMAN>**. <REASON>
 >
-> A small reminder: GitHub can be 30 to 60 min late<, concrete consequence for this task if relevant>. I also added (if not already done) a tiny invisible task that runs once a month to prevent GitHub from disabling the clock if you don't touch the project for 60 days.
+> A small reminder: GitHub can be 30 to 60 min late<, concrete consequence for this task if relevant>.<On a private repository: Each trigger counts at least one minute of the computing time GitHub offers you each month (2,000 minutes on its free plan)<, about N minutes a month for this task, if it runs more than hourly>.><If a keepalive was created (public repository): I also added a tiny invisible task that runs once a month to prevent GitHub from disabling the clock if you don't touch the project for 60 days.>
 >
 > **If the delay ever becomes a problem**, run `/start` to enable Cloudflare on this machine, then tell me *"move this task to my shared clock"* and I'll migrate it.
 >
@@ -422,7 +428,7 @@ Choose the right block according to `CHOICE`, incorporating `REASON` in non-tech
 
 On the shared clock, the registry job name is `JOB_NAME` = `<PROJECT_NAME>-<TASK_NAME>` (tasks registered by older plugin versions may be listed under `<TASK_NAME>` alone - when in doubt, `--list` shows the exact names).
 
-- **"run the task right now"** (shared clock): trigger it manually through the worker's control endpoint:
+- **"run the task right now"** (shared clock): trigger it manually through the worker's control endpoint (if `workerUrl` is `null` (`controlPlane: "off"`: the account has no workers.dev address, so the clock has no manual trigger), skip this call and say when the job runs on its own instead):
   ```bash
   ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN) \
     && printf 'Authorization: Bearer %s\n' "$ADMIN" | curl -s -X POST -H @- "<WORKER_URL>/trigger?name=<JOB_NAME>"

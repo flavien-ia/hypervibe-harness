@@ -20,7 +20,7 @@ Ajoute une tâche qui s’exécute automatiquement à heure fixe dans votre proj
 4. **Choix automatique de l’horloge** : Hypervibe décide elle-même quelle horloge utiliser (vous n’avez aucun choix à faire) :
   - **Votre horloge partagée** (le défaut, pour presque tout) : un mécanisme unique qui sert **tous** vos projets. Précise à la minute, et zéro coût supplémentaire quel que soit le nombre de tâches que vous ajoutez. C’est la même horloge qui gère déjà vos sauvegardes de base de données et votre surveillance de quotas.
   - **Cloudflare Worker dédié** (rare) : uniquement quand la tâche a besoin de ses propres ressources isolées chez Cloudflare (son espace R2, KV ou D1 à elle, ou un secret qui ne doit pas être partagé avec vos autres projets).
-  - **GitHub Action** (secours) : utilisée seulement si Cloudflare n’est pas configuré sur votre ordi. Gratuit et illimité, mais avec **30-60 min de retard possible**.
+  - **GitHub Action** (secours) : utilisée seulement si Cloudflare n’est pas configuré sur votre ordi. Gratuite sur un dépôt public, et dans les 2 000 minutes gratuites par mois de GitHub sur un dépôt privé (chaque passage compte au moins une minute), mais avec **30-60 min de retard possible**.
 
 5. **Configuration automatique** : Hypervibe met tout en place, l’endpoint protégé `/api/cron/<nom>` côté Next.js, la clé `CRON_SECRET` (générée si manquante), l’inscription de l’horaire sur l’horloge choisie (et les secrets GitHub si c’est l’horloge GitHub).
 

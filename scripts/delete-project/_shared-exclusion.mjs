@@ -74,6 +74,26 @@ export const NOT_DELETED_KINDS = ["ai-key"];
 /** Every inventory section a rule reads: discover-resources.mjs hands them all over. */
 export const SHARED_SECTIONS = [...new Set(Object.values(SHARED_RULES).map((rule) => rule.section))];
 
+/** A project's own registrations on the shared clock are never shared, whatever the manifest
+ *  says (3.3.9): a scheduled task calls this project's own route, and a backup is this project's
+ *  database's, shared only when the manifest declares that database shared. Marked shared by
+ *  mistake (the clock is shared, the flag followed), they were taken out of the deletion, and the
+ *  clock would have kept backing up a deleted database. manifest.mjs refuses the flag on them
+ *  since; this covers the manifests written before.
+ *  @param {{kind: string, shared?: boolean}} resource  a manifest entry
+ *  @param {Array<{kind: string, shared?: boolean}>} resources  the whole manifest
+ *  @returns {string|null} why its shared flag is ignored, or null when the flag holds */
+export function sharedIgnoredReason(resource, resources = []) {
+  if (!resource?.shared) return null;
+  if (resource.kind === "cron-job") {
+    return "a scheduled task calls this project's own route: it leaves with the project, even marked shared";
+  }
+  if (resource.kind === "db-backup" && !resources.some((r) => r?.kind === "neon-project" && r.shared)) {
+    return "the backup of this project's database, which the manifest does not declare shared: it leaves with the project, even marked shared";
+  }
+  return null;
+}
+
 /** Takes a declared shared resource out of its inventory section, in place.
  *  @param {Record<string, any>} sections  the inventory sections, as discover builds them
  *  @param {{kind: string, name?: string, id?: string, jurisdiction?: string}} resource

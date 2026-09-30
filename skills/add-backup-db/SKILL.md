@@ -313,8 +313,10 @@ The registration output already confirms `deployed: true` and gives `workerUrl`.
 
 ```bash
 ADMIN=$(node "${CLAUDE_SKILL_DIR}/../../scripts/_read-user-env.mjs" HYPERVIBE_JOBS_ADMIN_TOKEN)
-printf 'header = "Authorization: Bearer %s"\n' "$ADMIN" | curl -s --config - -X POST "<workerUrl>/trigger?name=neon-backups"
+printf 'header = "Authorization: Bearer %s"\n' "$ADMIN" | curl -s --config - -X POST "<workerUrl>/trigger?name=neon-backups&target=<PROJECT_NAME>"
 ```
+
+The run backs up this database only (`&target=`): with many databases, the clock refuses to back them all up in one call, which would go over the calls one run may make. If `workerUrl` is `null` (`controlPlane: "off"`: the account has no workers.dev address, so the clock has no manual trigger), skip this call and say when the job runs on its own instead.
 
 To watch it run live:
 

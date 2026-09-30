@@ -28,7 +28,9 @@
 //   documents the project's infrastructure for humans too.
 // - `shared: true` marks infrastructure used by several projects (e.g. the
 //   `hypervibe-jobs` worker): consumers must NEVER delete a shared resource
-//   when deleting one project.
+//   when deleting one project. A project's own registration on that worker
+//   (cron-job, db-backup) is not shared: `add` refuses the flag there, but for
+//   the backup of a database the manifest itself declares shared.
 //
 // USAGE
 // -----
@@ -189,6 +191,21 @@ function sameResource(a, b) {
   return false;
 }
 
+// A project's own registration on the shared clock is never shared, even though the clock is: a
+// scheduled task calls this project's own route, and a backup is this project's database's, shared
+// only when the manifest declares that database shared. Marked shared (the flag followed the
+// clock's), the deletion of the project left them in place, and the clock kept backing up a
+// deleted database (a user's migration, 29/09/2026).
+function neverSharedReason(kind, manifest) {
+  if (kind === "cron-job") {
+    return "--shared does not apply to a cron-job: the task calls this project's own route, and leaves with it. The shared clock itself is declared once, as cf-worker hypervibe-jobs --shared.";
+  }
+  if (kind === "db-backup" && !manifest.resources.some((r) => r.kind === "neon-project" && r.shared)) {
+    return "--shared does not apply to this db-backup: the backup is this project's database's, which the manifest does not declare shared (neon-project --shared). Marked shared, deleting the project would leave the clock backing up a deleted database.";
+  }
+  return null;
+}
+
 // --- add -------------------------------------------------------------------
 function cmdAdd() {
   const kind = arg("--kind");
@@ -199,6 +216,12 @@ function cmdAdd() {
   for (const [k, v] of Object.entries(extra)) assertNoSecret(k, v);
   if (name) assertNoSecret("name", name);
   if (id) assertNoSecret("id", id);
+
+  // A project's own registration on the shared clock is never shared (neverSharedReason): refused
+  // here, and a flag written before 3.3.9 is dropped at the entry's next write, below.
+  const manifest = load() || emptyManifest();
+  const neverShared = neverSharedReason(kind, manifest);
+  if (neverShared && flag("--shared")) fail(neverShared);
 
   const entry = {
     kind,
@@ -211,7 +234,6 @@ function cmdAdd() {
     addedAt: new Date().toISOString().slice(0, 10),
   };
 
-  const manifest = load() || emptyManifest();
   const existing = manifest.resources.findIndex((r) => sameResource(r, entry));
   let action;
   let stored;
@@ -220,6 +242,8 @@ function cmdAdd() {
     // Update in place but keep the original provenance: who first created the
     // resource is history, not something a re-run should rewrite.
     stored = { ...before, ...entry, addedBy: before.addedBy, addedAt: before.addedAt };
+    // Such a registration marked shared before 3.3.9 loses the flag here.
+    if (neverShared) delete stored.shared;
     action = JSON.stringify(stored) === JSON.stringify(before) ? "unchanged" : "updated";
     manifest.resources[existing] = stored;
   } else {
@@ -301,10 +325,24 @@ async function neonProjectByHost(host) {
   // The connection host pins the project with certainty - resolve id + name
   // through the API when a key is available, by checking each project's
   // endpoints. One-time cost, adoption only.
+  //
+  // Neon's project list is organisation-scoped and says nothing when the scope is missing: a
+  // personal key without `org_id` answers for the account's default organisation only, so a
+  // project living in any other organisation was never found, and the message blamed a missing
+  // key (a user's eight projects, 29/09/2026). Every organisation the key belongs to is searched:
+  // this lookup only reads, and the host designates one project whatever the organisation.
   let apiKey = "";
+  let vaultGet = () => "";
   try {
     const { getSecret } = await import("../vault/vault.mjs");
-    apiKey = getSecret("NEON", "api_key");
+    vaultGet = (item, field) => {
+      try {
+        return getSecret(item, field) || "";
+      } catch {
+        return "";
+      }
+    };
+    apiKey = vaultGet("NEON", "api_key");
   } catch {
     /* vault unavailable */
   }
@@ -314,16 +352,37 @@ async function neonProjectByHost(host) {
     });
     apiKey = (r.stdout || "").trim();
   }
-  if (!apiKey) return null;
+  if (!apiKey) return { reason: "no-key" };
   // Pooled connection strings carry a `-pooler` infix that the endpoints API
   // does not: `ep-x-pooler.c-2...` and `ep-x.c-2...` are the same endpoint.
   const cible = host.replace("-pooler.", ".");
   const headers = { Authorization: `Bearer ${apiKey}` };
+  // The key's own scope first (its organisation, for an organisation key), then every
+  // organisation it belongs to.
+  const scopes = [null];
   try {
-    const list = await (
-      await fetch("https://console.neon.tech/api/v2/projects?limit=200", { headers })
-    ).json();
-    const projects = list.projects || [];
+    const { resolveNeonOrg } = await import("../neon-org.mjs");
+    const org = await resolveNeonOrg(apiKey, vaultGet);
+    for (const id of [org.orgId, ...(org.orgs || []).map((o) => o.id)]) {
+      if (id && !scopes.includes(id)) scopes.push(id);
+    }
+  } catch {
+    /* no organisation helper here, or Neon unreachable: the key's own scope only */
+  }
+  let read = 0;
+  for (const orgId of scopes) {
+    let projects;
+    try {
+      const res = await fetch(
+        `https://console.neon.tech/api/v2/projects?limit=400${orgId ? `&org_id=${encodeURIComponent(orgId)}` : ""}`,
+        { headers },
+      );
+      if (!res.ok) continue;
+      projects = (await res.json()).projects || [];
+      read += 1;
+    } catch {
+      continue;
+    }
     const checks = await Promise.all(
       projects.map(async (p) => {
         try {
@@ -337,10 +396,10 @@ async function neonProjectByHost(host) {
         }
       }),
     );
-    return checks.find(Boolean) || null;
-  } catch {
-    return null;
+    const found = checks.find(Boolean);
+    if (found) return found;
   }
+  return read ? { reason: "not-found", scopes: read } : { reason: "unreachable" };
 }
 
 async function cmdAdopt() {
@@ -381,15 +440,21 @@ async function cmdAdopt() {
   const hostMatch = /@([a-z0-9.-]+\.neon\.tech)\b/.exec(dbUrl);
   if (hostMatch) {
     const resolved = await neonProjectByHost(hostMatch[1]);
+    const why = {
+      "no-key": "no Neon API key",
+      collaborator: "a collaborator's harness never reads a database key: the administrator's resolves it",
+      unreachable: "the Neon API could not be read",
+      "not-found": `no project of this Neon key has this host (${resolved?.scopes ?? 0} organisation scope(s) searched)`,
+    };
     found.push({
       resource: {
         kind: "neon-project",
-        ...(resolved ? { id: resolved.id, name: resolved.name } : {}),
+        ...(resolved?.id ? { id: resolved.id, name: resolved.name } : {}),
         host: hostMatch[1],
       },
-      source: resolved
+      source: resolved?.id
         ? "DATABASE_URL host, resolved via Neon API"
-        : "DATABASE_URL host (id unresolved: no Neon API key)",
+        : `DATABASE_URL host (id unresolved: ${why[resolved?.reason] ?? "unknown"})`,
     });
   }
 
