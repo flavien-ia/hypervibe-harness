@@ -577,6 +577,8 @@ function normalise(raw) {
     // Braces first, as the shell expands them before anything runs: `{git,} add .` is
     // `git add .`, and an opener `{` stripped first would have hidden it.
     s = expandBraces(s, cut);
+    // A word is read as the shell hands it over, whatever its quotes: `git "push"` is `git push`.
+    s = plainWords(s);
     // Openers and keywords a shell swallows before the command itself, and
     // the closers of the same blocks at the end.
     s = s.replace(/^(?:[({]\s*|(?:then|do|else|elif|if|while|until)\s+|!\s+)/, "");
@@ -768,6 +770,17 @@ function words(seg) {
         value += seg.slice(i + 1, Math.min(j, seg.length)).replace(/\\([$`"\\])/g, "$1");
         raw += seg.slice(i, j + 1);
         i = j + 1;
+      } else if (c === "$" && seg[i + 1] === "'") {
+        // An ANSI-C string, `$'...'`: its escapes are read as the shell reads them.
+        let j = i + 2;
+        while (j < seg.length && seg[j] !== "'") j += seg[j] === "\\" ? 2 : 1;
+        value += ansiC(seg.slice(i + 2, Math.min(j, seg.length)));
+        raw += seg.slice(i, j + 1);
+        i = j + 1;
+      } else if (c === "$" && seg[i + 1] === '"') {
+        // A localised string, `$"..."`: the double-quoted string it is.
+        raw += c;
+        i += 1;
       } else if (c === "\\") {
         value += seg[i + 1] ?? "";
         raw += seg.slice(i, i + 2);
@@ -1037,6 +1050,201 @@ function pathspecKind(spec) {
   return everything.includes(rest) ? "whole" : "part";
 }
 
+// ── A word, as the shell hands it over ──────────────────────────────────────
+// The rules name a command's words (`git push`, `git add -A`, `git reset --hard`) and read them in
+// the segment's text. A word the shell hands over unchanged but that is not typed bare walked
+// past every one of them: `git "push"`, `git add '-A'`, `git add \-A`, `git pu"sh"`,
+// `git $'push'` (found while rewriting the rules, 3.3.10; they had read text since their first version).
+// So before any rule runs, a word whose value is plain (the letters, digits and punctuation of a
+// command, an option, a path or a ref) is written as its value. A word that carries a blank, a
+// quote, a `$` or a glob stays as typed: it is a value, or something the shell will expand, and
+// the rules that read values (a commit message, a SQL statement, a payload) still find it quoted.
+const PLAIN_WORD = /^[A-Za-z0-9_@%+=:,.\/~^-]+$/;
+
+/** A segment with each plain word written as the command receives it. */
+function plainWords(seg) {
+  const list = words(seg);
+  const dressed = (w) => w.raw !== w.value && PLAIN_WORD.test(w.value);
+  return list.some(dressed) ? list.map((w) => (dressed(w) ? w.value : w.raw)).join(" ") : seg;
+}
+
+/** What an ANSI-C string (`$'...'`) holds once the shell has read its escapes: `$'\x70ush'` is
+ *  `push`. */
+function ansiC(body) {
+  const simple = { a: "\x07", b: "\b", e: "\x1b", E: "\x1b", f: "\f", n: "\n", r: "\r", t: "\t", v: "\v" };
+  return body.replace(/\\(?:x([0-9a-fA-F]{1,2})|u([0-9a-fA-F]{1,4})|U([0-9a-fA-F]{1,8})|([0-7]{1,3})|c([\s\S])|([\s\S]))/g, (whole, hex, u4, u8, octal, control, one) => {
+    if (hex ?? u4 ?? u8) return String.fromCodePoint(Math.min(parseInt(hex ?? u4 ?? u8, 16), 0x10ffff));
+    if (octal) return String.fromCharCode(parseInt(octal, 8) & 0xff);
+    if (control) return String.fromCharCode(control.toUpperCase().charCodeAt(0) ^ 0x40);
+    return simple[one] ?? one;
+  });
+}
+
+// ── An option, as git reads it ──────────────────────────────────────────────
+// Git takes a long option by any unambiguous prefix (`--al` is `--all`, `--har` is `--hard`,
+// `--forc` is `--force`), and an option wherever it stands among the arguments
+// (`git reset HEAD~1 --hard`, `git commit -m x -a`, `git clean . -f`). The rules read `--all`,
+// `--hard`, `--force` in full, and right after the subcommand: each of the forms above staged
+// everything, discarded work or deleted files with no refusal and no question (same finding).
+
+/** The arguments of `git <subcommand>` that can be options: what follows the subcommand, up to
+ *  a `--`. Null when the segment is not that subcommand. */
+function gitOptions(seg, subcommand) {
+  if (!new RegExp(`^git\\s+${subcommand}(?:\\s|$)`).test(seg)) return null;
+  const args = operandsOf(words(seg))
+    .slice(2)
+    .map((w) => w.value);
+  const end = args.indexOf("--");
+  return end < 0 ? args : args.slice(0, end);
+}
+
+/** `git add` told to stage everything by an option: `-A`, `-u`, a cluster that carries one of
+ *  them, `--all`, `--update`, or a prefix git takes for one of those. */
+const addSweeps = (seg) => (gitOptions(seg, "add") ?? []).some((w) => /^-[a-zA-Z]*[Au][a-zA-Z]*$/.test(w) || /^--(?:a(?:ll?)?|u(?:p(?:d(?:a(?:te?)?)?)?)?)$/.test(w));
+
+/** The options of `git commit` that take their value in the next word. */
+const COMMIT_VALUED = ["--message", "--file", "--reuse-message", "--reedit-message", "--fixup", "--squash", "--author", "--date", "--template", "--cleanup", "--trailer", "--pathspec-from-file"];
+
+/** `git commit` told to stage every tracked change on its way (`-a`, `--all`), as git reads it:
+ *  among its options, in a cluster before any letter that takes a value (`-am` is `-a -m`, `-ma`
+ *  is the message "a"), and never the value of the option before it (`-m -a` is a commit whose
+ *  message is "-a"). */
+function commitSweeps(seg) {
+  const options = gitOptions(seg, "commit");
+  if (!options) return false;
+  for (let i = 0; i < options.length; i += 1) {
+    const w = options[i];
+    if (w === "--all") return true;
+    if (w.startsWith("--")) {
+      // A long option that takes a value takes the next word, unless it carries it after `=`.
+      if (!w.includes("=") && w.length > 3 && COMMIT_VALUED.some((o) => o.startsWith(w))) i += 1;
+    } else if (/^-[a-zA-Z]/.test(w)) {
+      for (let k = 1; k < w.length; k += 1) {
+        if (w[k] === "a") return true;
+        // `-S` and `-u` take their value attached; the others take the rest of the word, or
+        // the next word when nothing follows the letter.
+        if ("Su".includes(w[k])) break;
+        if ("mFCct".includes(w[k])) {
+          if (k === w.length - 1) i += 1;
+          break;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/** `git reset` told to discard the working tree: `--hard`, `--merge`, or a prefix git takes. */
+const resetDiscards = (seg) => (gitOptions(seg, "reset") ?? []).some((w) => /^--(?:h(?:a(?:rd?)?)?|me(?:r(?:ge?)?)?)$/.test(w));
+
+/** `git clean` told to delete: `-f`, a cluster that carries it, `--force` or a prefix of it. */
+const cleanForces = (seg) => (gitOptions(seg, "clean") ?? []).some((w) => /^-[a-zA-Z]*f[a-zA-Z]*$/.test(w) || /^--f(?:o(?:r(?:ce?)?)?)?$/.test(w));
+
+/** `git checkout` or `git restore` given a pathspec that means the whole tree (`.`, `*`, `:/`):
+ *  every uncommitted change of the tree goes, whatever comes before it (`git checkout HEAD -- .`,
+ *  `git restore -SW .`). */
+function restoresWholeTree(seg) {
+  if (!/^git\s+(?:checkout|restore)(?:\s|$)/.test(seg)) return false;
+  return operandsOf(words(seg))
+    .slice(2)
+    .some((w) => !w.value.startsWith("-") && pathspecKind(w.value) === "whole");
+}
+
+// ── A flag that spares a question ───────────────────────────────────────────
+// A dry-run push publishes nothing, a blank run of one of the clock's scripts changes nothing:
+// those pass. But only when the command READS the flag as that flag. Looked
+// for in the segment's text, it was found where the command does not read it: inside a quoted
+// value (`--url "x --dry-run y"`), as part of another word (`main:x--dry-run` is a branch),
+// taken as the value of the option before it (`git push --repo --dry-run origin main` pushes),
+// or switched off further on (`git push --dry-run --no-dry-run` pushes too). Each spared the
+// question for a real run (found while rewriting the rules, 3.3.10; the push rule had read its
+// flag that way since its first version). So a flag counts as a word of its own, as the command receives it,
+// where the command's own reading of its options makes it that flag, and never in a segment
+// that carries a substitution: the scanner takes what a substitution runs out of the text, and
+// `--dry-run$(echo x)` would be left reading `--dry-run`.
+
+/** The words a command receives, redirections and their targets left out; `unread` when one of
+ *  them is not on the command line (a variable): it could be anything, the option that takes
+ *  the flag as its value included. */
+function argumentsOf(seg) {
+  const list = operandsOf(words(seg));
+  return { args: list.map((w) => w.value), unread: list.some((w) => /[$`]/.test(w.raw.replace(/'[^']*'/g, ""))) };
+}
+
+/** The options of `git push` that take no value: `--dry-run` right after one of them is still
+ *  an option. After any other option (`-o`, `--repo`, `--receive-pack`, `--exec`, an
+ *  abbreviation of one of them) it may be that option's value, and it is not counted. */
+const PUSH_VALUELESS = new Set(["--all", "--atomic", "--branches", "--delete", "--dry-run", "--follow-tags", "--force", "--force-if-includes", "--force-with-lease", "--mirror", "--porcelain", "--progress", "--prune", "--quiet", "--set-upstream", "--tags", "--thin", "--verbose", "-4", "-6", "-d", "-f", "-n", "-q", "-u", "-v"]);
+
+/** Whether a `git push` is a dry run as git reads it: `--dry-run` among its options, a word of
+ *  its own, not the value of the option before it, and never switched off (git reads the last
+ *  of `--dry-run` and `--no-dry-run`, and takes either by any unambiguous prefix). */
+function pushIsDryRun(seg) {
+  const { args, unread } = argumentsOf(seg);
+  if (unread) return false;
+  const rest = args.slice(args.indexOf("push") + 1);
+  const end = rest.indexOf("--");
+  const options = end < 0 ? rest : rest.slice(0, end);
+  if (options.some((w) => /^--no-d/.test(w))) return false;
+  return options.some((w, i) => w === "--dry-run" && (i === 0 || !options[i - 1].startsWith("-") || options[i - 1].includes("=") || PUSH_VALUELESS.has(options[i - 1])));
+}
+
+/** The options of `git config` that take no value. */
+const CONFIG_VALUELESS = new Set(["--local", "--global", "--system", "--worktree", "--bool", "--int", "--bool-or-int", "--path", "--expiry-date", "--no-type", "--null", "-z", "--name-only", "--show-origin", "--show-scope", "--show-names", "--includes", "--no-includes", "--fixed-value", "--all", "--regexp"]);
+
+/** Whether a `git config` segment only reads or removes the key found at `key`, as git reads
+ *  it. A subcommand (`get`, `unset`, `list`) is the first word after `config`; an option
+ *  (`--get`, `--unset`, `--list`...) is a word of its own before the key that is not the value of
+ *  the option before it: `git config --comment --unset hypervibe.hooks true` SETS the key, with
+ *  "--unset" as its comment. */
+function configOnlyReads(seg, key) {
+  const before = operandsOf(words(seg.slice(0, key.index))).map((w) => w.value);
+  const options = before.slice(before.indexOf("config") + 1);
+  if (/^(?:get|unset|list)$/.test(options[0] ?? "")) return true;
+  return options.some((w, i) => /^--(?:get(?:-all|-regexp)?|unset(?:-all)?|list)$/.test(w) && (i === 0 || !options[i - 1].startsWith("-") || options[i - 1].includes("=") || CONFIG_VALUELESS.has(options[i - 1])));
+}
+
+/** Whether a wrangler command is a dry run as wrangler reads it: `--dry-run` once, a word of its
+ *  own before any `--`, with no value after it (`--dry-run false`), and no other spelling around
+ *  that switches it off (`--no-dry-run`, `--dry-run=false`, `--dryRun=false`). */
+function wranglerIsDryRun(seg) {
+  const { args, unread } = argumentsOf(seg);
+  if (unread) return false;
+  const end = args.indexOf("--");
+  const options = end < 0 ? args : args.slice(0, end);
+  const about = options.filter((w) => /dry-?run/i.test(w));
+  if (about.length !== 1 || about[0] !== "--dry-run") return false;
+  return !/^(?:true|false|0|1|yes|no|on|off)$/i.test(options[options.indexOf("--dry-run") + 1] ?? "");
+}
+
+// ── The flags of the clock's own scripts ────────────────────────────────────
+// ensure.mjs, worker-check.mjs, register.mjs and migrate-live.mjs read their flags through one
+// parser (parseFlags, scripts/shared-worker/_lib.mjs): `--name value`, `--name=value`, a bare
+// `--name` is true, the last one given wins, and a script takes a flag as set when its value is
+// not empty. The rules read the same flags the same way, from the words the script receives. A
+// flag looked for in the text spared the question for runs the script did not read as blank
+// (`--dry-run ""`, `--no-deploy --no-deploy=`, a flag inside a quoted value), and a flag no
+// script reads spared it too (found while rewriting the rules, 3.3.10).
+
+/** The flags a script reads in the words that follow its path, as its own parser reads them.
+ *  Null when one of those words is not on the command line (a variable): it could be anything,
+ *  a flag given again with an empty value included. */
+function scriptFlags(seg, launched) {
+  const list = operandsOf(words(seg.slice(launched[0].length)));
+  if (list.some((w) => /[$`]/.test(w.raw.replace(/'[^']*'/g, "")))) return null;
+  const argv = list.map((w) => w.value);
+  const flags = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (!a.startsWith("--")) continue;
+    const eq = a.indexOf("=");
+    if (eq > 0) flags[a.slice(2, eq)] = a.slice(eq + 1);
+    else if (argv[i + 1] !== undefined && !argv[i + 1].startsWith("--")) flags[a.slice(2)] = argv[++i];
+    else flags[a.slice(2)] = true;
+  }
+  return flags;
+}
+
 /** The shape of an email address, the same one the licence server and the organisation's
  *  dashboard accept. */
 export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1187,11 +1395,129 @@ function sqlOf(seg) {
 const DENY = "deny";
 const ASK = "ask";
 
+// ── A script's path kept in a variable ──────────────────────────────────────
+// `X=".../scripts/shared-worker/register.mjs"` on a line of its own, then `node "$X" --kind ping`:
+// the rules on the plugin's scripts name the script a runtime launches, and a path kept in a
+// variable hid it from every one of them (found while rewriting the rules, 3.3.10). It is read
+// through the variable. Only what the command line itself shows, read as the shell does:
+//   - an assignment that is a segment of its own (`X=...`, `export X=...`). A prefix (`X=1 cmd`)
+//     sets nothing for the words of that command, which the shell expands first, nor after it;
+//   - EVERY value a name was given is kept, not the last one: which one holds when the script
+//     runs depends on what ran before (`false && X=...`), and a rule that asks must ask for any;
+//   - a value the line does not show (a substitution's output, `read`, a loop) stays unread, as
+//     before: this guard reads commands, it does not run them.
+const DECLARING = /^(?:export|readonly|local|declare|typeset)$/;
+const RUNTIMES = /^(?:node|bun|deno|tsx)$/;
+const VARIABLE = /\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))/g;
+/** How many readings of one script word are judged: past it, the first ones. */
+const READINGS = 16;
+
+/** The assignments a segment makes when it is nothing else: [[name, the value as typed]]. */
+function assignmentsOf(outer) {
+  const list = words(outer.trim());
+  if (!list.length) return [];
+  let from = 0;
+  if (DECLARING.test(list[0].value)) {
+    from = 1;
+    while (from < list.length && /^-/.test(list[from].value)) from += 1;
+  }
+  const out = [];
+  for (const w of list.slice(from)) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(w.raw);
+    if (!m) return [];
+    out.push([m[1], w.raw.slice(m[0].length)]);
+  }
+  return out;
+}
+
+/** What a word is once the shell has read it: its quotes removed, and each variable the command
+ *  line set replaced by its values (one reading per value, READINGS at most). A `$` between
+ *  single quotes is a character; a variable the line did not set stays as typed.
+ *  `read`: whether one of those variables was found in it. */
+function valuesOf(raw, vars) {
+  let acc = [""];
+  let read = false;
+  const add = (text) => {
+    acc = acc.map((a) => a + text);
+  };
+  // A `$name` or `${name}` at `i`, replaced when the line set it: the index after it.
+  const variable = (i) => {
+    VARIABLE.lastIndex = i;
+    const m = VARIABLE.exec(raw);
+    if (!m || m.index !== i) return null;
+    const name = m[1] ?? m[2];
+    if (vars.has(name)) {
+      read = true;
+      const next = [];
+      for (const a of acc) for (const v of vars.get(name)) if (next.length < READINGS) next.push(a + v);
+      acc = next;
+    } else add(m[0]);
+    return i + m[0].length;
+  };
+  let i = 0;
+  while (i < raw.length) {
+    const c = raw[i];
+    if (c === "'") {
+      const close = raw.indexOf("'", i + 1);
+      const stop = close < 0 ? raw.length : close;
+      add(raw.slice(i + 1, stop));
+      i = stop + 1;
+    } else if (c === '"') {
+      i += 1;
+      while (i < raw.length && raw[i] !== '"') {
+        const after = raw[i] === "$" ? variable(i) : null;
+        if (after !== null) i = after;
+        else if (raw[i] === "\\" && /[$`"\\]/.test(raw[i + 1] ?? "")) {
+          add(raw[i + 1]);
+          i += 2;
+        } else {
+          add(raw[i]);
+          i += 1;
+        }
+      }
+      i += 1;
+    } else if (c === "\\") {
+      add(raw[i + 1] ?? "");
+      i += 2;
+    } else {
+      const after = c === "$" ? variable(i) : null;
+      if (after !== null) i = after;
+      else {
+        add(c);
+        i += 1;
+      }
+    }
+  }
+  return { values: acc, read };
+}
+
+/** A value as one word no shell reads anything into: between single quotes, or, when it holds
+ *  one, between double quotes with what they would read escaped. */
+const asWord = (value) => (value.includes("'") ? `"${value.replace(/[\\"$`]/g, "\\$&")}"` : `'${value}'`);
+
+/** The lines a runtime's segment runs once its script's path is read through the variables the
+ *  command line set, or null when its script names none of them. */
+function throughVariables(seg, vars) {
+  if (!vars.size || !seg.includes("$")) return null;
+  const list = words(seg);
+  if (list.length < 2 || !RUNTIMES.test(list[0].value)) return null;
+  // The script: the first word after the runtime that is neither one of its options nor `run`.
+  let at = 1;
+  while (at < list.length && (/^-/.test(list[at].value) || (at === 1 && list[at].value === "run"))) at += 1;
+  if (at >= list.length) return null;
+  const { values, read } = valuesOf(list[at].raw, vars);
+  if (!read) return null;
+  return values.map((path) => [...list.slice(0, at).map((w) => w.raw), asWord(path), ...list.slice(at + 1).map((w) => w.raw)].join(" "));
+}
+
 /**
  * @param {string} command  the Bash command Claude is about to run
+ * @param {Map<string, string>} [inherited]  the assignments met before a nested command line
+ * @param {Map<string, Set<string>>} [vars]  the variables the command line set so far (see above)
+ * @param {boolean} [carried]  the line was rewritten from a segment that carried a substitution
  * @returns {{decision: "deny"|"ask", reason: string} | null}
  */
-export function decide(command, inherited = new Map()) {
+export function decide(command, inherited = new Map(), vars = new Map(), carried = false) {
   if (!command || typeof command !== "string") return null;
 
   let worst = null;
@@ -1204,13 +1530,27 @@ export function decide(command, inherited = new Map()) {
   const parts = readCommandLine(command);
   for (let index = 0; index < parts.length; index += 1) {
     const { text: outer, inner } = parts[index];
+    // A substitution in the segment: the scanner took what it runs out of the text, so the words
+    // left may not be the words the command receives. No flag spares a question then.
+    const substituted = carried || inner.length > 0;
     // What a substitution runs is judged first, as a command line of its own;
     // the segment is then read without it (`x=$(git push)` leaves `x=`).
     const { env, seg, unread } = normalise(outer);
     for (const [k, v] of inherited) if (!env.has(k)) env.set(k, v);
     for (const payload of inner) {
-      const verdict = decide(payload, env);
+      // A substitution runs in a shell that inherits the variables set so far.
+      const verdict = decide(payload, env, vars);
       if (verdict) keep(verdict.decision, verdict.reason);
+    }
+    // A segment that only sets variables: their values are kept for the scripts launched after
+    // it. Not when a substitution wrote the value: the line does not show what it prints.
+    if (!inner.length) {
+      for (const [name, typed] of assignmentsOf(outer)) {
+        // A value built on a variable already read is read through it (`B="$A/register.mjs"`).
+        const { values } = valuesOf(typed, vars);
+        if (!vars.has(name)) vars.set(name, new Set());
+        for (const value of values) if (vars.get(name).size < READINGS) vars.get(name).add(value);
+      }
     }
     // A brace the guard could not unfold (past BRACE_LIMIT words): what it stages or pushes
     // cannot be read, so it is asked about rather than let through (outside review, 3.3.5).
@@ -1218,6 +1558,18 @@ export function decide(command, inherited = new Map()) {
       keep(ASK, "This command unfolds its braces past what the guard reads, so what it would run cannot be told. Write the words out, or confirm with the user first.");
     }
     if (!seg) continue;
+
+    // A runtime launching a script whose path the command line put in a variable: judged as the
+    // line it runs, the path written out (every reading of it, see above). The lines are judged
+    // on their own, without the variables: what is left in them is as typed.
+    const written = throughVariables(seg, vars);
+    if (written) {
+      for (const line of written) {
+        const verdict = decide(line, env, undefined, substituted);
+        if (verdict) keep(verdict.decision, verdict.reason);
+      }
+      continue;
+    }
 
     // `xargs` runs the command that follows its options, with what its input brings:
     // `echo main | xargs git push origin` is a push, and `echo 'git push' | xargs -I{} bash
@@ -1229,7 +1581,7 @@ export function decide(command, inherited = new Map()) {
       const commands = findCommands(seg);
       if (commands.length) {
         for (const line of commands) {
-          const verdict = decide(line, env);
+          const verdict = decide(line, env, vars);
           if (verdict) keep(verdict.decision, verdict.reason);
         }
         continue;
@@ -1238,7 +1590,7 @@ export function decide(command, inherited = new Map()) {
 
     if (/^xargs(?:\s|$)/.test(seg)) {
       for (const line of xargsCommands(parts, index, seg)) {
-        const verdict = decide(line, env);
+        const verdict = decide(line, env, vars);
         if (verdict) keep(verdict.decision, verdict.reason);
       }
       continue;
@@ -1254,7 +1606,7 @@ export function decide(command, inherited = new Map()) {
       /^\S+(?:\s+-[A-Za-z-]+)*\s+-[A-Za-z]*c[A-Za-z]*\s/.test(seg)
     ) {
       for (const payload of quotedPayloads(seg)) {
-        const inner = decide(payload, env);
+        const inner = decide(payload, env, vars);
         if (inner) keep(inner.decision, inner.reason);
       }
       continue;
@@ -1276,7 +1628,7 @@ export function decide(command, inherited = new Map()) {
     const scripts = scriptsOf(parts, index, seg);
     if (scripts !== null) {
       for (const script of scripts) {
-        const verdict = decide(script, env);
+        const verdict = decide(script, env, vars);
         if (verdict) keep(verdict.decision, verdict.reason);
       }
       continue;
@@ -1295,12 +1647,10 @@ export function decide(command, inherited = new Map()) {
     //    the model, which is also who can type the prefix. A refusal that
     //    names its own bypass is bypassed by its reader (outside review,
     //    2.9.5). Same for the push rule.
-    if (
-      /^git\s+add\s+(-[a-zA-Z]*[Au][a-zA-Z]*\b|--all\b|--update\b|\.(\s|$))/.test(seg) ||
-      /^git\s+add\s+[^|&]*\s(-[a-zA-Z]*[Au][a-zA-Z]*|--all|--update|\.)(\s|$)/.test(seg) ||
-      sweepingPathspecs(seg) ||
-      /^git\s+commit\s+(-[a-zA-Z]*a[a-zA-Z]*|--all)(\s|$)/.test(seg)
-    ) {
+    //    The options are read as git reads them (see "An option, as git reads it"): by a
+    //    prefix, in a cluster, wherever they stand, and never when they are another option's
+    //    value (`git commit -m -a` is a commit whose message is "-a").
+    if (addSweeps(seg) || sweepingPathspecs(seg) || commitSweeps(seg)) {
       if (env.get("HYPERVIBE_GUARD_ALLOW_SWEEP") === "1") continue;
       keep(
         DENY,
@@ -1315,16 +1665,20 @@ export function decide(command, inherited = new Map()) {
     //     always the same, complete the recette. No env escape here: the
     //     push rule below already has one for the cases where a push is
     //     legitimately automated, and none of them needs to skip the hook.
-    if (/^git\s+(-\S+\s+)*push\b/.test(seg) && /--no-verify\b/.test(seg)) {
+    //     Under every spelling git takes (`--no-veri` is `--no-verify`), and when the hooks'
+    //     folder is changed for the one command (`git -c core.hooksPath=... push`).
+    if (/^git\s+(-\S+\s+)*push\b/.test(seg) && (/--no-veri(?:fy?)?\b/.test(seg) || /\bcore\.hookspath\s*=/i.test(outer))) {
       keep(
         DENY,
-        "Pushing with --no-verify skips the project's pre-push recette (tests and cahier de recette). Run `pnpm test` and `node scripts/check-recette.mjs`, complete what they report, then push normally.",
+        "Pushing past the pre-push hook (--no-verify, or a hooks folder changed for the one command) skips the project's recette (tests and cahier de recette). Run `pnpm test` and `node scripts/check-recette.mjs`, complete what they report, then push normally.",
       );
       continue;
     }
 
     // 2. Pushing publishes. The user's consent lives in the conversation.
-    if (/^git\s+(-\S+\s+)*push\b/.test(seg) && !/--dry-run\b/.test(seg)) {
+    //    A dry run publishes nothing, when it is one as git reads it (see "A flag that spares
+    //    a question").
+    if (/^git\s+(-\S+\s+)*push\b/.test(seg) && (substituted || !pushIsDryRun(seg))) {
       if (env.get("HYPERVIBE_GUARD_ALLOW_PUSH") === "1") continue;
       keep(
         ASK,
@@ -1358,10 +1712,11 @@ export function decide(command, inherited = new Map()) {
     //     from Node (ensure.mjs, register.mjs), which the hook does not see and
     //     which sit behind their skills' confirmations; this covers the model
     //     reaching for wrangler directly (outside review, 2.9.5).
-    //     A `--dry-run` deploys nothing, like `git push --dry-run` above.
+    //     A `--dry-run` deploys nothing, like `git push --dry-run` above, when it is one as
+    //     wrangler reads it.
     if (
       /^wrangler\s+(deploy|publish|versions\s+deploy|secret\s+(put|bulk))\b/.test(seg) &&
-      !/--dry-run\b/.test(seg)
+      (substituted || !wranglerIsDryRun(seg))
     ) {
       keep(
         ASK,
@@ -1462,13 +1817,9 @@ export function decide(command, inherited = new Map()) {
       }
     }
 
-    // 7. Discarding uncommitted work, possibly someone else's.
-    if (
-      /^git\s+reset\s+(--hard|--merge)\b/.test(seg) ||
-      /^git\s+checkout\s+(?:--\s+)?\.(\s|$)/.test(seg) ||
-      /^git\s+restore\s+(--\S+\s+)*\.(\s|$)/.test(seg) ||
-      /^git\s+clean\s+(?:-\S+\s+)*(?:-[a-zA-Z]*f[a-zA-Z]*|--force)\b/.test(seg)
-    ) {
+    // 7. Discarding uncommitted work, possibly someone else's. Options read as git reads them,
+    //    and a path that means the whole tree wherever it stands (`git checkout HEAD -- .`).
+    if (resetDiscards(seg) || restoresWholeTree(seg) || cleanForces(seg)) {
       keep(
         ASK,
         "This discards uncommitted work, which may belong to another session running in the same repository. Prefer a targeted restore (`git restore <file>`), or confirm.",
@@ -1488,9 +1839,7 @@ export function decide(command, inherited = new Map()) {
     //    option or subcommand comes BEFORE the key, not in a trailing comment
     //    (outside review, 3.1.8).
     const trustKey = /^git\s+config\b/.test(seg) ? /\bhypervibe\.hooks\b/i.exec(seg) : null;
-    const trustRead =
-      trustKey !== null &&
-      /\s(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|get|unset|list)(?=\s|$)/.test(seg.slice(0, trustKey.index));
+    const trustRead = trustKey !== null && !substituted && configOnlyReads(seg, trustKey);
     // What is written decides: a value git reads as false withdraws the agreement, and the
     // key given alone is a read. A value that can be true asks, and so does one this hook
     // cannot read (a variable, a substitution). Outside review, 3.2.5: `false` asked,
@@ -1516,7 +1865,7 @@ export function decide(command, inherited = new Map()) {
     const emailKey = /^git\s+config\b/.test(seg) ? /(?:^|\s)user\.email(?=\s|$)/i.exec(seg) : null;
     if (
       emailKey !== null &&
-      !/\s(?:--get(?:-all|-regexp)?|--unset(?:-all)?|--list|get|unset|list)(?=\s|$)/.test(seg.slice(0, emailKey.index))
+      (substituted || !configOnlyReads(seg, emailKey))
     ) {
       const address = configValue(seg, emailKey, inner);
       if (typeof address === "string" && !EMAIL_SHAPE.test(address)) {
@@ -1532,21 +1881,27 @@ export function decide(command, inherited = new Map()) {
     //    scripts. ensure.mjs and worker-check.mjs end in `wrangler deploy`
     //    (rule 3b) when the worker is behind: same code, same keys, same
     //    question. Their --dry-run says whether a deploy would happen and
-    //    changes nothing, so it stays free (outside review, 3.1.6).
+    //    changes nothing, so it stays free (outside review, 3.1.6), and so does
+    //    --no-deploy: when the script reads the flag as set (see "The flags of
+    //    the clock's own scripts"), never on the text alone.
     //    Matched on the script's name after the launcher when it comes bare:
     //    `cd scripts/shared-worker && node ensure.mjs` is the same run
     //    (outside review, 3.1.8). A path says where the script lives, and only
     //    the shared worker's folder is the clock: another project's
     //    `scripts/setup/ensure.mjs` is not (outside review, 3.1.9).
-    const launched = /^(?:node|bun|deno|tsx)\s+(?:-\S+\s+)*(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(seg);
+    //    `bun run` and `deno run` launch the script that follows `run`.
+    const launched = /^(?:node|bun|deno|tsx)\s+(?:run\s+)?(?:-\S+\s+)*(?:"([^"]*)"|'([^']*)'|(\S+))/.exec(seg);
     const launchedPath = launched ? (launched[1] ?? launched[2] ?? launched[3]).replace(/^\.[\\/]/, "") : "";
     const launchedBase = launchedPath.split(/[\\/]/).pop();
     const sharedClock = !/[\\/]/.test(launchedPath) || /shared-worker[\\/][^\\/]+$/.test(launchedPath);
+    // The flags as the script reads them; none counts in a segment that carries a substitution.
+    const flags = launched && !substituted ? scriptFlags(seg, launched) : null;
+    const on = (name) => flags !== null && Boolean(flags[name]);
     if (
       /^(?:ensure|worker-check)\.mjs$/.test(launchedBase) &&
       sharedClock &&
-      !/--dry-run\b/.test(seg) &&
-      !/--no-deploy\b/.test(seg)
+      !on("dry-run") &&
+      !on("no-deploy")
     ) {
       keep(
         ASK,
@@ -1560,12 +1915,22 @@ export function decide(command, inherited = new Map()) {
     //    plugin's version; its --rotate-secret is a `secret put`, rule 3b), migrate-live.mjs, and
     //    db-backup-remove-target.mjs from /delete-project. SECURITY.md promises a question before a
     //    worker deploy "also when one of the plugin's own scripts would do it": until 3.3.9 only
-    //    the two above asked. --list, --no-deploy and --dry-run deploy nothing and stay free;
-    //    --decommission-confirme is /delete-project's, after its own double confirmation.
+    //    the two above asked. What deploys nothing stays free, as each script reads it:
+    //    register.mjs --list (it only lists, whatever else is given), and --no-deploy on
+    //    register.mjs and migrate-live.mjs (the registry on this machine, nothing sent), except
+    //    with --rotate-secret, which writes the secret whatever else is given. Nothing else
+    //    spares the question: until 3.3.10 --dry-run did, which none of the three reads, and so
+    //    did --decommission-confirme, which nothing reads at all; db-backup-remove-target.mjs
+    //    has no blank run.
     const clockScript =
       (/^(?:register|migrate-live)\.mjs$/.test(launchedBase) && sharedClock) ||
       (launchedBase === "db-backup-remove-target.mjs" && (!/[\\/]/.test(launchedPath) || /delete-project[\\/][^\\/]+$/.test(launchedPath)));
-    if (clockScript && !/--(?:list|no-deploy|dry-run|decommission-confirme)\b/.test(seg)) {
+    // register.mjs reads its modes in this order: --list, --remove with --name, --rotate-secret.
+    const rotates = !on("list") && !(on("remove") && on("name")) && on("rotate-secret");
+    const deploysNothing =
+      (launchedBase === "register.mjs" && (on("list") || (on("no-deploy") && !rotates))) ||
+      (launchedBase === "migrate-live.mjs" && on("no-deploy"));
+    if (clockScript && !deploysNothing) {
       keep(
         ASK,
         "This redeploys the shared clock (its registry, and its code when it is behind the plugin), code that runs with the account's keys. Confirm with the user before the run.",

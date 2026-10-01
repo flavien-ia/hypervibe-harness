@@ -17,7 +17,7 @@ Enables **Google login** on your app. Your users can sign in with a single click
 
 4. **Creating the OAuth credentials**: you create an "OAuth 2.0 Client" of type Web Application, with the callback URLs (local + production) that Hypervibe already provides ready-made for you.
 
-5. **Retrieving the keys**: Google shows you a **Client ID** and a **Client Secret**. You copy-paste them into the chat.
+5. **Retrieving the keys**: Google shows you a **Client ID** and a **Client Secret**. A small window opens on your machine: you paste them there, never into the conversation.
 
 6. **Automatic configuration**: Hypervibe pushes the two keys into the local `.env` + Vercel (production + preview + development), adds the Google provider in `src/server/auth.ts`, and updates `CLAUDE.md`.
 

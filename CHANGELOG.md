@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.3.10 (1er octobre 2026)
+
+Version de correction consacrée au garde-fou, nourrie par la réécriture de ses règles pour la prochaine architecture et par une relecture extérieure de la 3.3.9.
+
+### Sécurité
+- **Garde-fou, les mots habillés** : `git "push"`, `git add '-A'` ou `git add \-A` passaient sans question ni refus. Chaque mot est lu comme le terminal le remet à la commande, quels que soient ses guillemets.
+- **Garde-fou, les options de git** : elles sont lues comme git les lit, abrégées (`--har` pour `--hard`), groupées, ou placées plus loin dans la ligne (`git reset HEAD~1 --hard`, `git commit -m "x" -a`).
+- **Garde-fou, les essais à blanc** : un `--dry-run` n'épargne la confirmation que si la commande le lit vraiment comme tel. Annulé plus loin, glissé dans une valeur ou collé à un autre mot, il laissait partir un vrai push sans question.
+- **Horloge partagée** : les scripts qui la redéploient sont lus avec leurs propres options. Un `--dry-run` donné à un script qui ne le connaît pas n'évite plus la confirmation, et le renouvellement d'une clé la demande toujours.
+- **Script rangé dans une variable** : la confirmation est demandée même quand le chemin du script passe par une variable posée sur la ligne.
+- **Pousser en sautant les tests** : le refus tient aussi sous la forme abrégée de `--no-verify`.
+
+### Améliorations
+- **Plugin atteint par un lien** : sur macOS, ou quand le dossier du plugin passe par un lien symbolique, une quinzaine de scripts ne faisaient rien, sans le dire. Ils tournent normalement.
+- **Fiches des commandes** : `/start`, `/rotate-secret`, `/add-google-auth` et `/add-storage` décrivent la petite fenêtre où se colle une clé, jamais la conversation.
+- **Reprise d'un projet existant** : une base reconnue par sa seule adresse n'est plus inscrite deux fois dans la fiche du projet.
+
+### Coulisses
+- Trois recettes neuves : le démarrage des scripts à travers un lien, les fiches des commandes, et la table de permissions d'OpenCode comparée au garde-fou.
+
 ## v3.3.9 (30 septembre 2026)
 
 Version de correction consacrée à l'horloge partagée (tâches planifiées, sauvegardes, veille des quotas), nourrie par le retour d'un utilisateur qui y a migré huit projets.

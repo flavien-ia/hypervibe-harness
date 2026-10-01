@@ -11,7 +11,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MANIFEST = join(HERE, "..", "manifest", "manifest.mjs");
@@ -81,6 +81,23 @@ try {
   }
 } finally {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+}
+
+// A database adopted where no key could resolve it is known by its host alone: recorded once,
+// and completed when a later adoption resolves its id and name (3.3.10; until then a second
+// `adopt --write` wrote it twice).
+{
+  const { sameResource } = await import(pathToFileURL(join(HERE, "..", "manifest", "same-resource.mjs")).href);
+  const hostOnly = { kind: "neon-project", host: "ep-a.eu-central-1.aws.neon.tech" };
+  check("manifeste : une base connue par son hote seul est reconnue au second passage (pas de doublon)", sameResource(hostOnly, { ...hostOnly }) === true);
+  check("manifeste : resolue plus tard (id et nom connus), c'est la MEME entree, completee", sameResource(hostOnly, { ...hostOnly, id: "proj-1", name: "vitrine" }) === true);
+  check("manifeste : deux hotes differents, deux bases", sameResource(hostOnly, { kind: "neon-project", host: "ep-b.eu-central-1.aws.neon.tech" }) === false);
+  check("manifeste : deux noms differents sur le meme hote ne sont pas confondus", sameResource({ ...hostOnly, name: "a" }, { ...hostOnly, name: "b" }) === false);
+  check("manifeste : deux identifiants differents ne sont jamais la meme ressource, meme hote et meme nom", sameResource({ ...hostOnly, id: "p1", name: "a" }, { ...hostOnly, id: "p2", name: "a" }) === false);
+  check("manifeste : un bucket du meme nom dans une autre juridiction reste une autre ressource", sameResource({ kind: "r2-bucket", name: "x", jurisdiction: "eu" }, { kind: "r2-bucket", name: "x" }) === false);
+  check("manifeste : deux sortes differentes ne se confondent pas sur un hote", sameResource(hostOnly, { kind: "upstash-redis", host: hostOnly.host }) === false);
+  const manifest = readFileSync(MANIFEST, "utf8");
+  check("manifest.mjs lit cette definition, et n'en garde pas une a lui", /import \{ sameResource \} from "\.\/same-resource\.mjs";/.test(manifest) && !/function sameResource\(/.test(manifest));
 }
 
 console.log(`\n${checks - failures}/${checks} verifications`);

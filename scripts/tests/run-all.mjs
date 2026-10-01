@@ -36,6 +36,8 @@ const SUITES = [
   ["Render variables: the project's own services, from its .env", join(ROOT, "scripts", "tests", "test-render-env.mjs")],
   ["/delete-project keeps a person's shared accounts without shipping them", join(ROOT, "scripts", "tests", "test-delete-keep.mjs")],
   ["skill descriptions", join(ROOT, "scripts", "tests", "test-skill-descriptions.mjs")],
+  ["a script launched through a link still runs", join(ROOT, "scripts", "tests", "test-entry-point.mjs")],
+  ["no skill page tells the person to paste a value into the chat", join(ROOT, "scripts", "tests", "test-doc-secrets.mjs")],
   ["skill commands and texts per host", join(ROOT, "scripts", "tests", "test-skill-commands.mjs")],
   ["AI model selection", join(ROOT, "scripts", "tests", "test-ai-models.mjs")],
   ["AI secret containment", join(ROOT, "scripts", "tests", "test-ai-secret.mjs")],

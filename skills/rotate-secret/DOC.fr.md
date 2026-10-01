@@ -23,7 +23,7 @@ Renouvelle une clé secrète partout où elle vit, en local et en ligne, en une 
   - **GitHub OAuth** : github.com/settings/developers → ton app → Generate a new client secret
   - Etc.
    
-   Vous copiez la nouvelle valeur dans le chat.
+   Une petite fenêtre s'ouvre ensuite sur votre ordinateur : vous y collez la nouvelle valeur, jamais dans la conversation. Elle part directement dans `.env` et sur l'hébergement.
 
 4. **Pour un secret auto-géré** : Hypervibe génère elle-même une nouvelle valeur cryptographiquement solide, sans rien vous demander.
 

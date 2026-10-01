@@ -12,7 +12,7 @@ This is the **very first command** to run right after installing the plugin. It 
 2. **Silent audit**: it looks at what is already installed on your machine, without breaking anything.
 3. **Automatic installation of the basics**: if Node.js, Git, or pnpm are missing, they are installed on their own (without asking you anything).
 4. **Report**: a clear recap shows you what is OK ✅, what is missing ❌, and what is installed but not connected ⚠️.
-5. **Cloudflare token**: Hypervibe guides you to generate a token (step by step, 1 minute) that you paste into the chat. It will be saved for good.
+5. **Cloudflare token**: Hypervibe guides you to generate a token (step by step, 1 minute) that you paste into a small masked window, never into the conversation. It is stored in your vault for good.
 6. **CLI connections**: a script opens a dedicated window and has you connect to GitHub, Vercel, and Cloudflare one after another. You follow the on-screen instructions (a browser opens for each connection).
 7. **Vercel's GitHub application**: once Vercel is connected, the command checks that Vercel's GitHub application is installed on your GitHub account, with access to all your repositories. It is what lets every `git push` put your site back online by itself. If it is missing, or limited to some repositories, Hypervibe opens the right page and guides you: it is an authorization you give in the browser, it cannot be done in your place.
 8. **Neon key**: if you connected the Neon database, you generate an API key (another 30 seconds) that the command saves. This activates automatic backups of your future databases.

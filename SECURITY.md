@@ -95,6 +95,22 @@ are expanded as the shell expands them before anything runs: `git add {.,.}`
 is `git add . .` (outside review, 3.3.4). Each word is kept once, so `.{,}`
 repeated is `.` again, and a command whose braces unfold past what the guard
 reads is asked about rather than let through (outside review, 3.3.5).
+A script's path kept in a variable is read through it when the command line
+itself sets that variable (`X=".../register.mjs"`, then `node "$X" --kind ping`):
+the rules on the plugin's scripts see the script that runs, under every value
+the line gave the variable.
+A flag that spares a question (a dry run)
+spares it only when the command reads it as that flag: a word of its own, not
+inside a quoted value, not taken as the value of the option before it, not
+switched off further on (`git push --dry-run --no-dry-run` is a push), and never
+next to a substitution. On the clock's own scripts a flag counts when the script
+reads it as set, and one it does not read spares nothing
+(`register.mjs --dry-run` asks).
+A word is read as the shell hands it over, whatever its quotes or backslashes
+(`git "push"`, `git add \-A`, `git $'push'`), and git's own options the way git
+reads them: by any unambiguous prefix (`--al` is `--all`, `--har` is `--hard`),
+wherever they stand among the options (`git reset HEAD~1 --hard`,
+`git commit -m x -a`).
 The full table is in the README.
 
 Two properties matter here:

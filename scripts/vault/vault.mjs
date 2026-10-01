@@ -32,7 +32,6 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const TTL_SECONDS = 12 * 60 * 60; // 12h
 const SESSION_FILE = join(homedir(), ".hypervibe", "bw-session");
@@ -286,7 +285,27 @@ export function sessionStatus() {
 }
 
 // ─── CLI entry point ──────────────────────────────────────────────────
-const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+// ─── Launched as a script, or imported ────────────────────────────────────────
+// Node gives a module its real path and keeps in argv[1] the path as it was typed. Compared as
+// they come, the two differ as soon as the plugin is reached through a symbolic link (macOS's
+// temporary folder, a ~/.claude kept by a configuration repository): the script then did
+// nothing and exited 0, "I could not" read as "nothing to report" (outside review, 3.3.9).
+// Both are read to their real path. The same block in every script, held by
+// scripts/tests/test-entry-point.mjs.
+import { realpathSync as realPathOf } from "node:fs";
+import { fileURLToPath as pathOfUrl } from "node:url";
+function launchedDirectly() {
+  try {
+    if (!process.argv[1]) return false;
+    const self = realPathOf(pathOfUrl(import.meta.url));
+    const launched = realPathOf(process.argv[1]);
+    return process.platform === "win32" ? self.toLowerCase() === launched.toLowerCase() : self === launched;
+  } catch {
+    return false;
+  }
+}
+
+const isMain = launchedDirectly();
 if (isMain) {
   const [cmd, ...rest] = process.argv.slice(2);
   try {

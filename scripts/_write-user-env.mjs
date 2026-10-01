@@ -100,7 +100,27 @@ function writeToShellRc(varName, value, os) {
 }
 
 // ─── CLI mode ─────────────────────────────────────────────────────────
-const isMain = import.meta.url === `file://${process.argv[1].replace(/\\/g, "/")}` || process.argv[1]?.endsWith("_write-user-env.mjs");
+// ─── Launched as a script, or imported ────────────────────────────────────────
+// Node gives a module its real path and keeps in argv[1] the path as it was typed. Compared as
+// they come, the two differ as soon as the plugin is reached through a symbolic link (macOS's
+// temporary folder, a ~/.claude kept by a configuration repository): the script then did
+// nothing and exited 0, "I could not" read as "nothing to report" (outside review, 3.3.9).
+// Both are read to their real path. The same block in every script, held by
+// scripts/tests/test-entry-point.mjs.
+import { realpathSync as realPathOf } from "node:fs";
+import { fileURLToPath as pathOfUrl } from "node:url";
+function launchedDirectly() {
+  try {
+    if (!process.argv[1]) return false;
+    const self = realPathOf(pathOfUrl(import.meta.url));
+    const launched = realPathOf(process.argv[1]);
+    return process.platform === "win32" ? self.toLowerCase() === launched.toLowerCase() : self === launched;
+  } catch {
+    return false;
+  }
+}
+
+const isMain = launchedDirectly();
 if (isMain) {
   const [, , varName, value] = process.argv;
   if (!varName || value === undefined) {

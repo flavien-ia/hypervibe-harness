@@ -12,7 +12,7 @@ C'est la **toute première commande** à lancer juste après avoir installé le 
 2. **Audit silencieux** : elle regarde ce qui est déjà installé sur votre machine, sans rien casser.
 3. **Installation automatique des bases** : si Node.js, Git ou pnpm manquent, ils sont installés tout seuls (sans rien vous demander).
 4. **Rapport** : un récap clair vous montre ce qui est OK ✅, ce qui manque ❌, et ce qui est installé mais pas connecté ⚠️.
-5. **Token Cloudflare** : Hypervibe vous guide pour générer un token (pas-à-pas, 1 minute) que vous collez dans le chat. Il sera sauvegardé pour de bon.
+5. **Token Cloudflare** : Hypervibe vous guide pour générer un token (pas-à-pas, 1 minute), que vous collez dans une petite fenêtre masquée, jamais dans la conversation. Il est rangé dans votre coffre-fort pour de bon.
 6. **Connexions CLI** : un script ouvre une fenêtre dédiée et vous fait vous connecter à GitHub, Vercel, Cloudflare l'un après l'autre. Vous suivez les instructions à l'écran (un navigateur s'ouvre pour chaque connexion).
 7. **L'application GitHub de Vercel** : une fois Vercel connecté, la commande vérifie que l'application GitHub de Vercel est installée sur votre compte GitHub, avec l'accès à tous vos dépôts. C'est elle qui permet à chaque `git push` de remettre votre site en ligne tout seul. Si elle manque, ou si elle est limitée à certains dépôts, Hypervibe ouvre la bonne page et vous guide : c'est une autorisation à donner dans le navigateur, elle ne peut pas se faire à votre place.
 8. **Clé Neon** : si vous avez connecté la base de données Neon, vous générez une clé API (encore 30 secondes) que la commande sauvegarde. Ça active les sauvegardes automatiques de vos futures bases.

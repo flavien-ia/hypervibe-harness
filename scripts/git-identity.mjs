@@ -22,8 +22,6 @@
 // 3 git is not installed, 4 refused (nothing written, and the refused value never echoed).
 
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 /** The shape of an email address: the one the Team licence server and the organisation's
  *  dashboard accept. */
@@ -121,7 +119,27 @@ function set(flags) {
   answer({ ok: true, written: writes.map(([key]) => key), ...shapeOf(readIdentity()) });
 }
 
-const isMain = Boolean(process.argv[1]) && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+// ─── Launched as a script, or imported ────────────────────────────────────────
+// Node gives a module its real path and keeps in argv[1] the path as it was typed. Compared as
+// they come, the two differ as soon as the plugin is reached through a symbolic link (macOS's
+// temporary folder, a ~/.claude kept by a configuration repository): the script then did
+// nothing and exited 0, "I could not" read as "nothing to report" (outside review, 3.3.9).
+// Both are read to their real path. The same block in every script, held by
+// scripts/tests/test-entry-point.mjs.
+import { realpathSync as realPathOf } from "node:fs";
+import { fileURLToPath as pathOfUrl } from "node:url";
+function launchedDirectly() {
+  try {
+    if (!process.argv[1]) return false;
+    const self = realPathOf(pathOfUrl(import.meta.url));
+    const launched = realPathOf(process.argv[1]);
+    return process.platform === "win32" ? self.toLowerCase() === launched.toLowerCase() : self === launched;
+  } catch {
+    return false;
+  }
+}
+
+const isMain = launchedDirectly();
 if (isMain) {
   const [cmd, ...rest] = process.argv.slice(2);
   try {

@@ -17,7 +17,7 @@ Active la **connexion via Google** sur votre app. Vos utilisateurs peuvent s'ide
 
 4. **Création des identifiants OAuth** : vous créez un "Client OAuth 2.0" de type Application Web, avec les URLs de callback (locale + production) que Hypervibe vous fournit déjà toutes prêtes.
 
-5. **Récupération des clés** : Google vous affiche un **Client ID** et un **Client Secret**. Vous les copiez-collez dans le chat.
+5. **Récupération des clés** : Google vous affiche un **Client ID** et un **Client Secret**. Une petite fenêtre s'ouvre sur votre ordinateur : vous les y collez, jamais dans la conversation.
 
 6. **Configuration automatique** : Hypervibe pousse les deux clés dans `.env` local + Vercel (production + preview + development), ajoute le provider Google dans `src/server/auth.ts`, et met à jour `CLAUDE.md`.
 

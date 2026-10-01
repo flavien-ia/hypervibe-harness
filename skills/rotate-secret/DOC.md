@@ -23,7 +23,7 @@ Renews a secret key everywhere it lives, locally and online, in a single command
   - **GitHub OAuth**: github.com/settings/developers -> your app -> Generate a new client secret
   - Etc.
    
-   You paste the new value into the chat.
+   A small window then opens on your machine: you paste the new value there, never into the conversation. It goes straight into `.env` and the hosting.
 
 4. **For a self-managed secret**: Hypervibe generates a new cryptographically strong value itself, without asking you anything.
 

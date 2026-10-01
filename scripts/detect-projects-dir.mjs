@@ -53,7 +53,6 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join, parse, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 /** A path as Git Bash writes it (`/c/...`, or `/cygdrive/c/...`), made a Windows path under
  *  Windows; any other path, and any path elsewhere, unchanged. */
@@ -201,7 +200,27 @@ export function detect({ cwd = process.cwd(), home = null, plat = platform() } =
   };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// ─── Launched as a script, or imported ────────────────────────────────────────
+// Node gives a module its real path and keeps in argv[1] the path as it was typed. Compared as
+// they come, the two differ as soon as the plugin is reached through a symbolic link (macOS's
+// temporary folder, a ~/.claude kept by a configuration repository): the script then did
+// nothing and exited 0, "I could not" read as "nothing to report" (outside review, 3.3.9).
+// Both are read to their real path. The same block in every script, held by
+// scripts/tests/test-entry-point.mjs.
+import { realpathSync as realPathOf } from "node:fs";
+import { fileURLToPath as pathOfUrl } from "node:url";
+function launchedDirectly() {
+  try {
+    if (!process.argv[1]) return false;
+    const self = realPathOf(pathOfUrl(import.meta.url));
+    const launched = realPathOf(process.argv[1]);
+    return process.platform === "win32" ? self.toLowerCase() === launched.toLowerCase() : self === launched;
+  } catch {
+    return false;
+  }
+}
+
+if (launchedDirectly()) {
   const args = process.argv.slice(2);
   const value = (flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
   // --home : profil simulé, pour tester la détection sans toucher au vrai Bureau.

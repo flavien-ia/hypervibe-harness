@@ -33,7 +33,7 @@ Adds **file storage** (images, PDFs, videos, documents) to your app, via Cloudfl
 
 7. **Variable push**: `CLOUDFLARE_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ENDPOINT`, and `R2_PUBLIC_URL` (if public bucket) are pushed to `.env` + Vercel.
 
-8. **API keys** (manual step): Cloudflare does not allow generating these two keys automatically. Hypervibe guides you to create an R2 token in dashboard.cloudflare.com → R2 → Manage R2 API tokens → Create account token. You paste the two values (Access Key ID + Secret Access Key), Hypervibe pushes them to Vercel.
+8. **API keys** (manual step): Cloudflare does not allow generating these two keys automatically. Hypervibe guides you to create an R2 token in dashboard.cloudflare.com → R2 → Manage R2 API tokens → Create account token. A small window opens on your machine: you paste the two values there (Access Key ID + Secret Access Key), never into the conversation, and they go into `.env` and Vercel.
 
 9. **User interface (optional)**: Hypervibe offers to build the UI adapted to your case (upload field + preview + gallery + personal file list + access security).
 

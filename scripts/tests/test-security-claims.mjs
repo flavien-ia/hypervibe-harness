@@ -617,7 +617,94 @@ check(
 // ── Les substitutions sont depliees, aucun rapport ne dicte l'accord (revue externe, 3.1.8) ──
 {
   const r = lire("hooks/rules.mjs");
-  check("rules.mjs deplie les substitutions de commande avant de juger un segment, heredocs et substitutions de processus compris", /function readCommandLine\(/.test(r) && /function readHeredocBody\(/.test(r) && /decide\(payload, env\)/.test(r));
+  check("rules.mjs deplie les substitutions de commande avant de juger un segment, heredocs et substitutions de processus compris", /function readCommandLine\(/.test(r) && /function readHeredocBody\(/.test(r) && /decide\(payload, env, vars\)/.test(r));
+  {
+    // Three sentences of the guard's section, each held against the rules themselves (3.3.10).
+    const { decide } = await import(pathToFileURL(join(ROOT, "hooks/rules.mjs")).href);
+    const said = (line) => decide(line)?.decision ?? "pass";
+    // A harness that publishes the section in two languages says each sentence in both.
+    const bilingual = existsSync(join(ROOT, "README.fr.md")) && securite.includes(lire("README.fr.md"));
+    const says = (en, fr) => en.test(securite) && (!bilingual || fr.test(securite));
+    check(
+      "le chemin d'un script range dans une variable est lu a travers elle, sous chaque valeur que la ligne lui donne",
+      says(/A script's path kept in a variable is read through it/, /rangé dans une variable est lu à travers elle/) &&
+        said('X="C:/p/scripts/shared-worker/register.mjs"\nnode "$X" --kind ping') === "ask" &&
+        said('X="C:/p/scripts/shared-worker/register.mjs"\nnode "$X" --list') === "pass" &&
+        said('X="C:/p/outils/register.mjs"\nnode "$X" --kind ping') === "pass" &&
+        said('X=/tmp/autre.mjs\nX=scripts/shared-worker/ensure.mjs\nnode "$X"') === "ask" &&
+        said('node "$X" --kind ping') === "pass",
+    );
+    check(
+      "un drapeau qui epargne une question ne l'epargne que si la commande le lit comme ce drapeau",
+      says(/spares it only when the command reads it as that flag/, /ne l'épargne que si la commande le lit comme ce drapeau/) &&
+        said("git push --dry-run origin main") === "pass" &&
+        said("git push origin main --dry-run") === "pass" &&
+        said("git push --dry-run --no-dry-run origin main") === "ask" &&
+        said("git push --repo --dry-run origin main") === "ask" &&
+        said('git push -o "x --dry-run y" origin main') === "ask" &&
+        said("git push origin main main:x--dry-run") === "ask" &&
+        said("git push --dry-run$(echo x) origin main") === "ask" &&
+        said("git push --no-veri origin main") === "deny" &&
+        said("git config --comment --unset hypervibe.hooks true") === "ask",
+    );
+    check(
+      "sur les scripts de l'horloge, un drapeau compte quand le script le lit comme pose, et celui qu'il ne lit pas n'epargne rien",
+      says(/one it does not read spares nothing/, /celui qu'il ne lit pas n'épargne rien/) &&
+        said("node scripts/shared-worker/ensure.mjs --dry-run") === "pass" &&
+        said('node scripts/shared-worker/ensure.mjs --dry-run ""') === "ask" &&
+        said("node scripts/shared-worker/ensure.mjs --dry-run --dry-run=") === "ask" &&
+        said('node scripts/shared-worker/ensure.mjs --dir "x --dry-run y"') === "ask" &&
+        said("node scripts/shared-worker/register.mjs --kind ping --task-name t --dry-run") === "ask" &&
+        said("node scripts/shared-worker/register.mjs --kind ping --task-name t --no-deploy") === "pass" &&
+        said("node scripts/shared-worker/register.mjs --rotate-secret --project-name p --no-deploy") === "ask" &&
+        said("node scripts/shared-worker/register.mjs --list") === "pass" &&
+        said("node scripts/shared-worker/migrate-live.mjs --dry-run") === "ask" &&
+        said("node scripts/delete-project/db-backup-remove-target.mjs --project p --dry-run") === "ask",
+    );
+    check(
+      "un mot est lu comme le shell le remet, quels que soient ses guillemets",
+      says(/A word is read as the shell hands it over/, /Un mot est lu comme le shell le remet/) &&
+        said('git "push" origin main') === "ask" &&
+        said("git add '-A'") === "deny" &&
+        said("git add \\-A") === "deny" &&
+        said("git $'push' origin main") === "ask" &&
+        said('git commit -m "-a"') === "pass" &&
+        said("echo 'git push'") === "pass",
+    );
+    check(
+      "une option de git est lue comme git la lit, par son prefixe et ou qu'elle soit parmi les options",
+      says(/by any unambiguous prefix/, /par tout préfixe sans ambiguïté/) &&
+        said("git add --al") === "deny" &&
+        said("git reset --har") === "ask" &&
+        said("git clean --forc") === "ask" &&
+        said("git reset HEAD~1 --hard") === "ask" &&
+        said("git commit -m x -a") === "deny" &&
+        said("git clean . -f") === "ask" &&
+        said("git commit -m -a") === "pass" &&
+        said("git add -- -A") === "pass" &&
+        said("git reset --soft HEAD~1") === "pass",
+    );
+  }
+  {
+    // The guard reads the flags of the clock's scripts the way their own parser does: the same
+    // argument lists, given to parseFlags and written on a command line, must agree one by one.
+    const { decide } = await import(pathToFileURL(join(ROOT, "hooks/rules.mjs")).href);
+    const { parseFlags } = await import(pathToFileURL(join(ROOT, "scripts/shared-worker/_lib.mjs")).href);
+    const quote = (word) => `'${word}'`;
+    const lists = [[], ["--dry-run"], ["--dry-run", ""], ["--dry-run="], ["--dry-run=x"], ["--dry-run", "--dry-run="], ["--dry-run=", "--dry-run"], ["--dir", "--dry-run"], ["--dry-run", "false"], ["--dir", "x --dry-run y"], ["x", "--dry-run"], ["--no-deploy"], ["--no-deploy", ""], ["--no-deploy", "--no-deploy="], ["--dry-running"], ["-dry-run"], ["--dry-run", "--no-deploy="]];
+    const apart = lists.filter((argv) => {
+      const { flags } = parseFlags(argv);
+      const blank = Boolean(flags["dry-run"]) || Boolean(flags["no-deploy"]);
+      const asked = decide(["node", "scripts/shared-worker/ensure.mjs", ...argv.map(quote)].join(" ")) !== null;
+      return asked === blank;
+    });
+    check("le garde-fou lit les drapeaux des scripts de l'horloge comme leur propre lecteur (parseFlags), liste par liste", apart.length === 0, apart.map((argv) => JSON.stringify(argv)).join(" "));
+    check(
+      "register.mjs lit ses modes dans l'ordre que le garde-fou suppose : --list, --remove avec --name, --rotate-secret",
+      /if \(flags\.list\) return doList\(\);\s*if \(flags\.remove && flags\.name\) return finalize\(doRemove\(flags\.name\), \[\]\);\s*if \(flags\["rotate-secret"\]\) return doRotateSecret\(\);/.test(lire("scripts/shared-worker/register.mjs")),
+    );
+    check("register.mjs ne lit pas --dry-run, et le garde-fou ne le prend plus pour un essai a blanc", !/flags\["dry-run"\]/.test(lire("scripts/shared-worker/register.mjs")) && decide("node scripts/shared-worker/register.mjs --kind ping --task-name t --dry-run") !== null);
+  }
   check("la cle de l'accord est lue sans tenir compte de la casse", /hypervibe\\\.hooks\\b\/i/.test(r));
   check("aucun script ne dicte la commande de l'accord dans un rapport", !/git config hypervibe\.hooks true/.test(lire("scripts/check-deps.mjs")));
 }

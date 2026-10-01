@@ -277,6 +277,322 @@ expect("node scripts/ensure-hooks-chain.mjs", "pass");
 expect("git config --local --get hypervibe.hooks # set with true later", "pass");
 expect("git config --unset HYPERVIBE.HOOKS", "pass");
 
+console.log("\n── Un drapeau qui epargne la question est lu comme la commande le lit (3.3.10) ──");
+// A dry run passes; a flag the command does not read as a dry run spares nothing. Four of the
+// lines below were real pushes that asked nothing (tried on a throwaway repository, git 2.53):
+// the flag switched off after it, taken as the value of --repo, or part of a branch's name.
+expect("git push --dry-run origin main", "pass");
+expect("git push origin main --dry-run", "pass");
+expect("git push --force --dry-run", "pass");
+expect("git push -u origin feature --dry-run", "pass");
+expect('git push "--dry-run" origin main', "pass");
+expect("git push --dry-run origin main 2>&1", "pass");
+expect("git push --dry-run --no-dry-run origin main", "ask");
+expect("git push --dry-run --no-dry origin main", "ask");
+expect("git push --no-dry-run --dry-run origin main", "ask");
+expect("git push --repo --dry-run origin main", "ask");
+expect("git push --receive-pack --dry-run origin main", "ask");
+expect("git push -o --dry-run origin main", "ask");
+expect("git push origin main main:x--dry-run", "ask");
+expect('git push -o "x --dry-run y" origin main', "ask");
+expect("git push origin main -- --dry-run", "ask");
+expect("git push origin -- main --dry-run", "ask");
+expect("git push origin main > --dry-run", "ask");
+expect("git push $EXTRA --dry-run origin main", "ask");
+expect("git push --dry-run$(echo x) origin main", "ask");
+expect("git push $(cat options.txt) --dry-run origin main", "ask");
+// Skipping the pre-push hook is refused under every spelling git takes, and when the hooks'
+// folder is changed for the one command.
+expect("git push --no-veri origin main", "deny");
+expect("git push --no-verif origin main", "deny");
+expect("git -c core.hooksPath=/dev/null push origin main", "deny");
+expect('git -c "core.hookspath=/tmp/none" push origin main', "deny");
+expect("git -c core.hooksPath=/dev/null status", "pass");
+expect("git config --global core.hooksPath ~/.hypervibe/hooks", "pass");
+// git config: a read or a removal is one git reads as such.
+expect("git config --comment --unset hypervibe.hooks true", "ask");
+expect('git config --comment "a --unset b" hypervibe.hooks true', "ask");
+expect("git config --comment get hypervibe.hooks true", "ask");
+expect("git config > --get hypervibe.hooks true", "ask");
+expect("git config $(echo --comment) --unset hypervibe.hooks true", "ask");
+expect("git config --comment note --unset hypervibe.hooks", "pass");
+expect("git config --local --bool --get hypervibe.hooks", "pass");
+expect("git config get --default false hypervibe.hooks", "pass");
+expect("git config --comment --unset user.email hunter2", "deny");
+expect("git config --unset user.email", "pass");
+// wrangler: a dry run is `--dry-run` once, with no value, before any `--`.
+expect("wrangler deploy --dry-run", "pass");
+expect("npx wrangler@latest deploy --dry-run", "pass");
+expect("wrangler deploy --name x --dry-run", "pass");
+expect("wrangler deploy --dry-run=false", "ask");
+expect("wrangler deploy --dry-run false", "ask");
+expect("wrangler deploy --dry-run --no-dry-run", "ask");
+expect("wrangler deploy --dryRun=false --dry-run", "ask");
+expect("wrangler deploy -- --dry-run", "ask");
+expect('wrangler deploy --message "x --dry-run y"', "ask");
+expect("wrangler deploy --dry-run$(echo x)", "ask");
+expect("wrangler deploy $EXTRA --dry-run", "ask");
+// The clock's own scripts: a flag counts when the script reads it as set, by the reading of
+// their own parser (`--name value`, `--name=value`, the last one given wins, an empty value is
+// not set). Looked for in the text, it spared the question for a real run.
+expect("node scripts/shared-worker/ensure.mjs --dry-run", "pass");
+expect('node scripts/shared-worker/ensure.mjs "--dry-run"', "pass");
+expect("node scripts/shared-worker/ensure.mjs --no-deploy", "pass");
+expect("node scripts/shared-worker/ensure.mjs --dir /tmp/x --dry-run", "pass");
+expect("node scripts/shared-worker/ensure.mjs --dry-run 2>&1", "pass");
+expect('node scripts/shared-worker/ensure.mjs --dry-run ""', "ask");
+expect("node scripts/shared-worker/ensure.mjs --dry-run --dry-run=", "ask");
+expect("node scripts/shared-worker/ensure.mjs --dry-run=", "ask");
+expect('node scripts/shared-worker/ensure.mjs --dir "x --dry-run y"', "ask");
+expect("node scripts/shared-worker/ensure.mjs --dry-running", "ask");
+expect("node scripts/shared-worker/ensure.mjs --dry-run$(echo x)", "ask");
+expect("node scripts/shared-worker/ensure.mjs $EXTRA --dry-run", "ask");
+expect("node scripts/shared-worker/ensure.mjs > --dry-run", "ask");
+expect("node scripts/shared-worker/worker-check.mjs --no-deploy", "pass");
+expect("node scripts/shared-worker/worker-check.mjs --no-deploy --no-deploy=", "ask");
+// register.mjs and migrate-live.mjs read no --dry-run: until 3.3.10 it spared the question
+// all the same, and the registration went out. --list only lists, whatever else is given;
+// --no-deploy sends nothing, except with --rotate-secret, which writes the secret anyway.
+expect("node scripts/shared-worker/register.mjs --kind ping --task-name t --cron '0 8 * * *' --app-url https://x.test --project-name p", "ask");
+expect("node scripts/shared-worker/register.mjs --kind ping --task-name t --cron '0 8 * * *' --app-url https://x.test --project-name p --dry-run", "ask");
+expect("node scripts/shared-worker/register.mjs --kind ping --task-name t --cron '0 8 * * *' --app-url https://x.test --project-name p --no-deploy", "pass");
+expect("node scripts/shared-worker/register.mjs --list --kind ping --task-name t", "pass");
+expect("node scripts/shared-worker/register.mjs --list= --kind ping --task-name t", "ask");
+expect('node scripts/shared-worker/register.mjs --kind ping --task-name "x --list"', "ask");
+expect('node scripts/shared-worker/register.mjs --kind ping --task-name "x --no-deploy"', "ask");
+expect("node scripts/shared-worker/register.mjs --kind ping --no-deploy --no-deploy=", "ask");
+expect('node scripts/shared-worker/register.mjs --kind ping --no-deploy ""', "ask");
+expect("node scripts/shared-worker/register.mjs --kind ping --no-deploy$(echo x)", "ask");
+expect("node scripts/shared-worker/register.mjs --kind ping $EXTRA --no-deploy", "ask");
+expect("node scripts/shared-worker/register.mjs --rotate-secret --project-name p --no-deploy", "ask");
+expect("node scripts/shared-worker/register.mjs --rotate-secret --project-name p --dry-run", "ask");
+expect("node scripts/shared-worker/register.mjs --list --rotate-secret --project-name p", "pass");
+expect("node scripts/shared-worker/register.mjs --remove --name j", "ask");
+expect("node scripts/shared-worker/migrate-live.mjs", "ask");
+expect("node scripts/shared-worker/migrate-live.mjs --dry-run", "ask");
+expect("node scripts/shared-worker/migrate-live.mjs --no-deploy=", "ask");
+expect("node scripts/delete-project/db-backup-remove-target.mjs --project p --dry-run", "ask");
+expect("node scripts/delete-project/db-backup-remove-target.mjs --project p --no-deploy", "ask");
+expect("node scripts/delete-project/db-backup-remove-target.mjs --project p --list", "ask");
+// A removal with --no-deploy changes the registry on this machine and sends nothing: it wins over
+// --rotate-secret, as register.mjs reads its modes.
+expect("node scripts/shared-worker/register.mjs --remove --name j --rotate-secret --no-deploy", "pass");
+// A flag nothing reads spares nothing.
+expect("node scripts/shared-worker/register.mjs --kind ping --task-name t --decommission-confirme", "ask");
+expect("node scripts/shared-worker/register.mjs --remove --name j --decommission-confirme", "ask");
+expect("node scripts/delete-project/db-backup-remove-target.mjs --project p --decommission-confirme", "ask");
+expect("node scripts/shared-worker/ensure.mjs --decommission-confirme", "ask");
+
+console.log("\n── Un mot est lu comme le shell le remet, une option comme git la lit (3.3.10) ──");
+// The rules name a command's words. Typed otherwise than bare, abbreviated the way git allows, or
+// placed further along the line, each of these ran with no question, or past a refusal (the
+// abbreviations and the positions tried on a throwaway repository, git 2.53).
+expect('git "push" origin main', "ask");
+expect("git 'push' origin main", "ask");
+expect('git pu"sh" origin main', "ask");
+expect("git \\push origin main", "ask");
+expect("git $'push' origin main", "ask");
+expect("git $'\\x70ush' origin main", "ask");
+expect('git $"push" origin main', "ask");
+expect('git add "-A"', "deny");
+expect("git add '-A'", "deny");
+expect("git add \\-A", "deny");
+expect('git add "--all"', "deny");
+expect("git add $'-A'", "deny");
+expect("git add --al", "deny");
+expect("git add --a", "deny");
+expect("git add --upd", "deny");
+expect("git add src --all", "deny");
+expect('git commit "-a" -m x', "deny");
+expect("git commit '--all' -m x", "deny");
+expect("git commit -m x -a", "deny");
+expect('git commit -m "un message" --all', "deny");
+expect("git commit -sam x", "deny");
+expect("git commit --amend --no-edit -a", "deny");
+expect("git commit --fixup HEAD -a", "deny");
+expect("git commit -mwip -a", "deny");
+expect('git reset "--hard"', "ask");
+expect("git reset --har", "ask");
+expect("git reset --h", "ask");
+expect("git reset HEAD~1 --hard", "ask");
+expect("git reset -q --hard", "ask");
+expect("git reset --me", "ask");
+expect('git clean "-f"', "ask");
+expect("git clean --forc", "ask");
+expect("git clean . -f", "ask");
+expect("git clean -d -x --f", "ask");
+expect('git checkout -- "."', "ask");
+expect("git checkout HEAD -- .", "ask");
+expect('git restore "."', "ask");
+expect("git restore -SW .", "ask");
+expect("git restore --source=HEAD~1 './'", "ask");
+expect('vercel "--prod"', "ask");
+expect('pnpm "db:push"', "ask");
+expect('git config "hypervibe.hooks" "true"', "ask");
+// What must keep passing: a value is not an option, a message is not a command, and a path
+// after `--` is a path.
+expect('git commit -m "-a"', "pass");
+expect("git commit -m '--all'", "pass");
+expect("git commit -m -a", "pass");
+expect('git commit -m "fix: the -a flag" src/a.ts', "pass");
+expect("git commit -ma", "pass");
+expect("git commit -Sabcdef -m x", "pass");
+expect("git commit -uall -m x", "pass");
+expect("git commit --message --all", "pass");
+expect("git commit -F msg.txt -- -a", "pass");
+expect("git commit -m x -- -a", "pass");
+expect('git commit -m "push"', "pass");
+expect('git add "src/a.ts" "src/b.ts"', "pass");
+expect("git add -- -A", "pass");
+expect('git add "-A file.txt"', "pass");
+expect("git add --chmod=+x scripts/run.sh", "pass");
+expect("git reset --soft HEAD~1", "pass");
+expect("git reset HEAD src/a.ts", "pass");
+expect("git reset -- --hard", "pass");
+expect("git reset --mixed HEAD~1", "pass");
+expect("git clean -n", "pass");
+expect("git clean --dry-run", "pass");
+expect("git checkout main", "pass");
+expect('git checkout -b "feature/x"', "pass");
+expect("git checkout -- src/a.ts", "pass");
+expect("git checkout .gitignore", "pass");
+expect("git restore src/a.ts", "pass");
+expect('echo "push"', "pass");
+expect("echo 'git push'", "pass");
+expect("echo $'git push'", "pass");
+expect("git log --all", "pass");
+expect("git stash push -m x", "pass");
+expect('wrangler "deploy"', "ask");
+expect("wrangler 'secret' put X", "ask");
+
+console.log("\n── Le chemin d'un script range dans une variable est lu a travers elle (3.3.10) ──");
+// The rules on the plugin's scripts name the script a runtime launches. A path kept in a
+// variable the command line itself sets hid it from every one of them: none of these asked.
+const REGISTER_VAR = 'REGISTER="C:/Users/x y/plugin/scripts/shared-worker/register.mjs"';
+expect(`${REGISTER_VAR}\nnode "$REGISTER" --kind ping --task-name t`, "ask");
+expect(`${REGISTER_VAR}\nnode "$REGISTER" --list`, "pass");
+expect(`${REGISTER_VAR}\nnode "$REGISTER" --kind ping --task-name t --no-deploy`, "pass");
+expect(`${REGISTER_VAR}; node "$REGISTER" --remove --name j`, "ask");
+expect(`${REGISTER_VAR} && node "\${REGISTER}" --kind quota --recipient a@b.test`, "ask");
+expect(`${REGISTER_VAR}\nnode $REGISTER --kind ping`, "ask");
+expect(`${REGISTER_VAR}\nresult=$(node "$REGISTER" --kind ping --task-name t)\necho "$result"`, "ask");
+expect(`${REGISTER_VAR}\nlist=$(node "$REGISTER" --list)\necho "$list"`, "pass");
+expect(`export ${REGISTER_VAR}\nnode "$REGISTER" --kind ping`, "ask");
+expect('PLUGIN_DIR="C:/p/plugin"\nENSURE="$PLUGIN_DIR/scripts/shared-worker/ensure.mjs"\nnode "$ENSURE"', "ask");
+expect('PLUGIN_DIR="C:/p/plugin"\nENSURE="$PLUGIN_DIR/scripts/shared-worker/ensure.mjs"\nnode "$ENSURE" --dry-run', "pass");
+expect('X=register.mjs\ncd scripts/shared-worker && node "$X" --kind ping', "ask");
+// Which value holds when the script runs depends on what ran: every value a name was given is
+// read, and one that asks is enough.
+expect(`${REGISTER_VAR}\nfalse && REGISTER=/tmp/autre.mjs\nnode "$REGISTER" --kind ping`, "ask");
+expect(`REGISTER=/tmp/autre.mjs\n${REGISTER_VAR}\nnode "$REGISTER" --kind ping`, "ask");
+// A prefix sets nothing for the words of its own command, which the shell expands first: the
+// variable read is the one set before.
+expect(`${REGISTER_VAR}\nREGISTER=/tmp/autre.mjs node "$REGISTER" --kind ping`, "ask");
+// A dry run read through the variable still needs to be one: next to a substitution it is not.
+expect('ENSURE="C:/p/scripts/shared-worker/ensure.mjs"\nnode "$ENSURE" --dry-run$(echo x)', "ask");
+// What must keep passing: another script in a variable, a `$` between single quotes (a name,
+// not a variable), a variable the line does not set, a variable whose value a command printed.
+expect('X="C:/p/outils/planning/register.mjs"\nnode "$X" --kind ping', "pass");
+expect("X=/tmp/rapport.mjs\nnode \"$X\" --kind ping", "pass");
+expect(`${REGISTER_VAR}\nnode '$REGISTER' --kind ping`, "pass");
+expect('node "$REGISTER" --kind ping', "pass");
+expect('REGISTER=$(node resolve.mjs)\nnode "$REGISTER" --kind ping', "pass");
+expect(`${REGISTER_VAR}\necho "$REGISTER --kind ping"`, "pass");
+expect(`${REGISTER_VAR}\ncat "$REGISTER"`, "pass");
+// `bun run` and `deno run` launch the script after `run`.
+expect("bun run scripts/shared-worker/register.mjs --kind ping", "ask");
+expect("deno run -A scripts/shared-worker/ensure.mjs", "ask");
+expect("bun run scripts/shared-worker/register.mjs --list", "pass");
+expect('S="C:/p/scripts/delete-project/execute-deletions.mjs"\nnode "$S" --project p', "ask");
+expect('B="C:/p/scripts/delete-project/db-backup-remove-target.mjs"\nnode "$B" --project p', "ask");
+
+console.log("\n── La table OpenCode : pas plus large que le garde-fou, la ou un motif peut le dire (3.3.10) ──");
+{
+  // OpenCode cannot run this hook: its questions are a table of globs (opencode.permission.json),
+  // and it applies the LAST matching rule. A glob reads text: a flag that spares a question is
+  // written where a glob can tell it is that flag (right after `git push`, or as the last word of
+  // a command of the plugin's scripts), and anywhere else the question is asked. Until 3.3.10 the
+  // table let `--dry-run` through wherever it stood, and on scripts that do not read it.
+  const { decide } = await import(pathToFileURL(join(dirname(HOOK), "rules.mjs")).href);
+  const bash = JSON.parse(readFileSync(join(dirname(HOOK), "opencode.permission.json"), "utf8")).permission?.bash ?? {};
+  const asGlob = (g) => new RegExp(`^${g.split("*").map((s) => s.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*")}$`);
+  const openCodeSays = (command) => {
+    let said = "allow";
+    for (const [glob, verdict] of Object.entries(bash)) if (asGlob(glob).test(command)) said = verdict;
+    return said;
+  };
+  const hookSays = (command) => (decide(command) === null ? "allow" : "ask");
+  const costumes = [
+    ["git push --dry-run origin main", "allow"],
+    ["git push --dry-run --no-dry-run origin main", "ask"],
+    ["git push --dry-run --no-dry origin main", "ask"],
+    ["git push --repo --dry-run origin main", "ask"],
+    ["git push origin main main:x--dry-run", "ask"],
+    ['git push -o "x --dry-run y" origin main', "ask"],
+    ["git push --dry-run $EXTRA origin main", "ask"],
+    ["git push --dry-run `cat options.txt` origin main", "ask"],
+    ["wrangler deploy --dry-run", "allow"],
+    ["npx wrangler@latest deploy --dry-run", "allow"],
+    ["wrangler deploy --dry-run=false", "ask"],
+    ["wrangler deploy --dry-run false", "ask"],
+    ["wrangler deploy -- --dry-run", "ask"],
+    ["wrangler deploy --message x\\ --dry-run", "ask"],
+    ['node "C:/p/scripts/shared-worker/ensure.mjs" --dry-run', "allow"],
+    ["node scripts/shared-worker/worker-check.mjs --dry-run", "allow"],
+    ["node scripts/shared-worker/ensure.mjs --no-deploy", "allow"],
+    ['node scripts/shared-worker/ensure.mjs --dry-run ""', "ask"],
+    ["node scripts/shared-worker/ensure.mjs --dry-run --dry-run=", "ask"],
+    ['node scripts/shared-worker/ensure.mjs --dir "x --dry-run"', "ask"],
+    ["node scripts/shared-worker/ensure.mjs --dir x\\ --dry-run", "ask"],
+    ["node scripts/shared-worker/register.mjs --list", "allow"],
+    ["node scripts/shared-worker/register.mjs --kind ping --task-name t --no-deploy", "allow"],
+    ["node scripts/shared-worker/register.mjs --kind ping --task-name t --dry-run", "ask"],
+    ["node scripts/shared-worker/register.mjs --kind ping --task-name t --decommission-confirme", "ask"],
+    ["node scripts/shared-worker/register.mjs --rotate-secret --project-name p --no-deploy", "ask"],
+    ['node scripts/shared-worker/register.mjs --kind ping --task-name "x --list"', "ask"],
+    ["node scripts/shared-worker/register.mjs --kind ping --task-name x\\ --list", "ask"],
+    ["node scripts/shared-worker/migrate-live.mjs --no-deploy", "allow"],
+    ["node scripts/shared-worker/migrate-live.mjs --dry-run", "ask"],
+    ["node scripts/delete-project/db-backup-remove-target.mjs --project p", "ask"],
+    ["node scripts/delete-project/db-backup-remove-target.mjs --project p --dry-run", "ask"],
+  ];
+  const fooled = costumes.filter(([command, expected]) => openCodeSays(command) !== expected || hookSays(command) !== expected).map(([command]) => command);
+  checks += 1;
+  if (fooled.length) failures += 1;
+  console.log(`${fooled.length ? "FAIL" : "OK  "} la table OpenCode ne prend pas pour un essai a blanc ce qui n'en est pas un, et repond comme le garde-fou${fooled.length ? ` : ${fooled.join(" | ")}` : ""}`);
+
+  // A word typed otherwise than bare, an option abbreviated or placed further along the line: the
+  // table asks where a glob can tell, and what it lets through is what the hook lets through.
+  const dressed = [
+    ['git "push" origin main', "ask"],
+    ["git 'push' origin main", "ask"],
+    ["git \\push origin main", "ask"],
+    ["git reset HEAD~1 --hard", "ask"],
+    ["git reset -q --hard", "ask"],
+    ["git reset --har", "ask"],
+    ['git reset "--hard"', "ask"],
+    ["git reset --me", "ask"],
+    ["git clean . -f", "ask"],
+    ["git clean --forc", "ask"],
+    ["git clean -d -x --f", "ask"],
+    ["git checkout HEAD -- .", "ask"],
+    ['git checkout -- "."', "ask"],
+    ["git restore -SW .", "ask"],
+    ['git restore "."', "ask"],
+    ["git reset --soft HEAD~1", "allow"],
+    ["git reset HEAD src/a.ts", "allow"],
+    ["git reset --mixed HEAD~1", "allow"],
+    ["git clean -n", "allow"],
+    ["git checkout main", "allow"],
+    ["git checkout -- src/a.ts", "allow"],
+    ["git restore src/a.ts", "allow"],
+  ];
+  const undressed = dressed.filter(([command, expected]) => openCodeSays(command) !== expected || hookSays(command) !== expected).map(([command]) => command);
+  checks += 1;
+  if (undressed.length) failures += 1;
+  console.log(`${undressed.length ? "FAIL" : "OK  "} la table OpenCode lit un mot habille et une option abregee ou deplacee comme le garde-fou${undressed.length ? ` : ${undressed.join(" | ")}` : ""}`);
+}
+
 console.log("\n── Robustesse (fail-open) ──");
 checks += 1;
 {

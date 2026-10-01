@@ -56,6 +56,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { depotRacine, manifestExistant, emplacementCanonique } from "./locate.mjs";
+import { sameResource } from "./same-resource.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -176,20 +177,9 @@ function emptyManifest() {
   };
 }
 
-// Identity of a resource inside the manifest: kind + id when both sides have
-// one, kind + name (+ jurisdiction for R2, where the same name can exist in
-// two separate namespaces) otherwise.
-function sameResource(a, b) {
-  if (a.kind !== b.kind) return false;
-  if (a.id && b.id) return a.id === b.id;
-  if (a.name && b.name && a.name === b.name) {
-    if (a.kind === "r2-bucket") {
-      return (a.jurisdiction || "default") === (b.jurisdiction || "default");
-    }
-    return true;
-  }
-  return false;
-}
+// Identity of a resource inside the manifest: kind + id when both sides have one, kind + name
+// (+ jurisdiction for R2) otherwise, and the host when nothing else is known: see
+// same-resource.mjs.
 
 // A project's own registration on the shared clock is never shared, even though the clock is: a
 // scheduled task calls this project's own route, and a backup is this project's database's, shared

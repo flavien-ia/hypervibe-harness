@@ -33,7 +33,7 @@ Ajoute le **stockage de fichiers** (images, PDFs, vidéos, documents) à votre a
 
 7. **Push des variables** : `CLOUDFLARE_ACCOUNT_ID`, `R2_BUCKET_NAME`, `R2_ENDPOINT`, et `R2_PUBLIC_URL` (si bucket public) sont poussés dans `.env` + Vercel.
 
-8. **Clés API** (étape manuelle) : Cloudflare ne permet pas de générer ces deux clés automatiquement. Hypervibe vous guide pour créer un token R2 dans dashboard.cloudflare.com → R2 → Manage R2 API tokens → Create account token. Vous collez les deux valeurs (Access Key ID + Secret Access Key), Hypervibe les pousse sur Vercel.
+8. **Clés API** (étape manuelle) : Cloudflare ne permet pas de générer ces deux clés automatiquement. Hypervibe vous guide pour créer un token R2 dans dashboard.cloudflare.com → R2 → Manage R2 API tokens → Create account token. Une petite fenêtre s'ouvre sur votre ordinateur : vous y collez les deux valeurs (Access Key ID + Secret Access Key), jamais dans la conversation, et elles partent dans `.env` et sur Vercel.
 
 9. **Interface utilisateur (optionnel)** : Hypervibe vous propose de construire l'UI adaptée à votre cas (champ upload + aperçu + galerie + liste personnelle de fichiers + sécurité des accès).
 
