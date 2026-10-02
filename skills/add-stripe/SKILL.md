@@ -83,7 +83,25 @@ Then check the Stripe CLI:
 stripe --version
 ```
 
-If the command fails (not installed) **or** if `stripe config --list` shows no API key (not authenticated), invoke the **`_setup-stripe-cli`** internal skill to install and authenticate it. Wait for it to complete, then re-verify with `stripe --version` before continuing.
+If the command fails (not installed), invoke the **`_setup-stripe-cli`** internal skill to install and authenticate it. Wait for it to complete, then re-verify with `stripe --version` before continuing.
+
+### Which Stripe account is this project paid on?
+
+The Stripe CLI keeps one pairing per **profile**, and a command that names none runs on the profile called `default`. Someone who runs several businesses has several Stripe accounts: on the wrong profile, Step 8 captures the webhook secret of ANOTHER account, and every signature then fails without a word of explanation (seen on a real project, 2026-07-18). Read the accounts the CLI is paired with, names only:
+
+```bash
+stripe config --list 2>/dev/null | grep -E '^\[|^[[:space:]]*(display_name|account_id)[[:space:]]*='
+```
+
+Keep the filter: unfiltered, that command prints the CLI's test key in clear, into the conversation. Each `[name]` line opens a profile; `display_name` is the account's name as its owner reads it in the Stripe dashboard.
+
+- **Nothing printed** (the CLI is paired with no account) → invoke `_setup-stripe-cli`, then read again.
+- **Otherwise**, ask ONE question with `AskUserQuestion`, in the user's language: *"The payments of this project will go to the Stripe account **<display_name>**. Is that the right one?"* One option per account read (the one of the `default` profile first, when there is one) and a last option *"Another account"*.
+  - The account of the `default` profile → `<STRIPE_PROFILE>` is empty: every command of this skill runs as written.
+  - The account of a named profile → `<STRIPE_PROFILE>` is `--project-name <that profile's name>`.
+  - Another account → invoke `_setup-stripe-cli` in its **named profile** mode with `<PROJECT_NAME>`: it pairs a profile of that name with the account the user signs in to, and leaves the other profiles as they are. Then `<STRIPE_PROFILE>` is `--project-name <PROJECT_NAME>`.
+
+**From here on, every `stripe` command of this skill that is not handed a key through `STRIPE_API_KEY` takes `<STRIPE_PROFILE>`**: Step 8, the local testing command of Steps 9 and 12, the product creation of Step 11. Someone with a single account answers one question, and nothing else changes for them.
 
 ## Step 2 - Product context
 
@@ -109,8 +127,10 @@ If the user says "I don't know yet" -> note `<product_context>` = "to be defined
 ## Step 3 - Install dependencies
 
 ```bash
-pnpm add stripe
+pnpm add stripe@^23
 ```
+
+The major version is named because the plugin writes the code that calls it: the router and the webhook of Step 6 are checked against that major, and a new major can remove a parameter the template sends (stripe 23 did, on 2026-09-30, and the generated router stopped typechecking). The pin moves when the template has been read again against the next major. A project that already has another major of `stripe` keeps it: say so, and run `pnpm tsc --noEmit` after Step 6 to see whether the generated files fit.
 
 Only the server SDK. Hosted Checkout redirects to `session.url`, so nothing on the page ever loads Stripe.js: `@stripe/stripe-js` was an unused dependency in every project (removed 2026-09-09). Add it back only if you move to Stripe Elements or the embedded pricing table, which do run in the browser.
 
@@ -184,7 +204,9 @@ The Stripe CLI prints the signing secret on demand (`--print-secret`). It goes s
 
 ```bash
 # The signing secret goes from the Stripe CLI straight into the local .env: never shown.
-WHSEC=$(stripe listen --print-secret 2>/dev/null)
+# <STRIPE_PROFILE>: nothing, or --project-name <name> (Step 1). On another profile, this would be
+# the secret of another Stripe account.
+WHSEC=$(stripe listen --print-secret <STRIPE_PROFILE> 2>/dev/null)
 case "$WHSEC" in
   whsec_*)
     grep -v "^STRIPE_WEBHOOK_SECRET=" "<WEB_DIR>/.env" > "<WEB_DIR>/.env.tmp" 2>/dev/null; mv "<WEB_DIR>/.env.tmp" "<WEB_DIR>/.env"
@@ -198,7 +220,7 @@ If `stripe listen` fails (CLI not authenticated) -> invoke `_setup-stripe-cli` t
 
 **Note for future dev sessions**: when the user tests payments locally, they will need to run, **in parallel** with `pnpm dev`, in their terminal:
 ```bash
-stripe listen --forward-to localhost:3000/api/webhooks/stripe
+stripe listen <STRIPE_PROFILE> --forward-to localhost:3000/api/webhooks/stripe
 ```
 (The `whsec_...` captured now stays valid, so no re-configuration needed.)
 
@@ -211,7 +233,8 @@ Invoke `_update-claude-md` with:
   - `- \`STRIPE_SECRET_KEY\` - Stripe secret key (test or live depending on mode)`
   - `- \`STRIPE_WEBHOOK_SECRET\` - signing secret to verify webhooks (different for the local CLI vs the production endpoint)`
 - `conventions`:
-  - `- **Testing payments locally**: in a separate terminal, in parallel with \`pnpm dev\`, run the command \`stripe listen --forward-to localhost:3000/api/webhooks/stripe\`. Without it, Stripe's webhooks are not received by the local app and checkout will not work. The \`STRIPE_WEBHOOK_SECRET\` in \`.env\` is already configured for this listener (captured during /add-stripe).`
+  - `- **Testing payments locally**: in a separate terminal, in parallel with \`pnpm dev\`, run the command \`stripe listen <STRIPE_PROFILE> --forward-to localhost:3000/api/webhooks/stripe\`. Without it, Stripe's webhooks are not received by the local app and checkout will not work. The \`STRIPE_WEBHOOK_SECRET\` in \`.env\` is already configured for this listener (captured during /add-stripe).`
+  - only when `<STRIPE_PROFILE>` is not empty: `- **Stripe account of this project**: the Stripe CLI profile \`<profile name>\` (account "<display_name>"). Every \`stripe\` command of this project takes \`--project-name <profile name>\`; a bare \`stripe\` command runs on another account.`
 - `custom`:
   - heading: `## Stripe products`
   - body: content based on `<product_context>` from Step 2. Format:
@@ -258,7 +281,7 @@ Payments in France = mandatory terms of sale (CGV). Ask: *"I can generate the te
 
 If yes, collect: product/service type, pricing terms, delivery/access terms, withdrawal policy (14 days in France, with exceptions for digital / services already performed / dated trainings), refund policy, contact email.
 
-Then generate `src/app/cgv/page.tsx` (or `src/app/[locale]/cgv/page.tsx` if i18n), in Tailwind prose, with these sections: purpose, products+prices, ordering/payment (mention Stripe as the provider), delivery/access, withdrawal with exceptions, refund, liability, data protection (link to the privacy policy), governing law + jurisdiction (courts of the registered office), contact. Add a "CGV" link in the footer next to "Legal notice" and "Privacy policy".
+Then generate `src/app/cgv/page.tsx` (or `src/app/[locale]/cgv/page.tsx` if i18n), in Tailwind prose, with these sections: purpose, products+prices, ordering/payment (mention Stripe as the provider), delivery/access, withdrawal with exceptions, refund, liability, data protection (link to the privacy policy), governing law + jurisdiction (courts of the registered office), contact. Add a "CGV" link in the footer next to "Legal notice" and "Privacy policy", and place the same link **next to the payment button** (the pricing page, the checkout button): the terms are accepted BEFORE paying, and nobody reads a footer at that moment. One short line is enough, in the page's language (*"By paying, you accept the terms of sale"*, linked).
 
 **i18n convention for the CGV**: if the project is in i18n mode, **the CGV stay in French regardless of the visitor's locale** - a legal document specific to French law, a standard practice on French multilingual sites. Do not add `cgv.*` keys to the `messages/<locale>.json` files, and do not run the content through `useTranslations()`. Hardcoded text in FR in the component.
 
@@ -286,8 +309,8 @@ The Stripe infrastructure is in place but no UI page exists yet (no `/pricing`, 
 - Wire each "Buy" button to the `createCheckoutSession` tRPC procedure created in Step 6 (pass the matching Stripe `priceId`)
 - If the Stripe products do not yet exist on the Stripe side (just a name + price in the conversation), propose to create them now via the Stripe CLI:
   ```bash
-  stripe products create --name "<name>" --description "<desc>"
-  stripe prices create --product <product_id> --unit-amount <price_in_cents> --currency eur [--recurring interval=month if subscription]
+  stripe products create <STRIPE_PROFILE> --name "<name>" --description "<desc>"
+  stripe prices create <STRIPE_PROFILE> --product <product_id> --unit-amount <price_in_cents> --currency eur [--recurring interval=month if subscription]
   ```
   Get the `price_id` values (`price_xxx`) and use them in the pages' code.
 - Update the "## Stripe products" section of CLAUDE.md with "Associated pages: in place ✅"
@@ -295,6 +318,17 @@ The Stripe infrastructure is in place but no UI page exists yet (no `/pricing`, 
 **If no / later**:
 - Mention it explicitly in the Step 12 Summary as a remaining manual action
 - Do not mark the "Associated pages" section of CLAUDE.md as "in place"
+
+### Emails after a purchase (a proposal, never automatic)
+
+The webhook this skill generated only writes a line to the log when a payment succeeds: neither the buyer nor the seller is told. Check whether the project can send email:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/check-deps.mjs" email
+```
+
+- **`email.ok` is `true`** → propose, in one question, two emails sent from the webhook on `checkout.session.completed`: a **confirmation to the buyer** (what was bought, the amount, how to reach support) and a **notification to the seller** (who bought what, and for how much). If the user accepts, write them in the `checkout.session.completed` case of `src/app/api/webhooks/stripe/route.ts`, with the project's own mail helper, in the project's language; the buyer's address is `session.customer_details?.email`. Wrap both sends: an email that could not leave never makes the webhook answer an error, or Stripe would deliver the event again and the order would be handled twice. If the user declines, write nothing.
+- **`email.ok` is `false`** → write nothing, and say it in the Step 12 summary as a remaining action.
 
 ## RGPD - Privacy policy
 
@@ -322,7 +356,7 @@ Present to the user:
 >
 > 🧪 **You are in TEST mode - no real payment is collected.** To test:
 > - Fake card number: `4242 4242 4242 4242` (any future expiry date, any CVC)
-> - Before each test session, open a separate terminal and run `stripe listen --forward-to localhost:3000/api/webhooks/stripe` in parallel with `pnpm dev` (otherwise the webhooks are not received -> checkout broken)
+> - Before each test session, open a separate terminal and run `stripe listen <STRIPE_PROFILE> --forward-to localhost:3000/api/webhooks/stripe` in parallel with `pnpm dev` (otherwise the webhooks are not received -> checkout broken)
 >
 > 🔴 **To go LIVE (collect real payments)**: when you are sure everything works in test, tell me *"switch Stripe to live"* and I'll guide you. The full procedure is also documented in `CLAUDE.md` -> section "Switch Stripe to live mode (production)".
 
@@ -337,6 +371,12 @@ If the CGV were generated:
 
 If the CGV were skipped:
 > - ⚠️ **Manual action required**: terms of sale are mandatory for any site that accepts payments in France. To be created before going to prod.
+
+If the emails after a purchase were written in Step 11:
+> - ✉️ Each sale sends a confirmation to the buyer and a notification to you.
+
+If email is not configured on the project (Step 11):
+> - ✉️ **You will not be told of a sale** until email is set up on the project: tell me *"add email"*, then *"send an email after each sale"*.
 
 If `plan` is `hobby`:
 > - 💳 **Your Vercel project is on the free Hobby plan.** Vercel reserves it for personal, non-commercial projects, and a site that collects payments needs the paid **Pro** plan (current price: https://vercel.com/pricing). Test mode is fine as it is. Upgrade before switching Stripe to live, or Vercel may pause the site.
@@ -400,6 +440,8 @@ Do **not** push the keys right away - first the KYC check (10.2) to avoid switch
 
 Stripe blocks all live charges until the KYC (identity, IBAN, supporting documents) is validated. Without it, the user will switch to live and see all payments declined without understanding why.
 
+The check below needs the live secret key collected in 10.1. **Never use the live key the Stripe CLI keeps for itself** (`live_mode_api_key`, an `rk_live_...`): it is a restricted key that cannot read the account, and three attempts were lost on it on a real project. When the user asks *"is my account activated?"* before the live keys were collected, there is nothing to call: open `https://dashboard.stripe.com/account/status` with them and read together what the page says of payments and of payouts, and whether Stripe still asks for something.
+
 ```bash
 # The live key is read from its file of its own into a shell variable, and handed to the Stripe
 # CLI through its environment (STRIPE_API_KEY), never as an argument.
@@ -446,6 +488,11 @@ Depending on the output:
 > - IBAN of the bank account that will receive the payments
 > - Proof of address / company registration
 >
+> Three fields people get stuck on:
+> - **Business category and description**: I can propose both from what you sell (the "Stripe products" section of this project's notes).
+> - **Website address**: it can be changed later. If your domain is not live yet, the address your site already has at its hosting is accepted.
+> - **Stripe Tax**: optional. Skip it for now, and settle it with your accountant.
+>
 > Stripe validates in a few minutes to 24 h depending on the country. Tell me **"it's validated"** when `charges_enabled` flips to `true` in dashboard.stripe.com/account -> Status tab, or simply when you get the Stripe confirmation email.
 
 After the user confirms -> re-run the bash block. As long as `KYC=ok` is not reached, **do not push the keys to Vercel** (otherwise the prod site accepts payments that will all be declined).
@@ -487,6 +534,13 @@ Depending on the output:
 > **Block the migration until this point is resolved.** Tell me which of the two you want to do.
 
 If the user chooses A -> do the code migration automatically (case by case depending on the code). If B -> guide, wait for `"it's done"` confirmation, then continue.
+
+### 10.3 bis - Before real money: the name the buyer sees, and the rows of the tests
+
+Two things nobody thinks of until the first real customer points at them. Neither blocks the switch: say them, do what the user decides, then go on.
+
+- **The name shown to the buyer.** The payment page and the bank statement carry the name of the Stripe ACCOUNT, not the project's: on an account opened for another business, a customer pays "Another Company". It is set in the Stripe dashboard, in the settings of the account (its public details: the name shown to customers, and the wording on bank statements), not through the API with a test key. Ask the user to open the dashboard and check both before the first real payment.
+- **The rows the tests left.** The test payments wrote rows in the project's own database (orders, subscriptions, invoices: whatever the webhook writes). An order number that starts at 0003 tells the first real customer they were not the first. List them (the tables the webhook writes to, read with the project's SQL helper, counted table by table), show the count, and propose to remove them. Remove them only after an explicit confirmation that names what goes (*"delete the 2 test orders"*), with a `WHERE` that names them: never a table emptied whole.
 
 ### 10.4 - Push the live keys to Vercel
 

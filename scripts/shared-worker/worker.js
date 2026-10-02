@@ -779,12 +779,12 @@ async function sendQuotaEmail(env, cfg, alerts, errors = []) {
     .map(
       (a) => `
       <tr>
-        <td style="padding:8px;border:1px solid #ddd;"><strong>${a.service}</strong></td>
-        <td style="padding:8px;border:1px solid #ddd;">${a.metric}</td>
-        <td style="padding:8px;border:1px solid #ddd;">${a.used}</td>
-        <td style="padding:8px;border:1px solid #ddd;">${a.threshold}</td>
-        <td style="padding:8px;border:1px solid #ddd;">${a.limit}</td>
-        <td style="padding:8px;border:1px solid #ddd;"><strong>${a.pctOfLimit}</strong></td>
+        <td style="padding:8px;border:1px solid #ddd;"><strong>${escapeHtml(a.service)}</strong></td>
+        <td style="padding:8px;border:1px solid #ddd;">${escapeHtml(a.metric)}</td>
+        <td style="padding:8px;border:1px solid #ddd;">${escapeHtml(a.used)}</td>
+        <td style="padding:8px;border:1px solid #ddd;">${escapeHtml(a.threshold)}</td>
+        <td style="padding:8px;border:1px solid #ddd;">${escapeHtml(a.limit)}</td>
+        <td style="padding:8px;border:1px solid #ddd;"><strong>${escapeHtml(a.pctOfLimit)}</strong></td>
       </tr>`,
     )
     .join("");
@@ -877,11 +877,17 @@ async function sendSnapshotFailureEmail(env, cfg, failures) {
   await sendAlertEmail(env, cfg, subject, htmlContent);
 }
 
+/** Words that are not the clock's own (a site's answer, a provider's message, a name), made safe
+ *  to sit in an email: the markup, then the braces. An email service may run a templating pass
+ *  over the body it is handed, and one that meets `{{` there accepts the email and then drops it:
+ *  the failure would be counted as told, and nobody would have read it. */
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+    .replace(/>/g, "&gt;")
+    .replace(/\{/g, "&#123;")
+    .replace(/\}/g, "&#125;");
 }
 
 // ── Alert email channel (Brevo or Resend) ────────────────────────────────

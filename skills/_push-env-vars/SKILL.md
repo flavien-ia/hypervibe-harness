@@ -35,8 +35,24 @@ printf '%s=%s\n' KEY "$VALUE" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env
 
 (`printf` is a shell builtin: the value in `$VALUE` never sits in a process argument.) An empty value is refused and nothing is written, because in a pipe it is what a step that failed upstream sends: read a value into a variable and check it (`[ -n "$VALUE" ]`) before the pipe. `--allow-empty` sets an empty value on purpose; `--no-local` writes the hosting only, the local `.env` left as it is.
 
+**Which environments** (`--target`): without it, a variable goes to production and preview (and to development too when its name starts with `NEXT_PUBLIC_`). `--target=production`, `--target=preview`, `--target=production,preview` or `--target=all` name them; an entry of another environment is never touched. A value that must differ between the machine and the site (a live key online, a test key in the local `.env`) is pushed online only:
+
+```bash
+printf '%s=%s\n' KEY "$VALUE" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin --no-local --target=production,preview
+```
+
+**Taking a variable out** (`--remove`): names only, no value. The line leaves the local `.env` (unless `--no-local`) and the variable leaves every environment of the hosting. With `--target`, only the named environments of the hosting lose it, and the local `.env` is left as it is. A variable that is not there counts as removed.
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --remove OLD_KEY ANOTHER_KEY
+```
+
+`--help` prints every option.
+
 ## Rules
 
-- **Always** use this helper (never `vercel env add` / `echo KEY=... >> .env` / `printf ... | vercel env ...` inline).
+- **Always** use this helper (never `vercel env add` / `echo KEY=... >> .env` / `printf ... | vercel env ...` inline), and for a removal too (never `vercel env rm`, one environment at a time, nor a throwaway script).
+- **A value read in the vault goes into a project only when asked.** It is pushed into a project's `.env` or its hosting only if the user asked for it for THAT key, or if the calling skill provides for it; in doubt, ask. A difference between the vault's value and the one in the `.env` is not a signal to update anything: the two may differ on purpose (a key with wide rights kept for the assistant, a restricted one for the app). A key with wide rights that went online, even for a few minutes, must be considered exposed.
+- **The hosting freezes its variables when a deployment is built.** When the script's last line says a value was already there (or a variable was removed), the site online keeps the old state until the next deployment: say so, and offer to redeploy with the user's agreement. Never make a pretext commit to force one.
 - The script handles `.env` dedup, `.gitignore` update, the 3 Vercel environments, special characters, and the CLI's preview git-branch quirk (REST API first, CLI fallback).
 - If the script exits non-zero, relay the failure message to the caller - don't retry the push logic yourself.

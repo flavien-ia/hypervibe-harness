@@ -29,6 +29,32 @@ export type PushPayload = {
   url?: string;
 };
 
+// Les services de notification des navigateurs. L'adresse d'un abonnement est
+// déclarée par l'appareil : sans cette liste, un utilisateur connecté pourrait
+// enregistrer n'importe quelle adresse et faire envoyer au serveur des requêtes
+// où il veut (SSRF). Un hôte de la liste, ou l'un de ses sous-domaines.
+// Un navigateur qui passerait par un autre service ne pourrait plus s'abonner :
+// l'ajouter ici, après avoir vérifié à qui appartient l'hôte.
+const PUSH_SERVICE_HOSTS = [
+  "fcm.googleapis.com", // Chrome, Edge, Opera, Brave, Samsung Internet
+  "jmt17.google.com", // Chrome, versions de préversion (Canary, Dev)
+  "updates.push.services.mozilla.com", // Firefox
+  "web.push.apple.com", // Safari (macOS, iOS, iPadOS)
+  "notify.windows.com", // Edge sous Windows (wns2-xxx.notify.windows.com)
+];
+
+/** L'adresse déclarée par l'appareil est-elle bien celle d'un service de notification ? */
+export function isPushServiceEndpoint(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    if (url.protocol !== "https:" || url.port || url.username || url.password) return false;
+    const host = url.hostname.toLowerCase();
+    return PUSH_SERVICE_HOSTS.some((known) => host === known || host.endsWith(`.${known}`));
+  } catch {
+    return false;
+  }
+}
+
 /** Envoie une notification à tous les appareils d'un utilisateur. Nettoie les abonnements morts (404/410). */
 export async function sendPushToUser(
   db: typeof dbClient,
@@ -42,6 +68,8 @@ export async function sendPushToUser(
   let sent = 0;
   const body = JSON.stringify(payload);
   for (const s of subs) {
+    // Une adresse enregistrée avant la liste des services ne reçoit rien.
+    if (!isPushServiceEndpoint(s.endpoint)) continue;
     try {
       await webpush.sendNotification(
         { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },

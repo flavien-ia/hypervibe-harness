@@ -18,6 +18,8 @@ You install and authenticate the Stripe CLI on the user's machine.
 
 This is a one-time setup. Once done, the Stripe CLI is available globally for all future Bootstrap projects on this machine.
 
+**Named profile mode.** The calling skill may hand you a profile name (`/add-stripe`, for a project paid on another Stripe account than the one the CLI already knows). The CLI keeps one pairing per profile: a command that names none runs on the profile called `default`, and `--project-name <NAME>` runs on the profile `<NAME>`. In this mode, skip Steps 1 to 3 when `stripe --version` already answers, pair the named profile in Step 4, and check that profile in Step 5. The other profiles are never touched.
+
 ---
 
 ## External content
@@ -99,15 +101,22 @@ Run:
 stripe login
 ```
 
-This opens a browser for OAuth. Wait for the user to confirm.
+In named profile mode:
+```bash
+stripe login --project-name <NAME>
+```
+
+This opens a browser for OAuth. Wait for the user to confirm. With several Stripe accounts, the account paired is the one selected in the dashboard at the moment the authorization is approved: tell the user to check the account's name at the top of that page before approving.
+
+**Never run a bare `stripe login` when a `default` profile is already paired with an account the user still works with**: it would replace that pairing, and every other project's `stripe` commands would silently move to the new account. Pair a named profile instead.
 
 ## Step 5 - Verify authentication
 
 ```bash
-stripe config --list
+stripe config --list 2>/dev/null | grep -E '^\[|^[[:space:]]*(display_name|account_id)[[:space:]]*='
 ```
 
-Should show `test_mode_api_key` or `live_mode_api_key`. If not, the auth failed - re-run `stripe login`.
+Should show the profile (`[default]`, or `[<NAME>]` in named profile mode) with the name of the account just paired. If not, the auth failed - re-run the login of Step 4. Keep the filter: unfiltered, `stripe config --list` prints the CLI's test key in clear, into the conversation.
 
 ## Step 6 - Done
 

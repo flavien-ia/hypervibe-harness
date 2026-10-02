@@ -33,7 +33,7 @@ Trouve ce qui coûte cher dans votre application, côté serveur, et le corrige.
 
 5. **Vous validez trouvaille par trouvaille** : à la carte, jamais en bloc. Sur tout ce qui touche à la réactivité d'un écran, Hypervibe vous pose la question plutôt que de décider à votre place.
 
-6. **Application sur une branche séparée** : un correctif par validation, vérification automatique du code, puis vous testez avant de merger.
+6. **Application sur une branche séparée** : un correctif par validation, vérification automatique du code, puis vous testez avant de merger. Si un travail est en cours dans le dossier du projet (le vôtre, ou celui d'une autre conversation), les correctifs sont préparés dans un dossier à part, pour que rien ne bouge dessous.
 
 ## Ce que ça crée pour vous
 

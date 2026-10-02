@@ -18,7 +18,7 @@ Adds **online payments** to your app via Stripe Checkout. To sell products, acce
   - A mix of both
   - You don't know yet (the infrastructure is set up anyway, you can define the products later)
 
-3. **Installation**: Hypervibe installs the Stripe SDK (`stripe`) and the Stripe CLI if needed.
+3. **Installation**: Hypervibe installs the Stripe SDK (`stripe`) and the Stripe CLI if needed. If you have several Stripe accounts, it first has you confirm the one that will collect this project's payments.
 
 4. **Getting the test keys**: Hypervibe explains the difference between **test mode** (fake cards, no real payment) and **live mode** (real payments). You stay in test to start. You get two keys from dashboard.stripe.com/test/apikeys and paste them: `Publishable key` (`pk_test_...`) and `Secret key` (`sk_test_...`).
 
@@ -29,9 +29,11 @@ Adds **online payments** to your app via Stripe Checkout. To sell products, acce
 
 6. **Automatic webhook secret capture**: Hypervibe temporarily runs `stripe listen` to capture the `STRIPE_WEBHOOK_SECRET` (without you having to copy-paste it), then closes the listener.
 
-7. **Terms of sale (optional)**: Hypervibe offers to generate your Terms of Sale (mandatory in France for any site that sells). It asks you questions about your offer (type, price, withdrawal, refund, contact) and generates the complete `/cgv` page.
+7. **Terms of sale (optional)**: Hypervibe offers to generate your Terms of Sale (mandatory in France for any site that sells). It asks you questions about your offer (type, price, withdrawal, refund, contact) and generates the complete `/cgv` page, with its link next to the payment button.
 
 8. **Product pages + checkout (optional)**: Hypervibe offers to build the `/pricing`, `/payment/success`, `/payment/cancel` pages with your real products, wired up to Stripe.
+
+9. **Emails after a purchase (optional)**: if your project can send email, Hypervibe offers a confirmation for the buyer and a notification for you at each sale. Otherwise it tells you that you will not be told of a sale.
 
 ## What it creates for you
 
@@ -42,6 +44,7 @@ Adds **online payments** to your app via Stripe Checkout. To sell products, acce
 - A ready-to-use tRPC procedure to create a checkout session
 - Optional: your generated terms of sale
 - Optional: your product pages + checkout
+- Optional: the emails sent after each purchase
 
 ## Prerequisites
 
@@ -60,9 +63,9 @@ When you test payments locally (`pnpm dev`), open another terminal in parallel a
 ```
 stripe listen --forward-to localhost:3000/api/webhooks/stripe
 ```
-Without it, Stripe's webhooks do not reach your local app and checkout stays stuck. The `STRIPE_WEBHOOK_SECRET` in `.env` is already configured for this listener.
+Without it, Stripe's webhooks do not reach your local app and checkout stays stuck. The `STRIPE_WEBHOOK_SECRET` in `.env` is already configured for this listener. If Hypervibe paired this project with a Stripe account of its own, the exact command (with `--project-name`) is written in the project's `CLAUDE.md`.
 {{/callout}}
 
 {{callout:info|To go live}}
-When you are ready to collect real payments, just tell Hypervibe: *"switch Stripe to live"*. It guides you step by step (getting the `pk_live_...` / `sk_live_...` keys, creating the production webhook, pushing the keys to Vercel, testing with a real 1 EUR payment that you refund afterwards). The full procedure is also in your project's `CLAUDE.md`.
+When you are ready to collect real payments, just tell Hypervibe: *"switch Stripe to live"*. It guides you step by step (getting the `pk_live_...` / `sk_live_...` keys, creating the production webhook, pushing the keys to Vercel, testing with a real 1 EUR payment that you refund afterwards). Before the switch, it reminds you to check the name the buyer will see, and offers to remove the orders your tests left. The full procedure is also in your project's `CLAUDE.md`.
 {{/callout}}

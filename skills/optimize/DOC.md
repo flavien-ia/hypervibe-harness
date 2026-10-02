@@ -33,7 +33,7 @@ Finds what is expensive in your application, on the server side, and fixes it. Q
 
 5. **You approve one finding at a time**: never in bulk. On anything that affects how live a screen feels, Hypervibe asks you rather than deciding for you.
 
-6. **Applied on a separate branch**: one fix per approval, automatic code checks, then you test before merging.
+6. **Applied on a separate branch**: one fix per approval, automatic code checks, then you test before merging. If work is in progress in the project's folder (yours, or another conversation's), the fixes are prepared in a separate folder, so nothing moves under it.
 
 ## What it creates for you
 

@@ -43,7 +43,11 @@ function SignInForm() {
       toast.error("Identifiant ou mot de passe incorrect.");
       return;
     }
-    const callbackUrl = params.get("callbackUrl") ?? "/admin";
+    // Only accept a same-origin relative path. The router runs a `javascript:`
+    // address, and an `https://` or `//` one sends the admin to another site:
+    // ?callbackUrl= must never be taken as it comes.
+    const rawCallback = params.get("callbackUrl");
+    const callbackUrl = rawCallback && /^\/(?![/\\])/.test(rawCallback) ? rawCallback : "/admin";
     router.push(callbackUrl);
     router.refresh();
   }

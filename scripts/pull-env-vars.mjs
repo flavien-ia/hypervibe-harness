@@ -54,7 +54,11 @@ if (!target || !VALID_TARGETS.includes(target)) {
 
 // ─── Verify Vercel linked ──────────────────────────────────────────────
 if (!existsSync(".vercel/project.json")) {
-  console.error("Project not linked to Vercel. Run `vercel link` first or call from the project root.");
+  console.error(
+    "Project not linked to Vercel. Call from the project root, or link it first with " +
+      "`vercel link --yes --project <name> --scope <team>` (the scope is the account or team that " +
+      "holds the project: without it, an account with several of them makes the command stop).",
+  );
   process.exit(1);
 }
 

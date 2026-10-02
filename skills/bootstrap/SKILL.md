@@ -631,6 +631,7 @@ The infrastructure and the addons are in place. Now we build the real applicatio
 - The spec/description takes priority over defaults. If it says "dark theme with purple accents", follow that, not the T3 defaults.
 - Read `src/app/globals.css` (or `src/styles/globals.css` depending on what T3 scaffolded) before creating any component to stay consistent with the palette and design tokens already defined.
 - Always use shadcn/ui components from `~/components/ui/` before creating custom ones.
+- **No brand icon from `lucide-react`.** Since its version 1 the package no longer exports brand icons (`Instagram`, `Facebook`, `Twitter`, `Linkedin`, `Github`, `Youtube`...): importing one fails at `pnpm tsc --noEmit`. For links to social networks, use a generic icon (`Globe`, `ExternalLink`, `AtSign`) or a small inline SVG.
 - ⚠️ **IMPERATIVELY PRESERVE the T3 Geist font setup.** NEVER remove/modify in `src/app/layout.tsx` the `Geist` import from `next/font/google`, the `const geist = Geist({...})` instance, nor the `geist.variable` className on `<html>`. NEVER remove the `--font-sans: var(--font-geist-sans)` rule (or equivalent `font-family: var(--font-geist-sans)`) in the global CSS. If you rewrite `layout.tsx` or the CSS to change the design, copy these blocks back intact. **Otherwise the app falls back to the browser's default Times New Roman - unacceptable.** If you really want to change the font, replace Geist explicitly with another Google Font via `next/font` while keeping the same structure (import → instance → variable on html → CSS rule).
 
 ---

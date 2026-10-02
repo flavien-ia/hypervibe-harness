@@ -68,7 +68,7 @@ Everything technically verifiable, you verify yourself before producing the repo
 
 1. Invoke `_detect-project-root` to get `WEB_DIR` and `IS_MONOREPO`.
 2. Detect whether a database is wired: a real `DATABASE_URL` in the `.env` (not a placeholder). If there is none, the database categories are skipped and you say so plainly rather than reporting "nothing found".
-3. Check the working tree is clean (`git status --porcelain`). If it is not, say so and offer to continue anyway (the fixes will land on a separate branch either way).
+3. Check whether this folder is yours alone right now: `git status --porcelain` (changes that are not committed) and `git log --oneline @{u}..HEAD` (local commits that are not online yet; with no upstream branch there is nothing to compare, say so). If either shows something, the user or another session may be at work in this folder: say what you found, offer to continue, and treat the repository as **shared** from here on. Step 6 then works in a folder of its own and never switches branch in this one.
 
 ---
 
@@ -113,6 +113,14 @@ Two things to know before reading the output, both of which will mislead you oth
 - **The top of the list is Neon's own agents, not the application.** `pg_stat_activity`, `pg_replication_slots`, `neon.neon_perf_counters`, `SELECT $1` and friends run several times a second, and they are local to the compute, so they cost no egress at all. Filter on your own tables, or on `query NOT ILIKE '%pg_%'`, before drawing any conclusion.
 
 What you are looking for is a **cadence**: an application query whose `calls` divided by the window gives one every few seconds or minutes, when nothing in the code declares such an interval. That gap between the declared interval and the observed cadence is the finding. It is what reveals both traps below, the route that believes it is cached and the client refetching on focus.
+
+**When the question is the time awake, not the volume sent.** A database that never gets to sleep burns the monthly compute allowance whatever it sends, and the counters above cannot explain it: they restart with the compute, so right after a wake the window is a fraction of a second and the list is empty. Read the wakes themselves. The project's operations give each one, with its time:
+
+```bash
+printf 'header = "Authorization: Bearer %s"\n' "$KEY" | curl -s --config - "https://console.neon.tech/api/v2/projects/<id>/operations?limit=100"
+```
+
+Keep the `start_compute` and `suspend_compute` actions with their `created_at`, and follow `pagination.cursor` (`&cursor=<value>`) to go further back. Then cross them with the hosting's request logs over the same hours (on Vercel: `vercel logs --json --since <start> --until <end> --limit <n>`, one JSON object per request, walked backwards with `--until` when a window holds more requests than one call returns): for each wake, the request that reached the server just before it, outside any cache, is what woke the database. The route that comes back wake after wake is the emitter: a scheduled task, a watchdog, a webhook, a page that believes it is cached. Two limits to state with the result. The hosting keeps its request logs for a short time (24 hours observed on Vercel), so the reading covers the last day, not the month: take it early. And a wake with no request before it does not come from the site: look at what else reads this database (a backup, a database tool left open, another application).
 
 ---
 
@@ -301,9 +309,11 @@ For anything touching how live a screen feels, ask the product question explicit
 
 ## Step 6 - Apply on a separate branch
 
+**Language reminder.** From here to the end, every progress message, every command description and the account of each fix stay in the user's language, even though the code, the tool output and this skill are in English. This is the stretch where it slips.
+
 Same discipline as `/clean`:
 
-1. Create a branch (`optimize/<date>`).
+1. Create a branch (`optimize/<date>`). In a **shared** repository (Step 0, point 3), see below: the branch is created in a folder of its own, never by switching this one.
 2. Apply the accepted fixes, one commit per finding so any single one can be reverted alone.
 3. Run `pnpm tsc --noEmit` and `pnpm lint`. Never `pnpm build`.
 4. If the project has a preview, check the affected screens still work.
@@ -311,9 +321,33 @@ Same discipline as `/clean`:
 
 Never apply automatically, and never push or deploy without explicit consent.
 
+### When the repository is shared
+
+Switching branch in a folder where someone else is working moves their files under their feet. So the branch lives in a separate working folder (a git worktree), in a temporary folder of its own, and the shared folder is never touched:
+
+```bash
+WT=$(node -e "const fs=require('fs'),os=require('os'),p=require('path');console.log(fs.mkdtempSync(p.join(os.tmpdir(),'optimize-')).split(p.sep).join('/'))")
+git worktree add -b optimize/<date> "$WT" HEAD
+(cd "$WT" && pnpm install --frozen-lockfile --prefer-offline)
+```
+
+- **The branch starts from the local `HEAD`**, local commits included: that is the code you audited. What is not committed in the shared folder is not in it: a finding that sits in a file with uncommitted changes is left out, and you say so (fixing it there would collide with the work in progress).
+- **No copy of the `.env` goes into that folder**, ever: a second copy of the project's secrets in a temporary folder is exactly what gets forgotten there. The two checks do not need it: `tsc` reads no variable, and where the linter still loads the project's configuration, the T3 environment file skips its own validation with `SKIP_ENV_VALIDATION=1` in front (`SKIP_ENV_VALIDATION=1 pnpm lint`).
+- **Before any push**: the branch is built on the local commits that are not online yet (`git log --oneline @{u}..HEAD`, read in the shared folder), so pushing it publishes them too. Say so BEFORE the push, with their titles, and let the user decide once: publish everything together, or keep the branch local until those commits are online. Never go around them by cherry-picking the fixes onto the online branch: the local branch and the online one then diverge, and someone has to reconcile them by hand.
+- **Take the folder away at the end**, once every fix is committed on the branch (`git -C "$WT" status --porcelain` prints nothing; otherwise stop, uncommitted work would be lost):
+
+```bash
+git worktree remove "$WT" 2>/dev/null || node -e "require('fs').rmSync(process.argv[1],{recursive:true,force:true,maxRetries:5,retryDelay:300})" "$WT"
+git worktree prune
+```
+
+  On Windows git refuses to delete a folder that holds `node_modules` ("Directory not empty") and leaves it behind: the second command is what removes it, and `prune` clears what git remembered of it. The branch itself stays in the repository, visible from the shared folder (`git branch`). Check the folder is gone (`test -d "$WT"`) before saying it is, and if it is still there, name its path to the user rather than leaving it silently.
+
 ---
 
 ## Step 7 - Summary and follow-up
+
+Same language reminder as Step 6: this summary is written in the user's language.
 
 Recap what was changed, the expected gain, and **the reading to take again in a few days**: consumption counters move slowly, so the proof that it worked arrives later. Give the user the figure to compare against, and offer to take the reading yourself when they ask.
 

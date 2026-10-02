@@ -367,15 +367,39 @@ Ask the user to **validate category by category** (not all at once), in **increa
 
 ## Step 4 - Separate branch proposal
 
+**Language reminder.** From here to the end, every progress message, every command description and the account of each deletion stay in the user's language, even though the code, the tool output and this skill are in English. This is the stretch where it slips.
+
 Once the deletions are validated, **do not touch `main` directly**. Propose:
 
 ### 4a - Git branch
+
+First check whether this folder is yours alone right now: `git status --porcelain` (changes that are not committed) and `git log --oneline @{u}..HEAD` (local commits that are not online yet; with no upstream branch there is nothing to compare, say so). If both print nothing:
 
 ```bash
 git checkout -b cleanup/YYYY-MM-DD
 ```
 
 (Name: `cleanup/YYYY-MM-DD` or `cleanup/YYYY-MM-DD-HHMM` if there are several sessions in one day.)
+
+If either shows something, the user or another session may be at work in this folder: say what you found, and treat the repository as **shared**. Switching branch there would move their files under their feet, so the branch lives in a separate working folder (a git worktree), in a temporary folder of its own, and the shared folder is never touched:
+
+```bash
+WT=$(node -e "const fs=require('fs'),os=require('os'),p=require('path');console.log(fs.mkdtempSync(p.join(os.tmpdir(),'cleanup-')).split(p.sep).join('/'))")
+git worktree add -b cleanup/YYYY-MM-DD "$WT" HEAD
+(cd "$WT" && pnpm install --frozen-lockfile --prefer-offline)
+```
+
+- **The branch starts from the local `HEAD`**, local commits included. What is not committed in the shared folder is not in it: a deletion that touches a file with uncommitted changes is left out, and you say so.
+- **No copy of the `.env` goes into that folder**, ever: a second copy of the project's secrets in a temporary folder is exactly what gets forgotten there. `tsc` reads no variable, and where a command still loads the project's configuration, the T3 environment file skips its own validation with `SKIP_ENV_VALIDATION=1` in front (`SKIP_ENV_VALIDATION=1 pnpm lint`). The database steps of 4b take the one value they need in the command itself (`SKIP_ENV_VALIDATION=1 DATABASE_URL="$BRANCH_URL" pnpm db:push`), never from a file written there.
+- **Before any push**: the branch is built on the local commits that are not online yet, so pushing it publishes them too. Say so BEFORE the push, with their titles, and let the user decide once: publish everything together, or keep the branch local until those commits are online. Never go around them by cherry-picking onto the online branch: the local branch and the online one then diverge, and someone has to reconcile them by hand.
+- **Take the folder away at the end**, once everything is committed on the branch (`git -C "$WT" status --porcelain` prints nothing; otherwise stop, uncommitted work would be lost):
+
+```bash
+git worktree remove "$WT" 2>/dev/null || node -e "require('fs').rmSync(process.argv[1],{recursive:true,force:true,maxRetries:5,retryDelay:300})" "$WT"
+git worktree prune
+```
+
+  On Windows git refuses to delete a folder that holds `node_modules` ("Directory not empty") and leaves it behind: the second command is what removes it, and `prune` clears what git remembered of it. The branch itself stays in the repository. Check the folder is gone (`test -d "$WT"`) before saying it is, and if it is still there, name its path to the user rather than leaving it silently.
 
 All the deletions (files, code, deps, env vars) happen on this branch. One commit per category to be able to roll back finely:
 

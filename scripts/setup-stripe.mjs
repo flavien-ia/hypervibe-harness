@@ -17,11 +17,18 @@
 // The Stripe API version is READ FROM THE INSTALLED SDK, never hardcoded.
 // stripe-node types the `apiVersion` option as the literal of its own latest
 // version, so writing a version string older than the installed SDK makes
-// `tsc --noEmit` fail in the generated project. Since `pnpm add stripe` always
-// installs the latest SDK, any hardcoded default here rots at Stripe's release
-// pace. We read <web-dir>/node_modules/stripe/cjs/apiVersion.js instead, and
-// fall back to omitting the option entirely (the SDK then uses its own version,
-// which always typechecks). --api-version still forces a specific value.
+// `tsc --noEmit` fail in the generated project. The skill installs the major
+// this template was written against (`pnpm add stripe@^23`), and inside a major
+// the SDK's own API version still moves: any hardcoded default here rots at
+// Stripe's release pace. We read <web-dir>/node_modules/stripe/cjs/apiVersion.js
+// instead, and fall back to omitting the option entirely (the SDK then uses its
+// own version, which always typechecks). --api-version still forces a specific value.
+//
+// The Checkout session does NOT name its payment methods: stripe-node 23
+// (2026-09-30) removed `payment_method_types` from the session's parameters,
+// and the generated router no longer typechecked (TS2561). Without it, the
+// methods offered are the ones the Stripe account enables in its dashboard.
+// The template typechecks with stripe 22 and 23.
 //
 // What it does NOT do (Claude handles):
 //   - Ask the user for publishable / secret keys (they can't be created via API).
@@ -166,7 +173,6 @@ export const paymentRouter = createTRPCRouter({
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
-        payment_method_types: ["card"],
         line_items: [{ price: input.priceId, quantity: 1 }],
         success_url: \`\${appUrl}/payment/success?session_id={CHECKOUT_SESSION_ID}\`,
         cancel_url: \`\${appUrl}/payment/cancel\`,

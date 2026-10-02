@@ -12,14 +12,23 @@
 //   node check-deploy.mjs --target preview
 //
 // Auth: REST API using the Vercel CLI login (or $VERCEL_TOKEN). The CLI's stored
-// access token expires while the CLI itself keeps working (it refreshes silently
-// without rewriting auth.json), so on 401/403 we fall back to parsing `vercel ls`.
+// access token lives a few hours, and the CLI renews it, rewriting its file, as
+// soon as one of its own commands signs in (seen on 2026-07-25, and again on
+// 2026-10-02: auth.json rewritten with a new expiry by a plain CLI call). So on
+// 401/403 this script runs `vercel whoami` ONCE, reads the token again and
+// retries; only when that second try is refused does it give up (--sha) or fall
+// back to parsing `vercel ls`.
+//
+// A git worktree does not carry `.vercel/project.json` (the file is not
+// versioned): when the folder has no link, the one of the main checkout is read.
 //
 // Output (stdout): a single JSON object.
 // Exit codes: 0 = READY, 1 = ERROR/CANCELED/not-found, 2 = timeout, 3 = not configured.
 
 import { spawnSync } from "node:child_process";
+import { dirname, join, resolve } from "node:path";
 import { loadAuthToken, readLinkedProject } from "../_vercel-auth.mjs";
+import { vercelApiBase } from "../_vercel-projects.mjs";
 
 const args = process.argv.slice(2);
 function arg(name, fallback = null) {
@@ -54,16 +63,58 @@ const stripAnsi = (s) => s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, "");
 const TERMINAL_OK = new Set(["READY"]);
 const TERMINAL_KO = new Set(["ERROR", "CANCELED"]);
 
-// ─── REST path ─────────────────────────────────────────────────────────
-const linked = readLinkedProject(PROJECT_DIR);
-const token = loadAuthToken({ onWarn: (m) => process.stderr.write(`[vercel] ${m}\n`) });
+// ─── the folder's link ─────────────────────────────────────────────────
+// From a git worktree, the link of the main checkout: `--git-common-dir` names
+// the main repository's .git folder from any worktree, its parent is the main
+// checkout, and `--show-prefix` says where this folder sits inside the tree (a
+// monorepo's app keeps its own link, at the same place in the main checkout).
+function linkFromMainCheckout(dir) {
+  const git = (...a) => {
+    const r = spawnSync("git", ["rev-parse", ...a], { cwd: dir, encoding: "utf8", timeout: 10_000 });
+    return r.error || r.status !== 0 ? null : r.stdout.trim();
+  };
+  const common = git("--git-common-dir");
+  if (!common) return null;
+  const main = join(dirname(resolve(dir, common)), git("--show-prefix") || "");
+  if (resolve(main) === resolve(dir)) return null;
+  const link = readLinkedProject(main);
+  return link ? { link, dir: main } : null;
+}
+const ownLink = readLinkedProject(PROJECT_DIR);
+const fromMain = ownLink ? null : linkFromMainCheckout(PROJECT_DIR);
+const linked = ownLink ?? fromMain?.link ?? null;
+// Where the CLI is run when it is needed: the folder that carries the link.
+const CLI_DIR = fromMain?.dir ?? PROJECT_DIR;
 
-let restUrl = null;
-if (linked && token && !FORCE_CLI) {
+// ─── REST path ─────────────────────────────────────────────────────────
+let token = loadAuthToken({ onWarn: (m) => process.stderr.write(`[vercel] ${m}\n`) });
+
+function restUrlOf() {
+  if (!linked || !token || FORCE_CLI) return null;
   const teamQuery = linked.orgId ? `&teamId=${linked.orgId}` : "";
-  restUrl =
-    `https://api.vercel.com/v6/deployments?projectId=${linked.projectId}` +
-    `&target=${encodeURIComponent(TARGET)}&limit=20${teamQuery}`;
+  return (
+    `${vercelApiBase()}/v6/deployments?projectId=${linked.projectId}` +
+    `&target=${encodeURIComponent(TARGET)}&limit=20${teamQuery}`
+  );
+}
+let restUrl = restUrlOf();
+
+// The CLI renews its own token: `vercel whoami` is the lightest command that
+// makes it sign in. Once per run, and never for a token given by the
+// environment (that one is not the CLI's to renew). True when a NEW token was
+// read back: with the same one, a second try would only be refused again.
+let refreshTried = false;
+function refreshToken() {
+  if (refreshTried || process.env.VERCEL_TOKEN || FORCE_CLI) return false;
+  refreshTried = true;
+  // Single command string (not an args array): see probeCli.
+  const r = spawnSync("vercel whoami", { cwd: CLI_DIR, encoding: "utf8", shell: true, timeout: 20_000 });
+  if (r.error || r.status !== 0) return false;
+  const next = loadAuthToken();
+  if (!next || next === token) return false;
+  token = next;
+  restUrl = restUrlOf();
+  return true;
 }
 
 function shaMatches(candidate) {
@@ -122,7 +173,7 @@ function probeCli() {
   // Single command string (not an args array): with shell:true, Node 24 emits a
   // DEP0190 deprecation warning when both are combined.
   const r = spawnSync("vercel ls", {
-    cwd: PROJECT_DIR,
+    cwd: CLI_DIR,
     encoding: "utf8",
     shell: true,
     timeout: 90_000,
@@ -164,10 +215,22 @@ function probeCli() {
 async function main() {
 if (!linked) {
   out(
-    { status: "not-configured", reason: `No .vercel/project.json in ${PROJECT_DIR}. Run \`vercel link\` first.` },
+    {
+      status: "not-configured",
+      reason:
+        `No .vercel/project.json in ${PROJECT_DIR}, nor in the main checkout of its git repository. ` +
+        "Run `vercel link` first. From a git worktree, the link lives in the main checkout: " +
+        "if it could not be found from here, pass that folder with --project-dir.",
+    },
     3,
   );
 }
+
+// What happened on the way, said in the answer.
+const notes = [];
+if (fromMain) notes.push(`link read from the main checkout (${fromMain.dir}): this folder is a git worktree`);
+// No stored token at all, while the CLI may be signed in: one sign-in, then look again.
+if (!restUrl && !FORCE_CLI && refreshToken()) notes.push("token refreshed via vercel whoami");
 
 let mode = restUrl ? "rest" : "cli";
 if (mode === "cli" && SHA) {
@@ -217,7 +280,12 @@ while (true) {
   }
 
   if (r.authFailed) {
-    // The stored token is dead but the CLI can still refresh itself.
+    // The stored token is dead but the CLI can still renew it: one sign-in, a
+    // new token read back, and the same question asked again.
+    if (refreshToken()) {
+      notes.push("token refreshed via vercel whoami");
+      continue;
+    }
     if (SHA) {
       out(
         {
@@ -238,9 +306,12 @@ while (true) {
   if (r.deployment) {
     lastState = r.deployment.state;
     const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    if (fellBack && !notes.some((n) => n.startsWith("REST token expired"))) {
+      notes.push("REST token expired; state read from the Vercel CLI. Run `vercel whoami` to restore the REST path (`vercel login` only if that fails).");
+    }
     const base = {
       method: mode,
-      ...(fellBack ? { note: "REST token expired; state read from the Vercel CLI. Run `vercel whoami` to restore the REST path (`vercel login` only if that fails)." } : {}),
+      ...(notes.length ? { note: notes.join(" | ") } : {}),
       waitedSeconds: elapsed,
       polls,
       deployment: r.deployment,

@@ -33,7 +33,10 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = (event.notification.data as { url?: string })?.url ?? "/";
+  // Le lien d'une notification est un chemin interne ("/commandes/12"). Tout le reste (adresse
+  // externe, "//hote", "javascript:") ouvre l'accueil : un clic n'envoie jamais vers un autre site.
+  const raw = (event.notification.data as { url?: string })?.url;
+  const url = raw && /^\/(?![/\\])/.test(raw) ? raw : "/";
   event.waitUntil(
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })

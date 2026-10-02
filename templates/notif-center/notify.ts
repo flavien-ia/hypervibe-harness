@@ -9,6 +9,7 @@ import { notifications } from "~/server/db/schema";
 export type NotifyPayload = {
   title: string;
   body: string;
+  /** Chemin interne où mène la notification ("/commandes/12"). Une adresse externe est ignorée au clic. */
   url?: string;
 };
 

@@ -35,7 +35,7 @@ test -f .vercel/project.json && echo "linked" || echo "not linked"
 ```
 
 If `.vercel/project.json` does not exist, the project must be linked first. Tell the user:
-> The project is not linked to Vercel yet. First run `vercel link` or a full `/bootstrap`, then run `/add-collab` again.
+> The project is not linked to Vercel yet. First run a full `/bootstrap`, or link it yourself with `vercel link --yes --project <name> --scope <team>` (the scope is the account or team that holds the project: without it, an account with several of them makes the command stop), then run `/add-collab` again.
 
 Then exit. Otherwise continue.
 

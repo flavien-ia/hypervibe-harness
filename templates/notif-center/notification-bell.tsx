@@ -98,7 +98,10 @@ export function NotificationBell() {
         // l'optimiste a déjà été rollback par onError ; on navigue quand même
       }
     }
-    if (n.url) window.location.assign(n.url);
+    // Un lien de notification vient de la base : seul un chemin interne est suivi
+    // (un seul / en tête, ni // ni /\). Une adresse javascript: ou un autre site
+    // ne déclenche aucune navigation.
+    if (n.url && /^\/(?![/\\])/.test(n.url)) window.location.assign(n.url);
   };
 
   const count = unread.data ?? 0;

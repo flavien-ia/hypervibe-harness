@@ -139,10 +139,14 @@ RUN_DIR="$(node -e "const fs=require('fs'),os=require('os'),p=require('path');co
 INV="$RUN_DIR/inventory.json"
 node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/discover-resources.mjs" \
   --project "<PROJECT_NAME>" \
-  --project-dir "<detected-project-path>" > "$INV"
+  --project-dir "<detected-project-path>" > "$INV"; CODE=$?
+# 2 or 3: the vault is locked or expired and no key is readable without it. No inventory.
+if [ "$CODE" = "2" ] || [ "$CODE" = "3" ]; then echo "VAULT_CLOSED=$CODE"; rm -f "$INV"; rmdir "$RUN_DIR"; exit 0; fi
 echo "INVENTORY_FILE=$INV"
 cat "$INV"
 ```
+
+**If the block prints `VAULT_CLOSED=...`**: the script refused to scan, because every cloud section would have come back "unknown". No inventory exists. Invoke `_ensure-vault`, then run the block again. (Someone who keeps their keys in environment variables, without a vault, is not concerned: as soon as one key is readable that way, the scan runs.)
 
 The script scans the 17 surfaces in parallel: Vercel (every team of the account, all pages, each project with its id and its team; REST API first, the CLI with an explicit team when the token is refused), Neon (REST API), Cloudflare Workers / R2 (REST API, global+EU) / DNS / Email Routing, db-backup worker (BACKUP_TARGETS), cron ping jobs of the shared `hypervibe-jobs` worker (matched by their `project` field in the registry), Render, Stripe (webhooks + products), Upstash, env vars (Vercel pull + diff whitelist) → detection of third-party services (Sentry, PostHog, Mapbox, OpenAI, etc.), local folder + package.json, Claude memory, GitHub repo, Google/GitHub OAuth via present vars.
 
@@ -265,6 +269,8 @@ Include conditionally:
 
 ### 2.3b Section "🔴 Scans that could not run" (only if at least one `error`)
 
+A section carrying a `skipped` field (`stripe.skipped: "project has no Stripe"`) is **not** a scan that failed: the project simply has nothing of that kind, and there is nothing to say about it.
+
 Any section carrying an `error` field (typically `vercel.error` or `r2.error`: vault locked, expired token, R2 not enabled on the account) did **not** return "nothing found", it returned "unknown". List them plainly, e.g. *"I could not check the file storage (R2): <reason>. There may be a bucket left."* and offer to fix the cause then re-run Phase 1 before going further. Never let the user validate a scope built on a failed scan.
 
 `vercel.partial: true` is the same warning, narrower: the listing worked, but some team could not be read (its reason is in `vercel.warning`, for instance a CLI too old to list every team). A site living there may be missing from the inventory: say which, and offer the same fix.
@@ -279,21 +285,31 @@ Any section carrying an `error` field (typically `vercel.error` or `r2.error`: v
 
 ### 2.5 Mandatory scope question
 
-Ask via `AskUserQuestion`:
+**The inventory is shown first, as a message the user reads.** Sections 2.1 to 2.4 are sent as a visible message BEFORE the `AskUserQuestion` call. A summary kept in your own reasoning does not count; the question never points at a list that was not displayed; and the table of 2.1 is mandatory even for a single resource. Nobody validates an irreversible deletion on a list they have not seen (it happened on 29/09/2026).
+
+Then ask via `AskUserQuestion`:
 
 > "Do I delete **everything** listed under 🔵 (auto infrastructure), or do you want to **keep** some resources?"
 
-Options (multi-select via `multiSelect: true`):
-- `Delete everything` (selects all categories)
-- `Keep DB` (excludes `neon` + `db-backup` from the scope)
-- `Keep DNS` (excludes `dns` from the scope)
-- `Keep local folder` (already included by default since the sandbox blocks it)
+**Build the options from the inventory**, never from a fixed list:
+- `Delete everything` - always.
+- `Keep the database` (excludes `neon` + `db-backup` from the scope) - only if `neon.found`.
+- `Keep the DNS` (excludes `dns` from the scope) - only if `dns.found`.
+
+The local folder is never an option: this skill never deletes it (section 2.3).
+
+How the question is asked depends on what is left:
+- **Three options** (a database AND DNS records): `multiSelect: true`. If the answer holds `Delete everything` together with a `Keep`, the `Keep` wins: say so in one line before executing.
+- **Two options** (`Delete everything` and ONE thing to keep): a single-choice question. The two exclude each other, and a multi-select offered them together.
+- **Nothing to keep** (no database, no DNS record: a site alone, for instance): a single-choice question all the same, `Delete what is listed` or `Cancel, delete nothing`. Never an improvised yes/no in plain text, and never no question at all.
 
 **Do not proceed until the scope is explicitly validated.** The Phase 0 confirmations are about the **principle**. Phase 2 confirms the **exact inventory**.
 
 ---
 
 ## Phase 3 - Execution (1 script call)
+
+**Open the vault again first**: invoke `_ensure-vault` before the execution. Confirmations can take an evening, or a night: the vault's session lasts twelve hours, and it may have closed since the inventory.
 
 Build the `scope` JSON array from the Phase 2.5 choices. Possible categories:
 
@@ -313,10 +329,18 @@ REPORT="$(dirname "$INV")/report.json"
 node "${CLAUDE_SKILL_DIR}/../../scripts/delete-project/execute-deletions.mjs" \
   --inventory "$INV" \
   --confirm "<project-name>" \
-  --scope '["all"]' > "$REPORT"
+  --scope '["all"]' > "$REPORT"; CODE=$?
 cat "$REPORT"
-rm -f "$INV" "$REPORT" && rmdir "$(dirname "$INV")"
+# The inventory is removed only when the script ran: a refusal keeps it for the next attempt.
+if [ "$CODE" = "0" ]; then rm -f "$INV" "$REPORT" && rmdir "$(dirname "$INV")"; else echo "EXIT_CODE=$CODE - the inventory is kept: $INV"; fi
 ```
+
+The script exits `0` once it has run, whatever each category did (the report says what failed). These exit codes are refusals BEFORE the first deletion, and nothing was deleted:
+- **`2` or `3`**: the vault is locked (`2`) or expired (`3`), and a category of the scope needs a key it holds. Invoke `_ensure-vault`, then run the same command again with the same inventory: it is still valid. Before this check, the site was deleted at its host and the database then failed with a "key missing" that sent people looking for a key that existed.
+- **`7`**: the inventory is unreadable, or `--confirm` does not name the project.
+- **`1`** with a usage message: an argument is missing or malformed (the inventory's path, the scope).
+
+Any other failure (the script crashed half way, the report is empty) says nothing by itself about what was deleted: never tell the user "nothing was deleted" on it. Run the Phase 1 inventory again, and report what is left.
 
 When Phase 2 had the user pick among Vercel sites (`vercel.ambiguous`), add `--vercel-project` followed by the ids picked, comma-separated, to that command. Sites designated by the folder's link or by the manifest are always included; without the flag, an ambiguous inventory deletes nothing on Vercel (`failed.vercel.needsChoice`, with the `choices`).
 
@@ -382,6 +406,7 @@ Ordered list with click-by-click instructions:
 - Brevo / Resend: shared
 - Parent Cloudflare zones: shared
 - Stripe products (if found): risk of being used by other projects
+- **The memory files kept for review**: every result `kept` of the memory step (under `deleted.memory.results`, or under `skipped.memory.results` when nothing was deleted at all: its `reason` then says how many). Name each file and say why it stayed: it mentions the project without being the project's own. The user decides what to do with it.
 
 ### 4.4 Closing note
 > "There you go, the automatable cloud infrastructure is cleaned up. You still have the X manual actions above to finish the cleanup. No rush - you can do it at your own pace. If you want, I can stay here and guide you step by step when you click."

@@ -125,6 +125,19 @@ try {
     check("egress bug: recognised by name", ids.includes("neon-egress-summed-across-projects"), r.raw);
     check("snapshot alert bug: recognised by name", ids.includes("snapshot-failure-never-mailed"), r.raw);
     check("old Neon worker: not mistaken for the R2 bug", !ids.includes("r2-storage-single-bucket"), r.raw);
+    check("old Neon worker: not mistaken for the braces bug either (it has no escaping function to judge)", !ids.includes("alert-email-braces-dropped"), r.raw);
+  }
+
+  {
+    // The defect fixed in 3.3.11, as the old workers shipped it: the words of others entered an
+    // alert email with their braces, and an email service that meets `{{` drops the email.
+    const dir = workerDir(
+      ["function escapeHtml(s) {", '  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");', "}", ""].join("\n"),
+    );
+    const r = run(dir, "--dry-run");
+    const ids = (r.json?.knownBugs ?? []).map((b) => b.id);
+    check("braces bug: recognised by name", ids.includes("alert-email-braces-dropped"), r.raw);
+    check("braces bug: the only one claimed", ids.length === 1, r.raw);
   }
 
   {

@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.3.11 (2 octobre 2026)
+
+Version de correction nourrie par la relecture hebdomadaire des sessions réelles : le paiement, les liens piégés, la suppression d'un projet, et un défaut des emails de l'horloge partagée.
+
+### Sécurité
+- **Liens piégés à la connexion** : sur les pages de connexion de l'administration et de la double authentification, l'adresse de retour lue dans le lien était suivie telle quelle. Un lien fabriqué pouvait envoyer la personne sur un autre site, ou faire exécuter du code juste après sa connexion. Seul un chemin interne est désormais accepté. Même règle pour le lien d'une notification, dans la cloche comme au clic sur une notification du téléphone ou de l'ordinateur.
+- **`/security`, un treizième contrôle** : toute navigation construite depuis une adresse venue de l'extérieur est cherchée, et classée critique. Quatre angles morts sont aussi couverts : les actions sensibles du compte (changer d'email ou de mot de passe demande le mot de passe actuel), la découverte de qui est inscrit, l'adresse où revient un paiement, et les notifications push.
+- **Notifications push** : l'adresse d'un abonnement doit être celle d'un service de notification connu (Google, Mozilla, Apple, Microsoft). Un utilisateur connecté pouvait jusque-là faire écrire le serveur à l'adresse de son choix.
+- **Compte Stripe** : la commande qui liste les comptes reliés affichait la clé de test dans la conversation. Elle ne montre plus que le nom du compte.
+
+### Améliorations
+- **`/add-stripe` et la nouvelle version de Stripe** : la version 23 de la bibliothèque, sortie le 30 septembre, refusait le code généré. Le gabarit est corrigé, et la version est désormais nommée à l'installation.
+- **`/add-stripe`, le bon compte** : si vous avez plusieurs comptes Stripe, Hypervibe vous fait confirmer celui qui encaissera les paiements du projet, au lieu de prendre celui que l'outil Stripe avait en tête.
+- **`/add-stripe`, ce qu'on oublie** : le lien vers vos CGV est placé à côté du bouton de paiement, un email à l'acheteur et une notification pour vous sont proposés après chaque vente, et avant le passage au réel Hypervibe vous rappelle le nom que verra l'acheteur et propose de retirer les commandes laissées par vos essais.
+- **`/delete-project`** : l'inventaire s'affiche toujours avant la question de périmètre, dont les choix ne proposent plus de garder ce que le projet n'a pas. Si le coffre-fort s'est refermé entre la validation et l'exécution, rien n'est supprimé : auparavant le site partait, puis la base échouait sur une clé « manquante » qui existait bel et bien.
+- **`/optimize` et `/clean`** : quand un autre travail est en cours dans le dossier du projet, les correctifs se préparent dans un dossier à part, sans copie de vos clés, et ce dossier est retiré à la fin. `/optimize` sait aussi chercher ce qui empêche la base de s'endormir.
+- **`/security`, les briques vulnérables** : celles qu'une autre brique amène sont mises à jour par la bonne commande, et ce qui reste figé par cette autre brique est classé et noté, au lieu de revenir à chaque audit.
+- **Alertes de l'horloge partagée** : un email d'alerte dont le texte contenait des accolades (la réponse d'un site, le message d'un fournisseur) pouvait être accepté par le service d'envoi, puis jeté. `/update-hypervibe` met votre horloge à niveau.
+- **Création d'un site** : les icônes de marque (Instagram, LinkedIn, GitHub) ont quitté la bibliothèque d'icônes. `/bootstrap` le sait, et ne bute plus dessus.
+
+### Coulisses
+- L'outil des variables d'environnement sait retirer une variable, affiche son aide, et rappelle qu'une valeur remplacée ne compte qu'à la prochaine mise en ligne. Une valeur du coffre n'est recopiée dans un projet que si vous l'avez demandé.
+- La vérification d'une mise en ligne renouvelle elle-même sa connexion à l'hébergeur, et fonctionne depuis un dossier de travail à part.
+- Quatre recettes neuves : le retrait d'une variable, la vérification d'une mise en ligne, la suppression d'un projet coffre fermé, et ce que les gabarits laissent passer d'une adresse venue d'ailleurs.
+
 ## v3.3.10 (1er octobre 2026)
 
 Version de correction consacrée au garde-fou, nourrie par la réécriture de ses règles pour la prochaine architecture et par une relecture extérieure de la 3.3.9.

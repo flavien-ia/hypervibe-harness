@@ -29,7 +29,7 @@ Détecte et supprime tout ce qui n'est plus utilisé dans votre projet pour l'al
 
 4. **Vous validez ce que vous voulez supprimer** : à la carte. Vous pouvez tout accepter, tout refuser, ou trier ligne par ligne.
 
-5. **Application sur une branche séparée** : Hypervibe crée une branche `cleanup-<date>`, applique les suppressions (côté code **ET** côté DB Neon si applicable), commit, push. Vous testez en preview Vercel.
+5. **Application sur une branche séparée** : Hypervibe crée une branche `cleanup-<date>`, applique les suppressions (côté code **ET** côté DB Neon si applicable), commit, push. Vous testez en preview Vercel. Si un travail est en cours dans le dossier du projet (le vôtre, ou celui d'une autre conversation), les suppressions sont préparées dans un dossier à part, pour que rien ne bouge dessous.
 
 6. **Merge** : une fois que vous êtes sûr que rien n'est cassé, vous mergez. Si quelque chose pose problème, vous abandonnez la branche, rien n'est merged dans `main`.
 

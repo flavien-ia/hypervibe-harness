@@ -28,6 +28,8 @@ This skill pulls content in from outside (documentation, an API response, a web 
 
 A secret's value **must never enter the Claude context**: no `echo`, no print, no "tool output". You read it into a **shell variable** and use it **within the same Bash call** (curl, etc.).
 
+**Reading a key is not a reason to copy it elsewhere.** A value read in the vault is pushed into a project's `.env` or its hosting only if the user asked for it for that key, or if the calling skill provides for it (`_push-env-vars`, Rules); a difference between the vault's value and a project's is not a signal to update either.
+
 ## Never pre-check the vault state
 
 **Do NOT call `bw status` (or anything else) to "check whether the vault is open" before reading.** `bw status` always shows `locked` even when the vault is open (the `bw` daemon has no session of its own): you would wrongly conclude that you need to unlock. The **only** correct way to know whether a read is possible is to **perform the read**: run `node "$VAULT" get <ITEM> <FIELD>` directly and **act on its exit code** (table below). The get itself validates the session (a real vault read with the token) and cleanly distinguishes "session to re-unlock" (3) from "key missing" (4).

@@ -27,6 +27,7 @@ import { spawnSpec } from "../_spawn.mjs";
 import { indexLinesFor } from "./_memory-index.mjs";
 import { excludeShared, sharedIgnoredReason } from "./_shared-exclusion.mjs";
 import { keepRules } from "./_keep-rules.mjs";
+import { isSystemVar, isStripeVar, settleStripeWithoutKey } from "./_inventory-rules.mjs";
 import { resolveNeonOrg, withOrg } from "../neon-org.mjs";
 import { readLinkedProject, teamIdFromOrgId } from "../_vercel-auth.mjs";
 import { vercelContext, listAllProjects, getProject, pickTargets } from "../_vercel-projects.mjs";
@@ -81,6 +82,22 @@ function missingKey(name) {
     return `${name} unavailable: the vault is ${VAULT_STATUS} (unlock it with _ensure-vault, then run the inventory again)`;
   }
   return `${name} missing`;
+}
+
+// An inventory is never built on a sleeping vault. With the vault locked or
+// expired and no key anywhere else, every cloud section came back "unknown":
+// ten seconds of scan, a scope nobody could validate, a second scan after the
+// unlock (seen on 29/09/2026). Refused at once instead, with the vault's own
+// exit codes (2 locked, 3 expired) and nothing written on the standard output.
+// Someone who keeps their keys in environment variables has no vault to open:
+// as soon as one key is readable that way, the scan runs as before, and each
+// section that lacks its key says so.
+if ((VAULT_STATUS === "locked" || VAULT_STATUS === "expired") && !CLOUDFLARE_API_TOKEN && !NEON_API_KEY && !RENDER_API_KEY) {
+  console.error(
+    `Refused: the vault is ${VAULT_STATUS}, and no provider key is readable without it. No inventory was written.\n` +
+      "Unlock the vault (_ensure-vault), then run the inventory again.",
+  );
+  process.exit(VAULT_STATUS === "expired" ? 3 : 2);
 }
 
 // ─── shared HTTP helper ────────────────────────────────────────────────────
@@ -565,8 +582,11 @@ async function scanEnvVars(localDirPath) {
     }
   }
 
+  // Variables the host and the build tools inject by themselves are never a
+  // service the project is connected to: set aside before the diff, by prefix
+  // (the rule is in _inventory-rules.mjs).
   // Diff with whitelist
-  const allVars = [...envVarNames].sort();
+  const allVars = [...envVarNames].filter((v) => !isSystemVar(v)).sort();
   const unknown = allVars.filter((v) => !knownSet.has(v));
 
   // Match unknown vars against third-party services lookup
@@ -593,6 +613,9 @@ async function scanEnvVars(localDirPath) {
     // Special signal: AUTH_GOOGLE_ID present = OAuth Google client to clean manually
     hasGoogleOAuth: envVarNames.has("AUTH_GOOGLE_ID"),
     hasGitHubOAuth: envVarNames.has("AUTH_GITHUB_ID"),
+    // The project references Stripe: read by the Stripe section below, to tell
+    // "no Stripe here" from "its webhooks could not be listed".
+    hasStripe: [...envVarNames].some(isStripeVar),
   };
 }
 
@@ -1035,6 +1058,17 @@ async function reconcileManifest() {
   return out;
 }
 const manifestReport = await reconcileManifest();
+
+// A project that has no Stripe is not a scan that failed: without a key, the
+// section's `error` stays only when the project references Stripe (the rule,
+// and why, in _inventory-rules.mjs).
+if (stripe && !STRIPE_SECRET_KEY) {
+  settleStripeWithoutKey(stripe, {
+    hasStripeVar: envVars?.hasStripe === true,
+    dependencies: local.dependencies,
+    manifestKinds: (manifestReport?.resources ?? []).map((r) => r.kind),
+  });
+}
 
 // Projects the manifest declares are this project's Vercel projects: a
 // candidate found by its name alone is then a homonym (another team, a

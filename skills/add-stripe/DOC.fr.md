@@ -18,7 +18,7 @@ Ajoute les **paiements en ligne** à votre app via Stripe Checkout. Pour vendre 
   - Mix des deux
   - Vous ne savez pas encore (l'infra est quand même posée, vous pourrez définir les produits plus tard)
 
-3. **Installation** : Hypervibe installe le SDK Stripe (`stripe`) et la CLI Stripe si nécessaire.
+3. **Installation** : Hypervibe installe le SDK Stripe (`stripe`) et la CLI Stripe si nécessaire. Si vous avez plusieurs comptes Stripe, elle vous fait d'abord confirmer celui qui encaissera les paiements de ce projet.
 
 4. **Récupération des clés test** : Hypervibe vous explique la différence entre **mode test** (cartes bidon, aucun vrai paiement) et **mode live** (vrais paiements). Vous restez en test pour démarrer. Vous récupérez deux clés depuis dashboard.stripe.com/test/apikeys et vous les collez : `Publishable key` (`pk_test_...`) et `Secret key` (`sk_test_...`).
 
@@ -29,9 +29,11 @@ Ajoute les **paiements en ligne** à votre app via Stripe Checkout. Pour vendre 
 
 6. **Capture automatique du webhook secret** : Hypervibe lance temporairement `stripe listen` pour capturer le `STRIPE_WEBHOOK_SECRET` (sans que vous ayez à le copier-coller), puis ferme l'écoute.
 
-7. **CGV (optionnel)** : Hypervibe vous propose de générer vos Conditions Générales de Vente (obligatoires en France pour tout site qui vend). Elle vous pose des questions sur votre offre (type, prix, rétractation, remboursement, contact) et génère la page `/cgv` complète.
+7. **CGV (optionnel)** : Hypervibe vous propose de générer vos Conditions Générales de Vente (obligatoires en France pour tout site qui vend). Elle vous pose des questions sur votre offre (type, prix, rétractation, remboursement, contact) et génère la page `/cgv` complète, avec son lien à côté du bouton de paiement.
 
 8. **Pages produits + checkout (optionnel)** : Hypervibe vous propose de construire les pages `/pricing`, `/payment/success`, `/payment/cancel` avec vos vrais produits, branchées sur Stripe.
+
+9. **Emails après un achat (optionnel)** : si l'envoi d'emails est en place sur votre projet, Hypervibe vous propose une confirmation pour l'acheteur et une notification pour vous à chaque vente. Sinon, elle vous prévient que vous ne serez pas averti des ventes.
 
 ## Ce que ça crée pour vous
 
@@ -42,6 +44,7 @@ Ajoute les **paiements en ligne** à votre app via Stripe Checkout. Pour vendre 
 - Une procédure tRPC prête à l'emploi pour créer une session de checkout
 - Optionnel : vos CGV générées
 - Optionnel : vos pages produits + checkout
+- Optionnel : les emails envoyés après chaque achat
 
 ## Prérequis
 
@@ -60,9 +63,9 @@ Quand vous testez des paiements en local (`pnpm dev`), ouvrez en parallèle un a
 ```
 stripe listen --forward-to localhost:3000/api/webhooks/stripe
 ```
-Sans ça, les webhooks de Stripe n'arrivent pas jusqu'à votre app locale et le checkout reste bloqué. Le `STRIPE_WEBHOOK_SECRET` dans `.env` est déjà configuré pour ce listener.
+Sans ça, les webhooks de Stripe n'arrivent pas jusqu'à votre app locale et le checkout reste bloqué. Le `STRIPE_WEBHOOK_SECRET` dans `.env` est déjà configuré pour ce listener. Si Hypervibe a relié ce projet à un compte Stripe qui lui est propre, la commande exacte (avec `--project-name`) est notée dans le `CLAUDE.md` du projet.
 {{/callout}}
 
 {{callout:info|Pour passer en live}}
-Quand vous êtes prêt à encaisser de vrais paiements, dites simplement à Hypervibe : *"passe Stripe en live"*. Elle vous guide étape par étape (récupération des clés `pk_live_...` / `sk_live_...`, création du webhook production, push des clés sur Vercel, test avec un vrai paiement de 1€ que vous remboursez derrière). La procédure complète est aussi dans le `CLAUDE.md` de votre projet.
+Quand vous êtes prêt à encaisser de vrais paiements, dites simplement à Hypervibe : *"passe Stripe en live"*. Elle vous guide étape par étape (récupération des clés `pk_live_...` / `sk_live_...`, création du webhook production, push des clés sur Vercel, test avec un vrai paiement de 1€ que vous remboursez derrière). Avant la bascule, elle vous rappelle de vérifier le nom que verra l'acheteur et vous propose de retirer les commandes laissées par vos essais. La procédure complète est aussi dans le `CLAUDE.md` de votre projet.
 {{/callout}}

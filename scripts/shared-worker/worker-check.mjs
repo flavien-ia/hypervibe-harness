@@ -63,6 +63,14 @@ const KNOWN_BUGS = [
     message:
       "A failed database backup was never emailed on a standard install: the backup job looked for an alert address on itself only, and nothing ever wrote one there.",
   },
+  {
+    id: "alert-email-braces-dropped",
+    // Foreign words (a site's answer, a provider's message, a name) entered the email with their
+    // braces. The fixed escapeHtml turns them into entities; the old one stopped at the markup.
+    test: (src) => /function escapeHtml\(/.test(src) && !src.includes("&#123;"),
+    message:
+      "An alert email whose text carried braces (the answer of a site, the message of a provider) could be accepted by the email service and then dropped: the failure was counted as told, and never read.",
+  },
 ];
 
 const { flags } = parseFlags(process.argv.slice(2));

@@ -29,7 +29,7 @@ Detects and removes everything that is no longer used in your project to slim it
 
 4. **You validate what you want to delete**: à la carte. You can accept everything, refuse everything, or sort line by line.
 
-5. **Applied on a separate branch**: Hypervibe creates a `cleanup-<date>` branch, applies the deletions (on the code side **AND** the Neon DB side if applicable), commits, pushes. You test on the Vercel preview.
+5. **Applied on a separate branch**: Hypervibe creates a `cleanup-<date>` branch, applies the deletions (on the code side **AND** the Neon DB side if applicable), commits, pushes. You test on the Vercel preview. If work is in progress in the project's folder (yours, or another conversation's), the deletions are prepared in a separate folder, so nothing moves under it.
 
 6. **Merge**: once you are sure nothing is broken, you merge. If something causes a problem, you abandon the branch, nothing is merged into `main`.
 

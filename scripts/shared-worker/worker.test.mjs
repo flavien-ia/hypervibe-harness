@@ -578,6 +578,60 @@ function jsonResponse(obj, status = 200) {
   restoreFetch();
 }
 
+// ── 8. Words that are not the clock's own never carry a brace into an email ──
+// An email service may run a templating pass over the body it is handed: one that meets `{{`
+// accepts the email, then drops it. The failure would be counted as told, and never read
+// (until 3.3.11). A name that carries markup is neutralized by the same pass.
+
+{
+  const isMail = (c) => c.url.includes("brevo");
+  const bodyOf = () => {
+    const mail = calls.find(isMail);
+    return mail ? JSON.parse(mail.body).htmlContent : "";
+  };
+  const braces = "{{ user.name }}";
+  const shown = "&#123;&#123; user.name &#125;&#125;";
+  const channel = { recipient: "moi@x.fr", senderEmail: "moi@x.fr" };
+
+  // A route whose site answers with braces.
+  const ping = { kind: "ping", name: "t1", project: "app", cron: "0 12 * * *", url: "https://app.test/api/cron/t1", secretName: "S", config: channel };
+  mockFetch((call) => (isMail(call) ? jsonResponse({ messageId: "x" }, 201) : new Response(`{"error":"template ${braces} missing"}`, { status: 500 })));
+  await runPingJob(ping, { S: "s3cret", BREVO_API_KEY: "k" }, utc(2026, 8, 5, 12, 0));
+  check("braces: a site's answer is mailed with its braces neutralized, and still readable", bodyOf().includes(shown) && !/[{}]/.test(bodyOf()));
+
+  // A backup whose provider answers with braces.
+  const snapshot = { kind: "snapshot", name: "neon-backups", cron: "0 3 1,15 * *", targets: [{ name: "gone-app", projectId: "pid-gone" }], config: channel };
+  mockFetch((call) =>
+    call.url.includes("console.neon.tech")
+      ? { ok: false, status: 401, text: async () => `{"message":"refused ${braces}"}`, json: async () => ({}) }
+      : jsonResponse({ messageId: "x" }, 201),
+  );
+  await runSnapshotJob(snapshot, { NEON_API_KEY: "neon-key", BREVO_API_KEY: "k" }, [snapshot]);
+  check("braces: a provider's words about a backup too", bodyOf().includes(shown) && !/[{}]/.test(bodyOf()));
+
+  // The watch, when a check could not read and says why with braces.
+  const watch = { kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: { cloudflareAccountId: "acc-1", r2ThresholdGb: 9, ...channel } };
+  mockFetch((call) => (call.url.includes("graphql") ? new Response(`forbidden ${braces}`, { status: 403 }) : jsonResponse({ messageId: "x" }, 201)));
+  await runQuotaJob(watch, { CLOUDFLARE_API_TOKEN: "cf-tok", BREVO_API_KEY: "k" });
+  check("braces: and what a check of the watch could not read", bodyOf().includes(shown) && !/[{}]/.test(bodyOf()));
+
+  // The watch, when the name of what crossed its threshold carries braces and markup: the table
+  // of the alert took it as it came.
+  const gb = 1024 ** 3;
+  const name = "al{{pha}}<b>";
+  mockFetch((call) => {
+    if (call.url.includes("/projects?")) return jsonResponse({ projects: [{ id: "p1", name }] });
+    if (call.url.endsWith("/projects/p1")) return jsonResponse({ project: { id: "p1", name, data_transfer_bytes: 4 * gb } });
+    return jsonResponse({ messageId: "x" }, 201);
+  });
+  await runQuotaJob({ kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: channel }, { NEON_API_KEY: "neon-key", BREVO_API_KEY: "k" });
+  check(
+    "braces: the name of what crossed its threshold is neutralized everywhere in the email, markup included",
+    bodyOf().includes("al&#123;&#123;pha&#125;&#125;&lt;b&gt;") && !/[{}]/.test(bodyOf()) && !bodyOf().includes("<b>"),
+  );
+  restoreFetch();
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);

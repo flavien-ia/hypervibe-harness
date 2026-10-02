@@ -156,7 +156,7 @@ cannot read it. Only the destination device can.
 1. Invoke `_update-claude-md`:
    - `stack`: `- **Push**: Web Push (web-push + VAPID), subscriptions in the \`push_subscription\` table, handlers in the service worker.`
    - `env-vars`: `- \`NEXT_PUBLIC_VAPID_PUBLIC_KEY\` / \`VAPID_PRIVATE_KEY\` / \`VAPID_SUBJECT\`: Web Push (VAPID) keys`
-   - `conventions`: `- Send a notification: \`sendPushToUser(db, userId, { title, body, url })\` from \`~/server/push\`.`
+   - `conventions`: `- Send a notification: \`sendPushToUser(db, userId, { title, body, url })\` from \`~/server/push\`. \`url\` is an internal path (\`/orders/12\`): a click on the notification opens the home page for anything else, never another site.`
 2. Verify:
    ```bash
    cd "<WEB_DIR>" && pnpm tsc --noEmit && pnpm lint

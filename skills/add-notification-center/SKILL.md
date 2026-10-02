@@ -86,7 +86,7 @@ Templates/scripts path: `${CLAUDE_SKILL_DIR}/../../templates/notif-center/`.
 
 1. Invoke `_update-claude-md`:
    - `stack`: `- **Notification center**: \`notification\` table, in-app bell (unread badge + list), \`notifyUser\` helper.`
-   - `conventions`: `- Notify a user: \`notifyUser(db, userId, { title, body, url })\` from \`~/server/notify\` (persists for the bell, and sends a push if \`/add-push-notification\` is installed).`
+   - `conventions`: `- Notify a user: \`notifyUser(db, userId, { title, body, url })\` from \`~/server/notify\` (persists for the bell, and sends a push if \`/add-push-notification\` is installed). \`url\` is an internal path (\`/orders/12\`): the bell and the system notification ignore anything else, so a click never leads to another site.`
 2. `cd "<WEB_DIR>" && pnpm tsc --noEmit && pnpm lint`.
 
 ---
@@ -95,7 +95,7 @@ Templates/scripts path: `${CLAUDE_SKILL_DIR}/../../templates/notif-center/`.
 
 Summarize:
 - A **bell** is in place with the unread counter and the list of notifications.
-- To create a notification from the server: `await notifyUser(db, userId, { title, body, url })`.
+- To create a notification from the server: `await notifyUser(db, userId, { title, body, url })`, where `url` is an internal path (`/orders/12`).
 
 **Suggest push (if absent)**: check `test -f "<WEB_DIR>/src/server/push.ts"`. If absent, suggest via `AskUserQuestion`:
 

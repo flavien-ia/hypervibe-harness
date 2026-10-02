@@ -49,7 +49,7 @@ import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getSecret } from "../vault/vault.mjs";
+import { getSecret, sessionStatus } from "../vault/vault.mjs";
 import { tokenMatches, moreSpecificOwner } from "../_match.mjs";
 import { spawnSpec } from "../_spawn.mjs";
 import { vercelContext, deleteProject } from "../_vercel-projects.mjs";
@@ -128,14 +128,60 @@ function readUserEnvSync(name) {
   if (r.status !== 0) return process.env[name] || "";
   return (r.stdout || "").trim();
 }
-// A key is read only when a category in scope uses it: a run limited to
-// Vercel never touches the vault, which also lets the recette drive it.
-const needs = (...categories) => categories.some((c) => scopeSet.has(c));
-const CLOUDFLARE_API_TOKEN = !needs("r2", "workers", "dns", "cron-jobs", "email-routing") ? "" : (() => { try { return getSecret("CLOUDFLARE", "api_token"); } catch { return readUserEnvSync("CLOUDFLARE_API_TOKEN") || readUserEnvSync("CF_API_TOKEN") || process.env.CLOUDFLARE_API_TOKEN || ""; } })();
+// What in the inventory says a category has something to delete. A key is read
+// only for a category that is in scope AND has something: a run limited to
+// Vercel, or a project that only has a site, never touches the vault (which
+// also lets the recette drive it).
+const HAS = {
+  neon: () => inventory.neon?.found === true,
+  r2: () => inventory.r2?.found === true,
+  workers: () => inventory.workers?.found === true,
+  dns: () => inventory.dns?.found === true,
+  "db-backup": () => inventory.dbBackup?.isTarget === true,
+  "cron-jobs": () => inventory.cronJobs?.found === true,
+  "email-routing": () => inventory.emailRouting?.found === true,
+  render: () => inventory.render?.found === true,
+  "stripe-webhooks": () => inventory.stripe?.webhooksFound === true,
+};
+const toDelete = (...categories) => categories.filter((c) => scopeSet.has(c) && HAS[c]?.() === true);
+const needs = (...categories) => toDelete(...categories).length > 0;
+// The categories each vault key serves. "db-backup" is here although this file
+// never uses the token for it: its removal redeploys the shared worker, and the
+// script it delegates to reads the same key in the same vault.
+const CLOUDFLARE_CATEGORIES = ["r2", "workers", "dns", "db-backup", "cron-jobs", "email-routing"];
+const CLOUDFLARE_API_TOKEN = !needs(...CLOUDFLARE_CATEGORIES) ? "" : (() => { try { return getSecret("CLOUDFLARE", "api_token"); } catch { return readUserEnvSync("CLOUDFLARE_API_TOKEN") || readUserEnvSync("CF_API_TOKEN") || process.env.CLOUDFLARE_API_TOKEN || ""; } })();
 const NEON_API_KEY = !needs("neon") ? "" : (() => { try { return getSecret("NEON", "api_key"); } catch { return readUserEnvSync("NEON_API_KEY") || process.env.NEON_API_KEY || ""; } })();
 // Render: the vault first, where `_setup-render` stores the key.
 const RENDER_API_KEY = !needs("render") ? "" : (() => { try { return getSecret("RENDER", "api_key"); } catch { return readUserEnvSync("RENDER_API_KEY") || process.env.RENDER_API_KEY || ""; } })();
 const STRIPE_SECRET_KEY = !needs("stripe-webhooks") ? "" : readUserEnvSync("STRIPE_SECRET_KEY") || process.env.STRIPE_SECRET_KEY || "";
+
+// ─── the vault, before anything is deleted ─────────────────────────────────
+// With the vault locked or expired and no key in the environment, this run
+// used to delete what needs no key (the site at its host), then fail on the
+// rest behind "NEON_API_KEY missing": half a deletion, and a message that sends
+// the person looking for a key that exists (seen on 25/09/2026 and 29/09/2026:
+// the vault had expired between the scope's validation and the execution).
+// Refused as a whole instead, before the first deletion, with the vault's own
+// exit codes (2 locked, 3 expired): unlock it, then run the same command again.
+// A key that is truly absent from an OPEN vault is another matter: that
+// category fails by itself, with its message, and the others go on.
+const KEYED = [
+  { item: "CLOUDFLARE", value: CLOUDFLARE_API_TOKEN, waiting: toDelete(...CLOUDFLARE_CATEGORIES) },
+  { item: "NEON", value: NEON_API_KEY, waiting: toDelete("neon") },
+  { item: "RENDER", value: RENDER_API_KEY, waiting: toDelete("render") },
+];
+const unread = KEYED.filter((k) => k.waiting.length > 0 && !k.value);
+if (unread.length > 0) {
+  const vault = (() => { try { return sessionStatus(); } catch { return "unknown"; } })();
+  if (vault === "locked" || vault === "expired") {
+    console.error(
+      `Refuse : le coffre est ${vault === "expired" ? "expire" : "verrouille"}, et ${unread.flatMap((k) => k.waiting).join(", ")} ` +
+        `ne peuvent pas etre supprimes sans les cles qu'il garde (${unread.map((k) => k.item).join(", ")}). RIEN n'est supprime, le site compris.\n` +
+        "Ouvrir le coffre (_ensure-vault), puis relancer cette commande telle quelle : l'inventaire reste valable.",
+    );
+    process.exit(vault === "expired" ? 3 : 2);
+  }
+}
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 async function httpDelete(url, headers = {}) {
@@ -605,7 +651,15 @@ async function deleteMemory() {
       results.push({ file: "MEMORY.md (index)", status: "failed", error: String(e) });
     }
   }
-  return { status: results.some((r) => r.status === "failed") ? "partial" : "deleted", results };
+  const failed = results.some((r) => r.status === "failed");
+  // Nothing deleted and nothing failed: every file that mentions the project was
+  // kept for review. "deleted" for a run that deleted nothing read as a memory
+  // that had been cleaned; the report says what really happened.
+  if (!failed && !results.some((r) => r.status === "deleted")) {
+    const kept = results.filter((r) => r.status === "kept").length;
+    return { status: "skipped", reason: `${kept} file(s) mention the project and were kept for review`, results };
+  }
+  return { status: failed ? "partial" : "deleted", results };
 }
 
 // ─── orchestration ─────────────────────────────────────────────────────────

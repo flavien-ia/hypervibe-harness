@@ -26,7 +26,7 @@
 //     --web-dir "apps/web" \
 //     --trigger "cron"      # cron | continuous | manual
 //     --memory "kv"          # none | kv (pgvector for v1.5)
-//     --model "anthropic/claude-sonnet-5"  # optional: omit to auto-pick the
+//     --model "anthropic/claude-sonnet-5.5"  # optional: omit to auto-pick the
 //                                 # top of the quality tier in the catalogue
 //     --budget-usd 20             # optional: cap of the agent's own key
 //
@@ -258,7 +258,7 @@ async function agentKey() {
 // generation, and scaffolds agents on a previous one without anyone noticing.
 // The OpenRouter catalogue is the authoritative list, and it is read live at
 // scaffold time. --model always wins; a network failure falls back.
-const MODEL_FALLBACK = "anthropic/claude-sonnet-5";
+const MODEL_FALLBACK = "anthropic/claude-sonnet-5.5";
 
 async function resolveModel() {
   if (opts.model) {

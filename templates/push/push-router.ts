@@ -5,13 +5,19 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 import { pushSubscriptions } from "~/server/db/schema";
+import { isPushServiceEndpoint } from "~/server/push";
 
 export const pushRouter = createTRPCRouter({
   // Enregistre l'abonnement push d'un appareil (idempotent par endpoint).
+  // L'adresse doit être celle d'un service de notification connu, en https :
+  // c'est le serveur qui lui écrira.
   subscribe: protectedProcedure
     .input(
       z.object({
-        endpoint: z.string().url(),
+        endpoint: z
+          .string()
+          .url()
+          .refine(isPushServiceEndpoint, "Service de notification non reconnu."),
         p256dh: z.string().min(1),
         auth: z.string().min(1),
       }),

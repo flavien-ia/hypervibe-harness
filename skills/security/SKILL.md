@@ -84,6 +84,7 @@ Analyze the project and check each point. For each point, indicate:
 - **Roles and permissions**: if the app has roles (admin, user), verify that the checks are server-side (not only client-side).
 - **Object-level authorization (IDOR)**: for every route that reads or mutates a record by id (`getOrder({ id })`, `deleteDocument({ id })`...), verify that the query also filters by the session user (`where userId = session.user.id`) or checks ownership before acting. Being logged in is NOT enough: without this check, any logged-in user can read or modify any other user's data just by changing the id. This is one of the most common flaws in apps built quickly - check every procedure that takes an id, one by one.
 - **CSRF on custom Route Handlers** (making a logged-in user perform an action without realizing it, via a booby-trapped page): NextAuth protects its own routes and tRPC mutations are JSON-only (a cross-site form cannot produce them), but any custom Route Handler (`src/app/api/**/route.ts`) that changes state must verify the session AND reject requests a simple cross-site form could send (check the `Content-Type` and/or the `Origin` header).
+- **Sensitive actions of the account**: changing the email address, changing the password and deleting the account must ask for the CURRENT password, checked on the server, and tell the previous address when the email changes. Consequence if not: a few minutes at an unlocked computer, or one stolen session, become the whole account (the email is changed, then "forgot my password" does the rest). A session that stays valid after a password reset is worth one informative ⚠️ line, no more.
 
 ### 1c - Input validation
 
@@ -135,7 +136,10 @@ pnpm audit --prod --json 2>&1
 - **If no valid JSON comes back, the audit failed.** Report it as an explicit line in the final report (`Dependencies: not audited - <reason>`) and move on. Do **not** improvise a fallback: the ad-hoc retries invented here have written to `/tmp`, which does not exist on Windows. If you really need a scratch file, use the session scratchpad directory, never `/tmp`. One known transient signature, for the record: `ERR_PNPM_AUDIT_BAD_RESPONSE ... invalid JSON: Unexpected token ''` (July 2026: the registry briefly served gzip bodies without a `Content-Encoding` header on large responses, while small ones passed, which made it look project-specific). Registry-side and since fixed: if it recurs, report "not audited" and retry later rather than building a workaround.
 
 - Parse the returned JSON, flag the critical and high vulnerabilities in prod (devDeps already excluded by `--prod`).
-- Propose `pnpm update <pkg>@<safe-version>` for each vulnerable package (derive the safe version from the advisory's `patched_versions` range).
+- Tell a **direct** dependency from an **indirect** one with `findings[].paths`: a path of one element (`.>next`) names a package of the project's own `package.json`, a longer one (`.>next>sharp`) names a package brought by a parent.
+  - **Direct**: propose `pnpm update <pkg>@<safe-version>` (derive the safe version from the advisory's `patched_versions` range).
+  - **Indirect**: that command changes nothing, the package is not the project's to pin. Propose `pnpm update <pkg> --depth Infinity`, which moves it wherever the parent's own range allows the safe version (measured on a real project, 2026-09-13: nine high findings went down to four), then `pnpm dedupe` if one copy stayed behind, and run the audit again.
+  - **Still there after that**: the parent's range freezes it (an old `postcss` kept by Next.js itself, for instance). See Step 3, point 6.
 - **Next.js itself**: check the installed `next` version explicitly (it appears in the audit output like any package, but treat it as its own finding). Pay special attention to the middleware authorization bypass class of CVEs (e.g. CVE-2025-29927: a spoofed internal header let attackers skip middleware auth checks entirely). If `next` is affected by a critical advisory, upgrading it is a 🔴, not a ⚠️.
 
 ### 1h - Rate limiting and abuse protection
@@ -155,6 +159,7 @@ So, when you find it:
 ### 1i - Data exposure
 
 - **API responses**: verify that endpoints do not return more data than necessary (e.g. do not return the password hash in a user object).
+- **Who is a member**: sign-up, sign-in and "forgot my password" must answer the same way whether the email address is known or not (same message, same status code). Consequence if not: anyone can ask the site whether a given person has an account.
 - **Errors**: verify that error messages in production do not reveal stack traces, file paths, or technical information.
 - **Console.log**: look for `console.log` statements that could expose sensitive data in production.
 
@@ -169,11 +174,13 @@ So, when you find it:
 - **Signature verification**: every webhook endpoint (`/api/webhooks/*` or any route a third-party service calls) must verify the provider's signature BEFORE processing the payload. Stripe: `stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET)` - flag any handler that parses the body without it. Same principle for Brevo, GitHub, etc. Consequence if missing: anyone who finds the URL can forge a "payment succeeded" event and get the product for free.
 - **Raw body**: verify the signature is computed on the raw request body (not a re-serialized JSON), otherwise verification breaks or, worse, gets removed "because it didn't work".
 - **Idempotency**: check that replaying the same webhook event twice does not duplicate side effects (double order, double email). Providers DO redeliver events.
+- **Where a payment comes back to**: the addresses handed to the payment provider (`success_url`, `cancel_url`, `return_url`) are built from a configured value (`NEXT_PUBLIC_APP_URL`), never from the request's `Origin` or `Host` header without a list of allowed hosts. Consequence if not: a forged request makes the provider send the buyer, payment done, to someone else's site.
 
 ### 1l - SSRF (Server-Side Request Forgery - tricking YOUR server into making requests for an attacker)
 
 - Look for any server-side `fetch`/HTTP call whose URL comes, even partially, from user input: a form field, a query param, a value stored in DB that users can write (avatar URL, webhook URL, RSS feed...).
 - If found, verify the URL is validated against an allowlist: `https` only, expected hosts only, and never internal addresses (`localhost`, `127.0.0.1`, `10.x`, `192.168.x`, `169.254.169.254`...). Consequence if not: an attacker can make your server call internal services or the cloud provider's metadata endpoint, and exfiltrate credentials from inside.
+- **Not only `fetch`**: the same holds for anything the server SENDS to an address a user stored. Web Push is the common one: the subscription's `endpoint` is declared by the browser, so by whoever is logged in, and the server then writes to it. It must be one of the known notification services, in `https` (`fcm.googleapis.com`, `jmt17.google.com`, `updates.push.services.mozilla.com`, `web.push.apple.com`, `notify.windows.com`, or a sub-domain of one of them): a schema that only says `z.string().url()` accepts any address.
 - If the project has no such call (common for a simple site), mark the point ✅ with "not applicable".
 
 ### 1m - Model calls outside the AI brick (informative, never blocking)
@@ -201,6 +208,26 @@ grep -rlnE "@anthropic-ai/sdk|from \"openai\"|api\.anthropic\.com|api\.openai\.c
 
 Never fail the audit on this point, and never change the code without being
 asked. It is a lamp, not a gate.
+
+### 1n - Navigation driven by the URL (a link that leads elsewhere, or code run at sign-in)
+
+Look for any value that comes from the request (a query parameter such as `callbackUrl`, `next`, `redirect`, `returnTo`; a form field) or from the database (a link a user stored, a notification's link) and ends in a navigation:
+
+- in the browser: `router.push(...)`, `router.replace(...)`, `window.location.href = ...`, `location.assign(...)`, `location.replace(...)`, `window.open(...)`;
+- on the server: `redirect(...)`, `NextResponse.redirect(...)`, `signIn(..., { callbackUrl })` or `redirectTo`;
+- around a payment: `success_url`, `cancel_url`, `return_url` (1k).
+
+```bash
+grep -rnE "router\.(push|replace)\(|location\.(href|assign|replace)|window\.open\(|redirect\(|callbackUrl|redirectTo|(success|cancel|return)_url" src/ --include="*.ts" --include="*.tsx"
+```
+
+Write search patterns without look-around (`(?!...)`, `(?<=...)`): ripgrep rejects them. Then read each hit: a path written in the code (`router.push("/dashboard")`) is fine; a variable is followed back to where its value comes from.
+
+The only value to accept is an **internal path**: one `/` at the start, and neither `//` nor `/\` (browsers read both as another site). Anything else falls back to a fixed page.
+
+This is 🔴, never ⚠️: the Next.js router RUNS a `javascript:` address. `?callbackUrl=javascript:...` on a sign-in page executes someone else's code in the session of the person who just signed in (an administrator, on an admin sign-in page), and `?callbackUrl=https://...` sends them to a copy of the site that asks for their password again. Found in production on a real project ten days after an audit of the same code had scored 18/20 (2026-09-23): this point exists so that it no longer depends on luck.
+
+If the project has no navigation built from such a value, mark the point ✅ with "not applicable".
 
 ---
 
@@ -254,11 +281,17 @@ If yes, fix in this order of priority:
 1. **Exposed secrets** → move them into `.env`, check `.gitignore`. If a `.env` was committed in the past, remove it from the git history and **regenerate all the affected keys** (the history remains accessible).
 2. **Unprotected routes and IDOR** → add the auth checks (`protectedProcedure` or session check) AND the ownership filters (`where userId = session.user.id`) on every procedure that accesses a record by id.
 3. **Unverified webhooks** → add the provider signature verification (Stripe `constructEvent` on the raw body, etc.) before any payload processing.
-4. **Missing input validation** → add the server-side Zod schemas. If an SSRF was found (1l), add the URL allowlist validation here too.
+4. **Missing input validation** → add the server-side Zod schemas. If an SSRF was found (1l), add the URL allowlist validation here too. **A navigation driven by the URL (1n)** → accept an internal path only, and fall back to a fixed page otherwise:
+   ```ts
+   const raw = params.get("callbackUrl");
+   const callbackUrl = raw && /^\/(?![/\\])/.test(raw) ? raw : "/dashboard";
+   ```
+   The same test before `location.assign`, `window.open` or `redirect()` on a value read from the database: when it fails, do not navigate.
 5. **Missing security headers** → run `node "${CLAUDE_SKILL_DIR}/../../scripts/setup-security.mjs"` (idempotent: injects the headers into the EXISTING next.config without regenerating it - wrapped configs like next-intl and custom options survive - + console.log isDev guard + rate-limit.ts + rateLimitedProcedure if not already in place; also removes the deprecated X-XSS-Protection header if present). Two follow-ups after running it:
    - If the script reports a ⚠️ saying it could not inject (custom `headers()` already present, or config object not found), apply the `securityHeaders` block manually in `next.config` by merging it with what exists.
    - The script writes the `rateLimitedProcedure` error message in English: if the project's audience is not English-speaking, translate that message in `src/server/api/trpc.ts` into the site's language.
-6. **Vulnerable dependencies** → parse the JSON output of the audit run in 1g (`pnpm audit --prod --json`, or `npm audit --omit=dev --json` on an npm project) to identify the affected packages, then `pnpm update <pkg>@<safe-version>` for each. Do not rely on `pnpm audit --fix`: it does not update anything, it writes blanket `overrides` into package.json, which pins transitive versions indefinitely and hides the problem instead of fixing it.
+6. **Vulnerable dependencies** → parse the JSON output of the audit run in 1g (`pnpm audit --prod --json`, or `npm audit --omit=dev --json` on an npm project) to identify the affected packages, then, for each: `pnpm update <pkg>@<safe-version>` when it is a direct dependency; `pnpm update <pkg> --depth Infinity`, then `pnpm dedupe` if a copy stayed behind, when it is an indirect one (1g); and the audit again. Do not rely on `pnpm audit --fix`: it does not update anything, it writes blanket `overrides` into package.json, which pins transitive versions indefinitely and hides the problem instead of fixing it.
+   **What is left after that is frozen by a parent's own range.** Do not force it with `overrides`, for the same reason. If its path only goes through build tooling (it never runs when a visitor loads a page), classify it **accepted**: say so in one plain sentence, with the parent that holds it, and record it in the project's CLAUDE.md through `_update-claude-md` (section Conventions, one line per package: its name, the parent, the date), so that the next audit files it under "already known and accepted" instead of raising it again. If its path reaches code that runs in production, it stays a finding: say that the fix is the parent's next release, and name it.
 7. **Remaining problems** identified in the audit.
 
 ### Shared counter (only at the person's request)
