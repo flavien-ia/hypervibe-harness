@@ -77,6 +77,7 @@ Quand vous lancez `/bootstrap`, vous choisissez comment décrire votre app :
 | `/geo` | Audit et optimisation pour les moteurs IA (ChatGPT, Claude, Perplexity, Google AI Overviews) - llms.txt, politique crawlers IA, schema FAQPage, signaux de citabilité, E-E-A-T, format Q&A. Complémentaire à `/seo`. |
 | `/gsc` | Connecte le site à Google Search Console, vérifie le DNS automatiquement, soumet le sitemap, puis audite ce que Google voit vraiment - couverture d'indexation, top requêtes, opportunités (positions 11-20), CTR à améliorer, pages zombies. Complémentaire à `/seo` (données Google externes). |
 | `/security` | Audit de sécurité (secrets, auth, headers, dépendances, RGPD) |
+| `/accessibility` | Audit d'accessibilité : lit le code (images, boutons, champs, clavier, focus, zoom), mesure les pages en ligne, explique chaque problème simplement, puis applique les corrections que vous approuvez |
 | `/rgpd-audit` | Audit de conformité RGPD - détecte les services tiers utilisés, met à jour le registre des sous-traitants, génère ou rafraîchit la page de politique de confidentialité |
 | `/clean` | Trouve les fichiers inutilisés, le code mort, les env vars et tables DB orphelines - revue + suppression sur une branche |
 | `/rotate-secret` | Renouvelle une clé secrète (Stripe, Brevo, Google…) partout où elle vit - local + Vercel |

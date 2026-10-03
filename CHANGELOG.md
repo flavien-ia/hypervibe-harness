@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.4.0 (3 octobre 2026)
+
+Une nouvelle commande pour que votre application serve tout le monde.
+
+### Nouveautés
+- **`/accessibility`** : un audit d'accessibilité de votre application. Hypervibe lit votre code (images sans texte de remplacement, boutons qui ne sont qu'une icône, champs sans étiquette, éléments que le clavier n'atteint pas, focus invisible, zoom bloqué sur mobile), mesure vos pages en ligne (le score d'accessibilité et les contrastes de couleur), vous explique chaque problème en mots simples, puis applique les corrections que vous validez. Les choix de design restent les vôtres. Utile avant un lancement, et depuis juin 2025 une obligation pour de nombreux services vendus aux particuliers dans l'Union européenne.
+
+### Coulisses
+- Une recette neuve : chaque règle de l'audit est vérifiée dans les deux sens, ce qui exclut quelqu'un est signalé, son équivalent accessible ne l'est pas.
+
 ## v3.3.11 (2 octobre 2026)
 
 Version de correction nourrie par la relecture hebdomadaire des sessions réelles : le paiement, les liens piégés, la suppression d'un projet, et un défaut des emails de l'horloge partagée.

@@ -57,6 +57,7 @@ const SUITES = [
   ["a deployment checked from a worktree, with a sign-in the tool renews itself", join(ROOT, "scripts", "tests", "test-check-deploy.mjs")],
   ["/delete-project with the vault closed: never half a deletion", join(ROOT, "scripts", "tests", "test-delete-vault.mjs")],
   ["what the templates let through of an address that came from elsewhere", join(ROOT, "scripts", "tests", "test-template-guards.mjs")],
+  ["accessibility: what shuts someone out is reported, its accessible counterpart is not", join(ROOT, "scripts", "tests", "test-a11y-audit.mjs")],
   ["a secret the host never gives back never erases the project's", join(ROOT, "scripts", "tests", "test-pull-sensitive-empty.mjs")],
   ["database organisation: which answers are certain", join(ROOT, "scripts", "tests", "test-neon-org.mjs")],
   ["git identity: checked and repaired, never shown", join(ROOT, "scripts", "tests", "test-git-identity.mjs")],
