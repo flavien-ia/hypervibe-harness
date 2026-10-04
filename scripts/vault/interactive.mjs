@@ -24,6 +24,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { resolveLang, makeT } from "./i18n.mjs";
+import { useBwHome } from "./bw-home.mjs";
 
 const IS_WIN = platform() === "win32";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -131,6 +132,9 @@ function ensureBw() {
 }
 
 function bw(args, { input, session, inherit } = {}) {
+  // On Windows, the plugin's one sign-in folder (bw-home.mjs): the sign-in made in this window is
+  // then seen by every program, inside Claude Desktop or not.
+  useBwHome();
   const env = { ...process.env };
   if (session) env.BW_SESSION = session;
   const cmd = resolveBwCmd();
@@ -192,6 +196,7 @@ async function doLogin() {
   // bw handle only the 2FA step interactively (it prompts by itself when 2FA is on).
   let email = await promptVisible(t("email"));
   if (!email) throw new Error(t("emailRequired"));
+  useBwHome();
   const loginCmd = resolveBwCmd();
   // The 2FA explanation is a one-time briefing, not a status line: print it once, before the
   // first attempt, so a retry does not bury bw's own error message under four lines of prose.
@@ -243,6 +248,7 @@ async function doUnlock() {
     throw new Error(t("notSignedIn"));
   }
   console.log(t("unlocking", { email: status.userEmail }));
+  useBwHome();
   const unlockCmd = resolveBwCmd();
   // A mistyped master password is the ORDINARY case, not an exception. Closing the window on the
   // first miss sent the user back to the conversation to have the whole step re-launched, just to

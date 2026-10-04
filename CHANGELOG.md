@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.4.1 (4 octobre 2026)
+
+### Améliorations
+- **Le coffre-fort sous Windows** : avec Claude Desktop installé depuis le Microsoft Store, le coffre ouvert dans Claude paraissait fermé pour tout programme lancé à côté (le bouton « Run » d'un bloc de commande, le terminal intégré), et chaque côté redemandait le mot de passe maître à tour de rôle. Le coffre garde désormais sa connexion dans un seul dossier, le même pour tous les programmes. La connexion déjà faite y est recopiée une fois, sans rien effacer : rien à refaire de votre côté.
+- **/accessibility** : sa présentation courte suit maintenant le format des autres commandes.
+
+### Coulisses
+- Les vérifications lancées avant chaque version n'ouvrent plus jamais le coffre : l'une d'elles lisait le vrai coffre de la machine. Elle a désormais son propre dossier, et un garde-fou fait échouer toute vérification qui lancerait l'outil du coffre.
+
 ## v3.4.0 (3 octobre 2026)
 
 Une nouvelle commande pour que votre application serve tout le monde.

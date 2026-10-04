@@ -43,7 +43,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/vault/install-bw.mjs"
 
 ⚠️ **Two indicators exist, do not confuse them**:
 - **`node "$VAULT" status`** (the Hypervibe session) = **the ONLY source of truth for knowing whether the vault is OPEN** (`unlocked` / `locked` / `expired`). This is what matters for reading/writing keys.
-- **`bw status`** (native Bitwarden) is used **only** to know whether an **account is connected** on the machine (`unauthenticated` or not). ⚠️ It **always shows `locked`** even when the Hypervibe vault is open (the `bw` daemon has no unlocked session of its own): **NEVER use it to decide whether the vault is open**, otherwise you would trigger an unnecessary unlock.
+- **`node "$VAULT" account`** is used **only** to know whether an **account is connected** on the machine (`"signedIn": true` or `false`). It unlocks nothing, so it says nothing about whether the vault is open: **NEVER use it to decide whether the vault is open**, otherwise you would trigger an unnecessary unlock. ⚠️ Never ask the `bw` tool itself (`bw status`): on Windows it can read another sign-in folder than the plugin's, and would call a connected machine `unauthenticated`.
 
 **Check FIRST whether the vault is already open** (the most frequent case during the day):
 ```bash
@@ -52,20 +52,18 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status 2>/dev/null
 - `unlocked` → **the vault is already open, it is ready**: go directly to **Step 6** (offer NEITHER login NOR unlock).
 - `locked` or `expired` → the vault is not open: you need to determine whether the connection is missing or just the unlock → continue below.
 
-**Only then**, look at the account state (login) with `bw status` (resolve the binary by absolute path, the PATH is not guaranteed):
+**Only then**, look at the account state (login):
 ```bash
-BW="$HOME/.hypervibe/bin/bw.exe"; [ -x "$BW" ] || BW="$HOME/.hypervibe/bin/bw"; [ -x "$BW" ] || BW="$HOME/bin/bw.exe"; [ -x "$BW" ] || BW="bw"
-"$BW" status 2>/dev/null
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" account 2>/dev/null   # {"signedIn": true|false, "account": ...}
 ```
-- `unauthenticated` → no account connected on this machine (this does NOT say whether an account exists elsewhere) → **Step 3** (login).
-- any other status (`locked`, etc.) → an account is **already connected**, only the unlock is missing → **Step 5** (unlock). **Do NOT log in again.**
-- **empty / error** output → the `bw` tool is not reachable here. Continue anyway: the windows (`launch.mjs login/unlock/add`) **reinstall the tool automatically** if it is missing. If this persists, redo **Step 1** manually.
+- `"signedIn": false` → no account connected on this machine (this does NOT say whether an account exists elsewhere) → **Step 3** (login). It is also the answer when the `bw` tool cannot run here: the windows (`launch.mjs login/unlock/add`) **reinstall the tool automatically** if it is missing, and the sign-in window says so when an account is in fact already connected.
+- `"signedIn": true` → an account is **already connected** (`account` names it), only the unlock is missing → **Step 5** (unlock). **Do NOT log in again.**
 
 ---
 
 ## Step 3 - Does the user already have an account? (ask BEFORE opening anything)
 
-The `unauthenticated` status only means "not connected on this machine", not "no account". **Do NOT open the signup page by default.** First, ask the question via the **AskUserQuestion** tool:
+`"signedIn": false` only means "not connected on this machine", not "no account". **Do NOT open the signup page by default.** First, ask the question via the **AskUserQuestion** tool:
 
 > **Question**: "Do you already have a Bitwarden account (the vault)?"
 > - **Yes, in Europe**: account created on `vault.bitwarden.eu` (the most common case). → we go straight to the connection (Step 4, EU server).
@@ -112,9 +110,9 @@ Launch the connection with the server of the region remembered at Step 3 (EU by 
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" login --lang <LANG> --server https://vault.bitwarden.eu
 # (US account: replace with --server https://vault.bitwarden.com)
 ```
-The command **blocks until the window is closed and now returns the real exit code** (0 = success, non-zero = failure: wrong password or wrong 2FA code). **NEVER assume success just because the window closed.** Always re-check with `bw status`:
-- `status` ≠ `unauthenticated` (so `locked` or `unlocked`) → connection succeeded, go to Step 5.
-- still `unauthenticated` → the connection failed: explain it to the user and offer to retry (wrong credentials or wrong 2FA code; or wrong region: if they thought they were on EU but it did not work, retry with the US server). The window already asked **3 times** before closing, so a failure here means three wrong attempts: ask the user before opening another one, never relaunch it on reflex. **Do not move on to Step 5 until `bw status` confirms the connection.**
+The command **blocks until the window is closed and now returns the real exit code** (0 = success, non-zero = failure: wrong password or wrong 2FA code). **NEVER assume success just because the window closed.** Always re-check with `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" account`:
+- `"signedIn": true` → connection succeeded, go to Step 5.
+- still `"signedIn": false` → the connection failed: explain it to the user and offer to retry (wrong credentials or wrong 2FA code; or wrong region: if they thought they were on EU but it did not work, retry with the US server). The window already asked **3 times** before closing, so a failure here means three wrong attempts: ask the user before opening another one, never relaunch it on reflex. **Do not move on to Step 5 until `vault.mjs account` confirms the connection.**
 
 ---
 
@@ -125,7 +123,7 @@ The command **blocks until the window is closed and now returns the real exit co
 ```bash
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>
 ```
-Blocks until closed. The window **self-repairs and re-checks the state before unlocking**: if the `bw` tool is missing, it reinstalls it automatically; if it shows "No account connected" (`bw status` = `unauthenticated`), **do NOT loop back on the unlock**, return to **Step 3** (login) first. Then confirm the result:
+Blocks until closed. The window **self-repairs and re-checks the state before unlocking**: if the `bw` tool is missing, it reinstalls it automatically; if it shows "No account connected" (`vault.mjs account` = `"signedIn": false`), **do NOT loop back on the unlock**, return to **Step 3** (login) first. Then confirm the result:
 ```bash
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status
 ```

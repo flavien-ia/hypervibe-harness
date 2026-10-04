@@ -19,6 +19,8 @@
 //   node vault.mjs get <ITEM> [FIELD]   -> prints field value (default field: "value")
 //   node vault.mjs delete <ITEM>        -> permanently deletes an item
 //   node vault.mjs status               -> prints "unlocked" | "locked" | "expired"
+//   node vault.mjs account              -> {"signedIn": true|false, "account": ..., "server": ...}:
+//                                          is an account connected on this machine? (unlocks nothing)
 //
 // EXIT CODES (mirror the perso bw-get convention, relied on by the auto-unlock pattern)
 //   0 ok | 2 vault locked (no session) | 3 session expired (>12h) | 4 item not found
@@ -32,6 +34,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
+import { useBwHome } from "./bw-home.mjs";
 
 const TTL_SECONDS = 12 * 60 * 60; // 12h
 const SESSION_FILE = join(homedir(), ".hypervibe", "bw-session");
@@ -65,6 +68,9 @@ function resolveBwCmd() {
 function runBw(args, sessionToken, input) {
   // BW_NOINTERACTION guarantees bw never blocks on an interactive prompt (e.g. a stale token
   // would otherwise make some commands ask for the master password and hang a non-TTY caller).
+  // On Windows every bw of this plugin uses ONE sign-in folder, outside the AppData that Claude
+  // Desktop's package virtualises: otherwise a program started outside Claude sees no account.
+  useBwHome();
   const env = { ...process.env, BW_NOINTERACTION: "true" };
   if (sessionToken) env.BW_SESSION = sessionToken;
   const cmd = resolveBwCmd();
@@ -284,6 +290,21 @@ export function sessionStatus() {
   return "expired";
 }
 
+/** Which account is signed in on this machine, without unlocking anything: {signedIn, account,
+ *  server}. It tells "never set up here" from "set up, closed for the day". Skills ask this, never
+ *  `bw status` themselves: on Windows a bare `bw` reads another folder than the plugin's (bw-home.mjs)
+ *  and would call a connected machine "unauthenticated". */
+export function accountStatus() {
+  let s = null;
+  try {
+    s = JSON.parse(runBw(["status"]).stdout.trim() || "null");
+  } catch {
+    s = null;
+  }
+  if (!s || !s.status || s.status === "unauthenticated") return { signedIn: false, account: null, server: s?.serverUrl ?? null };
+  return { signedIn: true, account: s.userEmail ?? null, server: s.serverUrl ?? null };
+}
+
 // ─── CLI entry point ──────────────────────────────────────────────────
 // ─── Launched as a script, or imported ────────────────────────────────────────
 // Node gives a module its real path and keeps in argv[1] the path as it was typed. Compared as
@@ -329,8 +350,11 @@ if (isMain) {
     } else if (cmd === "status") {
       process.stdout.write(sessionStatus());
       process.exit(0);
+    } else if (cmd === "account") {
+      process.stdout.write(JSON.stringify(accountStatus()));
+      process.exit(0);
     } else {
-      console.error("Usage: vault.mjs <get|delete|status> ...");
+      console.error("Usage: vault.mjs <get|delete|status|account> ...");
       process.exit(1);
     }
   } catch (e) {

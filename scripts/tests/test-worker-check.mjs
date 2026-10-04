@@ -44,6 +44,12 @@ const ENV = {
   ...process.env,
   GIT_CONFIG_GLOBAL: emptyGitConfig,
   GIT_CONFIG_NOSYSTEM: "1",
+  // A home folder of its own: the vault of the machine the recette runs on is never reached (with
+  // no session there, the scripts take the token of the recette, as with the vault locked).
+  HOME: scratch,
+  USERPROFILE: scratch,
+  APPDATA: join(scratch, "appdata"),
+  LOCALAPPDATA: join(scratch, "localappdata"),
   // ensure.mjs wants a token before anything else, even with --no-deploy.
   // Used only when the vault is locked, and never sent anywhere.
   CLOUDFLARE_API_TOKEN: process.env.CLOUDFLARE_API_TOKEN || "test-token-never-used",

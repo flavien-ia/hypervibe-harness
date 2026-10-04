@@ -9,7 +9,9 @@
 
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { existsSync as guardExists, mkdtempSync as guardDir, readFileSync as guardRead, rmSync as guardRemove } from "node:fs";
+import { tmpdir as guardTmp } from "node:os";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -61,13 +63,47 @@ const SUITES = [
   ["a secret the host never gives back never erases the project's", join(ROOT, "scripts", "tests", "test-pull-sensitive-empty.mjs")],
   ["database organisation: which answers are certain", join(ROOT, "scripts", "tests", "test-neon-org.mjs")],
   ["git identity: checked and repaired, never shown", join(ROOT, "scripts", "tests", "test-git-identity.mjs")],
+  ["the vault's sign-in: one folder for every program on Windows, taken over by a copy", join(ROOT, "scripts", "tests", "test-bw-home.mjs")],
 ];
+
+// The vault's tool never runs during a recette (_no-real-vault.mjs): every Node process of a suite
+// loads the guard, which refuses a launch of `bw` without reaching anything and writes it down, and
+// the suite that tried fails, named. (Node 20 and later: before, --import in NODE_OPTIONS is unknown.)
+const GUARD = Number(process.versions.node.split(".")[0]) >= 20 ? pathToFileURL(join(ROOT, "scripts", "tests", "_no-real-vault.mjs")).href : null;
+const guardEnv = (log) => (GUARD ? { NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${GUARD}`].filter(Boolean).join(" "), HV_RECETTE_VAULT_LOG: log } : {});
+/** What a suite's guard wrote down, said as a failure, or null. */
+function vaultNote(log) {
+  if (!guardExists(log)) return null;
+  const who = [...new Set(guardRead(log, "utf8").trim().split("\n").map((l) => JSON.parse(l).script))].join(", ");
+  return `\nECHEC : cette recette a lance l'outil du coffre (bw), refuse sans rien atteindre : ${who}. Une recette ne l'ouvre jamais : lui donner un dossier personnel a elle, ou un faux coffre.\n`;
+}
+/** One suite, under the guard: its output, or the error that says why it failed. */
+function runSuite(script) {
+  const work = guardDir(join(guardTmp(), "hv-recette-coffre-"));
+  const log = join(work, "bw.log");
+  let out;
+  let error = null;
+  try {
+    out = execFileSync(process.execPath, [script], { encoding: "utf8", env: { ...process.env, ...guardEnv(log) } });
+  } catch (e) {
+    error = e;
+  }
+  try {
+    const note = vaultNote(log);
+    if (note && error) error.stdout = `${error.stdout ?? ""}${note}`;
+    if (note && !error) error = Object.assign(new Error("vault"), { stdout: `${out}${note}`, stderr: "" });
+    if (error) throw error;
+    return out;
+  } finally {
+    guardRemove(work, { recursive: true, force: true });
+  }
+}
 
 let failed = 0;
 for (const [nom, script] of SUITES) {
   process.stdout.write(`\n=== ${nom} ===\n`);
   try {
-    const out = execFileSync(process.execPath, [script], { encoding: "utf8" });
+    const out = runSuite(script);
     // Only the tail matters when everything passes.
     const lignes = out.trimEnd().split("\n");
     process.stdout.write(lignes.slice(-2).join("\n") + "\n");

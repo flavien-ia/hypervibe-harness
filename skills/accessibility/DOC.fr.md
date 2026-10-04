@@ -1,6 +1,6 @@
 # /accessibility
 
-Vérifie que votre application sert bien les personnes qui voient, entendent, bougent ou lisent autrement, et corrige ce que vous approuvez. Hypervibe lit votre code, mesure vos pages en ligne, explique chaque problème en mots simples (ce que c’est, qui il exclut), puis applique les corrections que vous validez.
+Audite l'accessibilité de votre app et corrige les problèmes que vous validez. Hypervibe lit votre code, mesure vos pages en ligne et explique chaque problème en mots simples : ce que c’est, et qui il exclut (les personnes qui voient, entendent, bougent ou lisent autrement).
 
 ## Quand l’utiliser
 

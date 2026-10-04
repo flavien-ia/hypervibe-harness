@@ -234,10 +234,10 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/vault/install-bw.mjs"
 **Check the vault state**:
 ```bash
 node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" status 2>/dev/null
-bw status 2>/dev/null
+node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" account 2>/dev/null   # {"signedIn": true|false, "account": ...}
 ```
 - `unlocked` → vault already ready, move on to Step 4.
-- `bw status` = `unauthenticated` (no connected account) → **immediately launch the `_add-keyring` skill by default, WITHOUT asking for confirmation**: the vault is MANDATORY, there is nothing to decide. NEVER ask a question like "do you want to set up your vault now?", do not wait for confirmation: go straight to `_add-keyring`, which guides the creation of the Bitwarden account (free, master password to write down offline, 2FA), the login, and the first unlock. Non-technical language.
+- `"signedIn": false` (no connected account) → **immediately launch the `_add-keyring` skill by default, WITHOUT asking for confirmation**: the vault is MANDATORY, there is nothing to decide. NEVER ask a question like "do you want to set up your vault now?", do not wait for confirmation: go straight to `_add-keyring`, which guides the creation of the Bitwarden account (free, master password to write down offline, 2FA), the login, and the first unlock. Non-technical language.
 - `locked`/`expired` (account connected but vault closed) → open it: `node "${CLAUDE_SKILL_DIR}/../../scripts/vault/launch.mjs" unlock --lang <LANG>` (blocking).
 
 > **Your key vault**: an encrypted place where I store your access keys (database, email, hosting, etc.). You type your master password once a day, and after that I use it without you having to copy anything over. ⚠️ This master password cannot be recovered by anyone. Write it down offline.
@@ -533,7 +533,7 @@ Display an exhaustive report based **strictly** on what was detected:
 **"Vault" line, to display based on the real detected state** (same ✅/⚠️/❌ logic as the CLIs, based on `vault.mjs status`):
 - ✅ **operational (unlocked)**: `vault.mjs status` = `unlocked`.
 - ⚠️ **installed but locked**: `vault.mjs status` = `locked` or `expired` (account connected, vault closed). Action: `launch.mjs unlock`.
-- ❌ **not yet installed**: `bw` missing or `bw status` = `unauthenticated` (no account). Action: go back through Step 3bis (`install-bw.mjs` + `_add-keyring`).
+- ❌ **not yet installed**: `bw` missing or `vault.mjs account` answers `"signedIn": false` (no account). Action: go back through Step 3bis (`install-bw.mjs` + `_add-keyring`).
 
 The unlocked vault (✅) is a **blocking prerequisite** (see Strict branching below): never display ✅ if `vault.mjs status` has not explicitly responded `unlocked`.
 

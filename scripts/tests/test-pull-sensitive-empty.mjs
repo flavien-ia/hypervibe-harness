@@ -65,7 +65,12 @@ if (process.platform === "win32") {
   chmodSync(join(bin, "vercel"), 0o755);
 }
 const pathKey = Object.keys(process.env).find((k) => k.toUpperCase() === "PATH") || "PATH";
-const ENV = { ...process.env, [pathKey]: `${bin}${process.platform === "win32" ? ";" : ":"}${process.env[pathKey] ?? ""}`, VERCEL_TOKEN: "" };
+// A home folder of its own: the vault of the machine the recette runs on is never reached (a
+// project's backup reads a key there for the clock, with the session of the day).
+const MAISON = join(WORK, "maison");
+mkdirSync(MAISON, { recursive: true });
+const OWN_HOME = { HOME: MAISON, USERPROFILE: MAISON, APPDATA: join(MAISON, "appdata"), LOCALAPPDATA: join(MAISON, "localappdata") };
+const ENV = { ...process.env, ...OWN_HOME, [pathKey]: `${bin}${process.platform === "win32" ? ";" : ":"}${process.env[pathKey] ?? ""}`, VERCEL_TOKEN: "" };
 
 const DB_URL = "postgresql://owner:mot-de-passe@ep-exemple.eu-central-1.aws.neon.tech/app?sslmode=require";
 let n = 0;
