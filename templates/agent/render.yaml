@@ -14,12 +14,15 @@
 # have to switch to a Web Service + accept the 15-min sleep, which defeats
 # the agent use case.
 #
-# Env vars are NOT defined here - they come from the Render dashboard
-# (synced by setup-agent.mjs at deploy time).
+# Env vars are NOT defined here - they come from the Render dashboard, where
+# they are set by hand: _create-agent lists them, nothing copies them for you.
 
 services:
   - type: worker
-    name: {{AGENT_NAME}}
+    # The project's name, then the agent's: the service is the project's, and
+    # /delete-project finds it by that name as well as by the manifest entry
+    # _create-agent records once the Blueprint is applied.
+    name: {{RENDER_SERVICE_NAME}}
     runtime: node
     plan: starter
     rootDir: apps/{{AGENT_NAME}}

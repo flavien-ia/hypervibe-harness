@@ -1,6 +1,6 @@
 ---
 name: _create-render-worker
-description: Internal helper invoked by /add-automation once the Render API key is in the vault (Render is driven via its REST API, no CLI) and the project is a monorepo. Creates the apps/worker/ directory with a background-process template deployed as a Render web service on the free plan (the free instance type does not exist for background workers, and only a web service can receive the HTTP trigger sent by the shared clock), generates render.yaml at the monorepo root, commits and pushes, then guides the user through the manual Render dashboard step (Blueprint creation). Not meant to be invoked directly by users.
+description: Internal helper invoked by /add-automation once the Render API key is in the vault (Render is driven via its REST API, no CLI) and the project is a monorepo. Creates the apps/worker/ directory with a background-process template deployed as a Render web service on the free plan (the free instance type does not exist for background workers, and only a web service can receive the HTTP call that wakes it, relayed by the project's site), generates render.yaml at the monorepo root, commits and pushes, guides the user through the manual Render dashboard step (Blueprint creation), then records the service and wires the relay. Not meant to be invoked directly by users.
 user-invocable: false
 allowed-tools: Bash
 compatibility: "Agent Skills standard (Claude Code or Codex). Requires Node.js; most workflows also use pnpm, git, and project CLIs (vercel, gh)."
@@ -43,10 +43,14 @@ That second point is not a defect to work around, it is the shape of the thing. 
 
 | Regime | How it works | Free instance hours used |
 |---|---|---|
-| **Woken on demand** (default) | The shared clock (`/add-cron`, Cloudflare) calls `POST /run` at the chosen cadence. The service sleeps in between. | A few hours a month |
-| **Kept awake** | A ping every ~10 min holds it up, and the internal loop runs continuously. | ~730 of the 750 monthly hours **for the whole workspace** |
+| **Woken on demand** (default) | The shared clock calls a scheduled route of the project's **site**, and that route relays the call to the service's `POST /run` (the relay, Step 6). The service sleeps in between. | A few hours a month |
+| **Kept awake** | The same relay, scheduled every 10 minutes, holds it up, and the internal loop (`LOOP_INTERVAL_MS`) runs in between. | ~730 of the 750 monthly hours **for the whole workspace** |
+
+Why through the site: the shared clock only ever calls the project's own site, at `/api/cron/<task>`, with the project's `CRON_SECRET`. It cannot call the service directly, and never could: the site's route is what holds the service's address and secret, and a button of the application can take the same path.
 
 The 750 free instance hours are granted **per workspace per calendar month**, not per service. One service kept awake round the clock therefore consumes essentially the entire allowance, and Render suspends every free service of the workspace once it is spent. Say this to the user before choosing "kept awake".
+
+On the free plan, **a run should end within 15 minutes of the call that woke the service**: Render puts it back to sleep 15 minutes after the last request it received, and work still in progress can stop with it. Longer work belongs to the paid background worker (below).
 
 **When a process genuinely must never stop** (persistent connection, queue consumer that cannot miss a message, an agent watching a stream), the free tier is the wrong answer: switch to a real background worker, `type: worker` + `plan: starter`, around 7 USD/month. That is exactly what `_create-agent` does, and its `templates/agent/render.yaml` is the reference.
 
@@ -112,15 +116,17 @@ Create `apps/worker/src/index.ts`. The work itself lives in `runOnce()`; everyth
  * on a port, and Render fails the deploy if nothing does.
  *
  * Two ways to drive the work, and you only need one:
- *   - the shared clock calls POST /run (the service sleeps in between);
- *   - LOOP_INTERVAL_MS is set and the service is kept awake by a regular ping.
+ *   - the project's site relays its scheduled call to POST /run (the service
+ *     sleeps in between);
+ *   - LOOP_INTERVAL_MS is set and the same relay, every 10 minutes, keeps the
+ *     service awake.
  */
 import { createServer } from "node:http";
 
 const PORT = Number(process.env.PORT ?? 10000);
 const RUN_TOKEN = process.env.RUN_TOKEN ?? "";
-// 0 disables the internal loop, which is the right default when the shared
-// clock drives the work: a loop inside a sleeping service runs nowhere.
+// 0 disables the internal loop, which is the right default when the relay
+// drives the work: a loop inside a sleeping service runs nowhere.
 const LOOP_INTERVAL_MS = Number(process.env.LOOP_INTERVAL_MS ?? 0);
 
 let running = false;
@@ -171,11 +177,16 @@ const server = createServer((req, res) => {
       res.writeHead(401).end("unauthorized");
       return;
     }
-    // Answer before the work finishes: a caller that waits would time out on
-    // anything slow, and the shared clock does not need the result.
-    void runGuarded()
-      .then((outcome) => res.writeHead(outcome === "busy" ? 409 : 202).end(outcome))
-      .catch(() => res.writeHead(500).end("run failed"));
+    // Answer as soon as the work is accepted, BEFORE it runs: a caller that
+    // waited for the end would give up on anything slow. A pass already in
+    // progress is said at once (409), nothing is lost: the next call runs.
+    // How the pass ends is read on GET /healthz and in the logs.
+    if (running) {
+      res.writeHead(409).end("busy");
+      return;
+    }
+    res.writeHead(202).end("accepted");
+    void runGuarded().catch(() => undefined);
     return;
   }
 
@@ -222,9 +233,9 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
-      # Shared secret guarding POST /run. generateValue lets Render mint it, so
-      # it never transits the conversation. Read it back from the dashboard (or
-      # the API) when wiring the clock.
+      # Shared secret guarding POST /run. generateValue gives it a first value;
+      # Step 6 replaces it with the one the site holds (WORKER_RUN_TOKEN), so
+      # the two match without the value ever crossing the conversation.
       - key: RUN_TOKEN
         generateValue: true
       # Set only if the user chose the "kept awake" regime, e.g. 300000 for 5 min.
@@ -236,9 +247,9 @@ services:
 
 Replace `<project-name>` with the actual project name.
 
-⚠️ **`type: web`, not `worker`, and not `cron`.** The reasons are in the block at the top of this skill: `plan: free` exists for neither `worker` nor `cron`, and only a web service can receive the HTTP call the shared clock sends. Do not "simplify" this back to `type: worker` while keeping `plan: free` - that Blueprint does not deploy.
+⚠️ **`type: web`, not `worker`, and not `cron`.** The reasons are in the block at the top of this skill: `plan: free` exists for neither `worker` nor `cron`, and only a web service can receive the HTTP call that wakes it. Do not "simplify" this back to `type: worker` while keeping `plan: free` - that Blueprint does not deploy.
 
-Scheduling still belongs to `/add-cron` (the shared Cloudflare clock), which the caller runs separately and points at `POST /run`.
+Scheduling goes through the project's site: Step 6 wires the relay, then the caller runs `/add-cron` for the schedule, like any task of the site, and puts the relay in the route it creates.
 
 ### Variant - the process must genuinely never stop
 
@@ -252,11 +263,21 @@ Announce the monthly cost **before** applying this, and never fall into it by de
 
 ## Step 3 - Commit and push
 
+If `_convert-to-turborepo` converted the project in this session, the site's hosting must build from `apps/web/` before this push: its last step asked the person to change it. Check that they did, or this push leaves every deployment of the site failing.
+
 ```bash
 git add render.yaml apps/worker/
 git commit -m "feat: add background worker on Render"
 git push
 ```
+
+The push deploys the site too. Check that it still does:
+
+```bash
+node "${CLAUDE_SKILL_DIR}/../../scripts/vercel/check-deploy.mjs" --project-dir "<WEB_DIR>" --sha "$(git rev-parse HEAD)" --timeout 600
+```
+
+Exit 0: the site is live on this commit. Exit 1: its deployment failed, most often because the hosting still builds from the repository's root: say so, and point the person to the Root Directory setting (`apps/web`).
 
 ## Step 4 - Guide the user through Blueprint creation
 
@@ -280,18 +301,23 @@ Tell the user:
 
 **Wait for the user to confirm.** Don't move to Step 5 until they say it's done.
 
-## Step 5 - Verify the deployment (Render REST API, no CLI)
+## Step 5 - Record the service, then check its deployment (Render REST API, no CLI)
 
-Read the Render key from the vault, then list the services:
+Find the service by its exact name and record it in the project's manifest, so that `/delete-project` and the other skills find it by its identifier, never by guessing:
+
 ```bash
-K=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RENDER api_key)
-printf 'header = "Authorization: Bearer %s"\n' "$K" | curl -s --config - "https://api.render.com/v1/services?limit=50"
+node "${CLAUDE_SKILL_DIR}/../../scripts/render/service.mjs" find --project-dir "<project-root>" \
+  --name "<project-name>-worker" --record --added-by _create-render-worker
 ```
 
-The response is an array of `{ service: {...} }`. Find the object whose `service.name` == `<project-name>-worker` and read `service.id` plus its deployment state (the `serviceDetails`/`suspended` field, or via the latest deploy below).
+- Exit 0: `id` (the `srv-...` identifier), `url` (the address Step 6 gives the site), `recorded: true`.
+- Exit 4: no service of that name: the Blueprint was not applied yet, or the service was renamed. Ask the person.
+- Exit 6: several services carry that name: ask which one is this project's. Nothing was recorded.
+- Exit 2: the vault is locked: unlock it, run the same command again. Exit 1: say what failed, never take it for "no service".
 
-Check the latest deployment of this service:
+Check the latest deployment of this service (the key is read from the vault into a shell variable, never printed):
 ```bash
+K=$(node "${CLAUDE_SKILL_DIR}/../../scripts/vault/vault.mjs" get RENDER api_key)
 printf 'header = "Authorization: Bearer %s"\n' "$K" | curl -s --config - "https://api.render.com/v1/services/<service-id>/deploys?limit=1"
 ```
 `deploy.status` = `live` → all good. If `build_failed` / `update_failed` / `canceled`, fetch the logs to debug:
@@ -301,23 +327,72 @@ printf 'header = "Authorization: Bearer %s"\n' "$K" | curl -s --config - "https:
 ```
 The `logs[]` response has `{ timestamp, message, labels }`. Help the user debug from there.
 
-## Step 6 - Return to caller
+## Step 6 - Wire the relay (woken on demand, kept awake)
+
+Skip this step for the variant that never stops: a background worker has no address, and nothing wakes it.
+
+The site holds the service's address and a secret that both sides know. The secret is generated here, written to the site's `.env` and its hosting, then set on the service: its value never appears in the conversation. `<WEB_DIR>` is the site's folder (`apps/web`).
+
+1. The secret, on the site:
+
+   ```bash
+   V=$(node "${CLAUDE_SKILL_DIR}/../../scripts/generate-secret.mjs") && [ -n "$V" ] \
+     && (cd "<WEB_DIR>" && printf 'WORKER_RUN_TOKEN=%s\n' "$V" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin)
+   ```
+
+2. The same secret, on the service (read from the site's `.env`, never passed as an argument); the service is redeployed to pick it up:
+
+   ```bash
+   node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" set --project-dir "<WEB_DIR>" \
+     --key RUN_TOKEN --from WORKER_RUN_TOKEN --service <srv-id>
+   ```
+
+   - `results[].written: true` and `redeployed: true`: done.
+   - `redeployed: false`: the value is written but the redeploy was refused: ask the person to redeploy the service from the Render dashboard.
+   - Exit 6: the service does not declare `RUN_TOKEN` (a `render.yaml` from before this version): add the key to `render.yaml`, push, wait for the deploy, then run again.
+
+3. The service's address, on the site (`url` from Step 5, a public address):
+
+   ```bash
+   (cd "<WEB_DIR>" && printf 'WORKER_URL=%s\n' "<url>" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin)
+   ```
+
+The relay itself is the body of the scheduled route that `/add-cron` creates for the task. Hand it to the caller, who puts it in place of the route's `// YOUR CRON LOGIC HERE` line once `/add-cron` has created the route:
+
+```typescript
+    // The relay: the work runs in the Render service, this route only wakes it.
+    // The first call after a sleep waits for the service to start (about a minute).
+    const url = process.env.WORKER_URL;
+    const token = process.env.WORKER_RUN_TOKEN;
+    if (!url || !token) throw new Error("WORKER_URL or WORKER_RUN_TOKEN is missing on the site");
+    const answer = await fetch(`${url}/run`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(240_000),
+    });
+    // 202: the work is accepted. 409: a pass is already running, the next call runs.
+    if (answer.status !== 202 && answer.status !== 409) {
+      throw new Error(`the Render service answered ${answer.status}`);
+    }
+```
+
+An error here is an error of the task: the route answers 500, and the shared clock's alert says the task failed. For the "kept awake" regime, the same relay is scheduled every 10 minutes (`*/10 * * * *`).
+
+## Step 7 - Return to caller
 
 Tell the user:
 > ✅ Your background process is live on Render, free plan.
 >
 > **Service**: `<project-name>-worker`
 > **Code**: `apps/worker/src/index.ts` (your work goes in `runOnce()`)
-> **Trigger**: `POST /run`, with the `RUN_TOKEN` header. `GET /healthz` says how the last run went.
+> **Trigger**: a scheduled route of your site wakes it, with a secret only the two of them know. `GET /healthz` says how the last run went.
 > **Dashboard**: https://dashboard.render.com
 > **Logs**: via the Render dashboard, or through the API `GET https://api.render.com/v1/logs?ownerId=...&resource=<service-id>`
 > **Local dev**: `pnpm --filter=worker dev` (uses tsx watch)
 >
-> ⚠️ **What the free plan means here**: the service goes to sleep after 15 minutes without a call, and takes about a minute to wake up on the next one. That is fine for work triggered on a schedule, and it is why the clock calls it rather than the other way round. If your process has to run without ever stopping, tell me: that is a real background worker, around 7 USD/month, and it is a two-line change.
+> ⚠️ **What the free plan means here**: the service goes to sleep after 15 minutes without a call, and takes about a minute to wake up on the next one. That is fine for work triggered on a schedule, and it is why your site calls it rather than the other way round. A run should end within those 15 minutes. If your process has to run without ever stopping, tell me: that is a real background worker, around 7 USD/month, and it is a two-line change.
 
-Then read the generated `RUN_TOKEN` (Render dashboard → the service → Environment, or `GET /v1/services/<id>/env-vars` on the API) and hand it to `/add-cron` so the clock can authenticate. Never print it in the conversation.
-
-Return control to the calling skill (`/add-automation`).
+Return control to the calling skill (`/add-automation`), with the relay of Step 6 for the task's route.
 
 
 ---
@@ -326,9 +401,4 @@ Return control to the calling skill (`/add-automation`).
 
 Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
 
-Record the service right after creation (the `srv-...` id is in the API response):
-
-```bash
-node "${CLAUDE_SKILL_DIR}/../../scripts/manifest/manifest.mjs" add --project-dir "<project-root>" \
-  --kind render-service --id "<srv-id>" --name "<service-name>" --added-by <calling-skill>
-```
+Step 5 records the service, found by its exact name at Render (`scripts/render/service.mjs find --record`). The entry it writes is the manifest's own (kind `render-service`, its `srv-...` identifier and its name), as `_track-resource` describes.

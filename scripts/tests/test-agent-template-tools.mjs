@@ -143,6 +143,44 @@ check(
   /AGENT_MAIL_ALLOWLIST/.test(setup) && /AGENT_FETCH_WRITE_HOSTS/.test(setup),
 );
 
+// ── What outlives the project, and what Brevo drops (lot 6 bis, 05/10/2026) ──
+// The agent's key and its service survived the deletion of their project: the key was never
+// recorded, the service carried the agent's name alone and was never recorded either.
+const record = setup.slice(setup.indexOf("function recordAgentKey"), setup.indexOf("// ─── Step 2b"));
+check(
+  "la cle de l'agent entre au manifeste du projet des sa creation (ai-key, par son empreinte)",
+  /state\.agentKeyRecorded = recordAgentKey\(/.test(setup) && /"--kind", "ai-key"/.test(record) && /hash=\$\{hash\}/.test(record),
+);
+check(
+  "... et un enregistrement rate est dit, jamais tu",
+  /warn\(/.test(record) && /agentKeyRecorded: state\.agentKeyRecorded/.test(setup),
+);
+const renderYaml = readFileSync(join(ROOT, "templates", "agent", "render.yaml"), "utf8");
+check(
+  "le service de l'agent porte le nom du projet, puis celui de l'agent",
+  /^\s*name: \{\{RENDER_SERVICE_NAME\}\}\s*$/m.test(renderYaml) && /RENDER_SERVICE_NAME: renderServiceName\(\)/.test(setup) && /\$\{project\}-\$\{opts\.name\}/.test(setup),
+);
+const createAgent = readFileSync(join(ROOT, "skills", "_create-agent", "SKILL.md"), "utf8");
+check(
+  "_create-agent inscrit le service au manifeste une fois le Blueprint applique",
+  /scripts\/render\/service\.mjs" find[\s\S]{0,200}--record --added-by _create-agent/.test(createAgent),
+);
+// The failure email: its escaping, run on a reason that carries Brevo's template syntax.
+const mailSource = readFileSync(join(ROOT, "templates", "agent", "mail.ts"), "utf8");
+const escapeSource = /function escape\(s: string\): string \{[\s\S]*?\n\}/.exec(mailSource)?.[0];
+let escapeFn = null;
+try {
+  escapeFn = escapeSource ? new Function(`${escapeSource.replace("(s: string): string", "(s)")}; return escape;`)() : null;
+} catch {
+  escapeFn = null;
+}
+const escaped = escapeFn ? escapeFn("Erreur du fournisseur : {{ params.x }} <b>") : "";
+check(
+  "l'email d'echec n'emporte jamais « {{ » vers Brevo, qui jetterait le message",
+  Boolean(escapeFn) && !escaped.includes("{{") && !escaped.includes("}}") && !escaped.includes("<b>") && escaped.includes("&#123;&#123;"),
+  escaped,
+);
+
 console.log(`\n${checks - failures}/${checks} verifications`);
 if (failures) {
   console.error(`${failures} ECHEC(S)`);

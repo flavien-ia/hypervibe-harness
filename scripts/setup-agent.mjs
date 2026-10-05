@@ -132,6 +132,7 @@ const warnings = [];
 const state = {
   agentKeyHash: null,
   agentKeyCapUsd: null,
+  agentKeyRecorded: false,
   monorepoConverted: false,
   schemaPatched: false,
 };
@@ -251,6 +252,36 @@ async function agentKey() {
   state.agentKeyHash = out.hash ?? null;
   state.agentKeyCapUsd = out.plafondUsd ?? null;
   ok(`agent key created and capped at ${out.plafondUsd} $ (written to ${relative(REPO_ROOT, AGENT_DIR)}/.env)`);
+  state.agentKeyRecorded = recordAgentKey(state.agentKeyHash);
+}
+
+/** The agent's key enters the project's manifest at once, as the site's key does: /delete-project
+ *  revokes every ai-key the manifest holds. Unrecorded, the agent's key outlived its project,
+ *  capped but watched by nobody (lot 6 bis, 05/10/2026). The hash is an identifier, never the key. */
+function recordAgentKey(hash) {
+  if (!hash) {
+    warn("The agent's key came back without an identifier: it cannot be recorded, so revoke it by hand on openrouter.ai/settings/keys when the project is deleted.");
+    return false;
+  }
+  const r = spawnSync(
+    process.execPath,
+    [
+      join(__dirname, "manifest", "manifest.mjs"), "add",
+      "--project-dir", REPO_ROOT,
+      "--kind", "ai-key",
+      "--name", `${opts.name}-agent`,
+      "--field", "provider=openrouter",
+      "--field", `hash=${hash}`,
+      "--added-by", "_create-agent",
+    ],
+    { encoding: "utf8", windowsHide: true },
+  );
+  if (r.status === 0) {
+    ok("agent key recorded in the project's manifest: it will be revoked with the project");
+    return true;
+  }
+  warn(`The agent's key could not be recorded in the project's manifest (${(r.stderr || r.stdout || `exit ${r.status}`).trim().slice(0, 160)}): record it with _track-resource (kind ai-key, field hash), or /delete-project will not revoke it.`);
+  return false;
 }
 
 // ─── Step 2b - resolveModel (never hardcode a model generation) ──────
@@ -314,6 +345,7 @@ async function scaffoldAgent() {
   const vars = {
     AGENT_NAME: opts.name,
     PROJECT_NAME: detectProjectName(),
+    RENDER_SERVICE_NAME: renderServiceName(),
   };
   walkAndSubstitute(AGENT_DIR, vars);
   ok(`Scaffolded ${countFiles(AGENT_DIR)} files into apps/${opts.name}/`);
@@ -362,6 +394,15 @@ function detectProjectName() {
     const root = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
     return (root.name ?? "project").replace(/^@/, "").replace(/\//g, "-");
   } catch { return "project"; }
+}
+
+/** The agent's Render service carries the project's name, then the agent's: an agent's service
+ *  named after the agent alone was invisible to /delete-project, which looks for the project's
+ *  name, and kept running (and billing) after the project was gone (lot 6 bis, 05/10/2026). The
+ *  root package.json of a converted project is "<project>-monorepo": the suffix is not the name. */
+function renderServiceName() {
+  const project = detectProjectName().replace(/-monorepo$/, "");
+  return project === opts.name ? opts.name : `${project}-${opts.name}`;
 }
 
 // ─── Step 5 - patchSystemPrompt ──────────────────────────────────────
@@ -667,6 +708,9 @@ process.stdout.write(JSON.stringify({
   memory: opts.memory,
   model: opts.model,
   schemaPatched: state.schemaPatched,
+  // The name the Blueprint gives the service, and whether the agent's key is in the manifest.
+  renderServiceName: renderServiceName(),
+  agentKeyRecorded: state.agentKeyRecorded,
   warnings,
   nextSteps: {
     // By name: the Bash guardrail refuses a sweeping `git add .`. The root
@@ -682,6 +726,10 @@ process.stdout.write(JSON.stringify({
       "Fill in the env vars listed below",
       "Click 'Apply'",
     ],
+    // Once the Blueprint is applied, _create-agent records the service in the project's manifest
+    // (scripts/render/service.mjs find --record), so that /delete-project finds it by its
+    // identifier and deletes it with the project.
+    recordService: `once the Blueprint is applied: record the service ${renderServiceName()} in the project's manifest`,
     envVarsToSet: [
       `OPENROUTER_API_KEY (the agent's own capped key, already created and capped at ${state.agentKeyCapUsd} $; copy the value from apps/${opts.name}/.env)`,
       `AGENT_MAIL_ALLOWLIST (who this agent may email: addresses or @domains, comma separated${opts.mailAllowlist ? `; set to ${opts.mailAllowlist}` : "; EMPTY, so it cannot send anything yet"})`,
@@ -693,7 +741,7 @@ process.stdout.write(JSON.stringify({
       "AGENT_MONTHLY_BUDGET_USD (default 50)",
       opts.trigger === "cron" ? "AGENT_CRON_SCHEDULE (e.g.: '0 7 * * *' for 7am every morning)" : null,
       opts.trigger === "cron" ? "AGENT_CRON_PROMPT (the prompt sent to the agent at each cron tick)" : null,
-      opts.memory === "pgvector" ? "CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (for embeddings via Cloudflare Workers AI - already known, will be propagated automatically to Render)" : null,
+      opts.memory === "pgvector" ? "CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID (for embeddings via Cloudflare Workers AI; nothing copies them for you)" : null,
     ].filter(Boolean),
   },
 }) + "\n");

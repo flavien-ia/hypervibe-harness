@@ -235,6 +235,8 @@ The inventory carries a `manifest` section when the project declares its resourc
 
 Conversely, a resource found ONLY by name similarity (no `declared: true`) deserves the opposite caution: say it was **guessed from its name**, and have the user confirm it truly belongs to this project before it enters the scope.
 
+A Render service marked `foundVia: "repository"` is neither: Render says it is built from this project's own repository, whatever its name (the case of an agent created before version 3.4.2, whose service carries the agent's name alone). Present it as *"built from this project's repository"*: it belongs in the scope, and it is billed every month while it exists.
+
 ### 2.1c The project's AI keys
 
 A `kind: "ai-key"` entry in the manifest means the project has a spending-capped

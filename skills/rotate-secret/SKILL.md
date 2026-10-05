@@ -342,6 +342,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" list --project-dir 
 ```
 
 - Exit 4 (no Render key in the vault) → silent, the user has no Render. Exit 2 → the vault is locked: unlock it, run the same command again.
+- Exit 1 → the vault or Render could not be read: **never silent**. Nothing says the project has no Render service using this key: say it plainly, offer to run the same command again, and count Render among the targets not yet in sync (the warning below applies).
 - `services` empty → no Render service uses this key, skip.
 - Services marked `inManifest: true` are this project's: update them. A service NOT in the manifest may belong to another project of the same account: name it to the user and ask whether it belongs to this project before writing to it. The script holds the same rule: it refuses such a service (exit 6) until `--outside-manifest` says the user confirmed it. Never "every service that declares the key".
 
@@ -353,7 +354,8 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" set --project-dir "
 ```
 
 Depending on the output:
-- `results[].written: true` → announce `✅ Render service <name>: <SECRET_NAME> updated, redeploy started (~2-5 min)`.
+- `results[].written: true` and `redeployed: true` → announce `✅ Render service <name>: <SECRET_NAME> updated, redeploy started (~2-5 min)`.
+- `results[].written: true` and `redeployed: false` → the value is written, but Render refused the redeploy: the service still runs with the old value. Say so, and have the person redeploy it from `https://dashboard.render.com` (the service, then **Manual Deploy**).
 - Exit 6 → nothing was written: a named service does not declare the key, or is not in the project's manifest and the user has not confirmed it is this project's (the message says which).
 - Exit 1 → Render refused or did not answer: surface the message, offer `https://dashboard.render.com` for a manual fix.
 

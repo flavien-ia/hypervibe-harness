@@ -441,15 +441,16 @@ From the JSON captured in Step 5, display exactly:
 >    ```
 >    git add apps/<NAME> <modified root files> && git commit -m "feat(agent): scaffold <NAME> agent" && git push
 >    ```
->    The push asks you to confirm: that is the guardrail doing its job.
+>    The push asks you to confirm: that is the guardrail doing its job.<if the project was converted to a monorepo in this session> Before it: your site's hosting must build from `apps/web/` (the setting the conversion asked you to change), or every deployment of your site fails from this push on.</if>
 >
 > 2. **Create the Render service** *(manual action, ~2 min)*:
 >    - Go to **https://dashboard.render.com/blueprints**
 >    - Click **"New Blueprint Instance"**
 >    - Select your GitHub repo
->    - Render automatically detects `apps/<NAME>/render.yaml`
+>    - Render automatically detects `apps/<NAME>/render.yaml`, and names the service **`<renderServiceName>`**
 >    - Fill in the **environment variables** (list below)
 >    - Click **"Apply"**
+>    - **Then tell me**: I record the service in your project, so that deleting the project one day deletes it too (it is billed every month while it exists).
 >
 > 3. **Environment variables to fill in on Render**:
 >    - `OPENROUTER_API_KEY` - the agent's own capped key, in `apps/<agent-name>/.env`
@@ -495,4 +496,14 @@ From the JSON captured in Step 5, display exactly:
 
 Every cloud resource this skill creates or adopts is recorded in the project resource manifest (`.hypervibe/resources.json`, versioned with the code) - it is what `/save-project` and `/delete-project` read first, instead of guessing resources by name. Run the recording right after the resource exists; it is idempotent, silent on success, and stores identifiers only (never secrets). Full reference: the `_track-resource` skill.
 
-Record whatever infrastructure the chosen architecture created: a `render-service` (via `_setup-render` / `_create-render-worker`, which document their own recording) or a `cf-worker` (via `_create-cloudflare-worker`). If this skill creates a resource directly, record it here with the matching kind.
+Two records belong to this skill, and they are what lets `/delete-project` remove the agent with its project:
+
+- **The agent's key** (kind `ai-key`, named `<NAME>-agent`): recorded by the setup script itself, right after the key is minted (`agentKeyRecorded: true` in its JSON). If it says `false`, its warning names the cause: record the key with `_track-resource` (kind `ai-key`, field `hash`) before going further, or the key will outlive the project.
+- **The agent's Render service** (kind `render-service`): it only exists once the person has applied the Blueprint. When they say it is done, find it by its exact name and record it:
+
+  ```bash
+  node "${CLAUDE_SKILL_DIR}/../../scripts/render/service.mjs" find --project-dir "<project-root>" \
+    --name "<renderServiceName>" --record --added-by _create-agent
+  ```
+
+  Exit 0: `recorded: true`. Exit 4: no service of that name yet (the Blueprint was not applied, or the service was renamed: ask). Exit 6: several services carry that name: ask which one is this project's. Exit 2: unlock the vault and run again. Exit 1: say what failed, never take it for "no service".

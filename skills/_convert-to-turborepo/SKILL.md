@@ -44,9 +44,9 @@ test -f drizzle.config.ts -o -f drizzle.config.js && echo "has-db" || echo "no-d
 ```
 
 Tell the user:
-> I am going to convert your project into a Turborepo monorepo: the current code moves to `apps/web/`, with a new root `package.json` + `pnpm-workspace.yaml` + `turbo.json`, and turbo added as a devDep<if has-db>, plus the Drizzle DB extracted into `packages/db/`</if>.
+> I am going to convert your project into a Turborepo monorepo: the current code moves to `apps/web/`, with a new root `package.json` + `pnpm-workspace.yaml` + `turbo.json`, and turbo added as a devDep<if has-db>, plus the Drizzle DB extracted into `packages/db/`</if>. What belongs to the repository itself (its automations, the project's resource list, your project rules) stays where it is.
 >
-> ⚠️ **Commit your work in progress first** - this operation moves a lot of files and is hard to revert.
+> ⚠️ **Commit your work in progress first** - this operation moves a lot of files and is hard to revert. And one setting will have to change on Vercel before the next push: I will tell you which, at the end.
 >
 > Ready to go? (reply `yes` to continue)
 
@@ -69,19 +69,37 @@ Return to caller without doing anything.
 mkdir -p apps/web
 ```
 
-Move everything **except** `apps/`, `.git`, `node_modules`, and lock files. Use `git mv` to preserve history (fall back to `mv` if git mv fails on ignored files).
+Only the APPLICATION moves. What belongs to the REPOSITORY stays at its root, because what reads it looks there and nowhere else:
+
+- `.github/`: the forge reads a repository's automations at its root only (deployment, scheduled tasks, checks). Moved, they would silently stop.
+- `.hypervibe/`: the project's resource manifest, one per repository, at its root. Moved, a second one would be born at the root, and each half would miss the other's resources.
+- `CLAUDE.md` and `.claude/`: the project's rules and settings, read from where the sessions open, the repository's root.
+- `.git`, `.gitattributes`, the lockfile (pnpm keeps a workspace's single lockfile at its root), and the files that tools read from the root of a workspace or look for upward from any folder (`.npmrc`, `.nvmrc`, `.node-version`, `.tool-versions`, `.editorconfig`, `.vscode/`).
+- `.gitignore` is **copied**, not moved: the root one keeps covering what stays at the root, and the copy keeps the application's own patterns (`/.next/`, `/node_modules`) meaning the same thing in `apps/web/`.
+
+What git tracks moves with `git mv` (its history follows). The application's own untracked files (`.env`, `.env.*`, `.vercel/`) move with a plain `mv`: they belong to the application, and they never go through git. Anything else that git does not track stays where it is, and is named.
 
 ```bash
 shopt -s dotglob nullglob
 for item in *; do
   case "$item" in
-    apps|.git|node_modules|pnpm-lock.yaml|package-lock.json|yarn.lock) continue ;;
-    *) git mv "$item" "apps/web/$item" ;;
+    apps|packages|.git|.github|.hypervibe|.claude|CLAUDE.md|.gitattributes|.gitignore|.npmrc|.nvmrc|.node-version|.tool-versions|.editorconfig|.vscode|node_modules|pnpm-lock.yaml|package-lock.json|yarn.lock) continue ;;
   esac
+  if git ls-files --error-unmatch -- "$item" >/dev/null 2>&1; then
+    git mv -- "$item" "apps/web/$item"
+  else
+    case "$item" in
+      .env|.env.*|.vercel) mv -- "$item" "apps/web/$item" ;;
+      *) echo "LEFT AT THE ROOT (not tracked by git): $item" ;;
+    esac
+  fi
 done
-test -f pnpm-lock.yaml && mv pnpm-lock.yaml apps/web/pnpm-lock.yaml
+shopt -u dotglob nullglob
+test -f .gitignore && cp .gitignore apps/web/.gitignore
 rm -rf node_modules   # we'll reinstall at the end
 ```
+
+If a `LEFT AT THE ROOT` line names something the application needs (a local file it reads at run time), say so to the user and move it into `apps/web/` with a plain `mv`.
 
 ## Step 5 - Create root package.json
 
@@ -210,7 +228,7 @@ Add to `apps/web/package.json`:
 pnpm install
 ```
 
-This will create a fresh `pnpm-lock.yaml` at the root and install everything across the workspace.
+This rewrites the root `pnpm-lock.yaml` for the workspace and installs everything across it.
 
 ## Step 10 - Verify the conversion
 
@@ -226,23 +244,34 @@ If it errors:
 
 ## Step 11 - Commit
 
-This conversion moves the whole tree: staging file by file would be absurd here, so it is the one documented case where a sweeping stage is legitimate. **First** make sure nothing foreign is pending, **then** stage everything with the explicit prefix that the guardrail recognises (it refuses a bare `git add .`):
+This conversion moves the whole tree: naming every moved file would be absurd, so it is the one documented case where a sweeping stage is legitimate, **for the files git already tracks**, and for them only. `git add -u` stages moves and rewrites, never a new file: an `.env` or a `.vercel/` folder cannot enter the commit. What the conversion created is then staged by name. **First** make sure nothing foreign is pending:
 
 ```bash
-git status --short   # must show ONLY files this conversion moved or created; stop and ask if anything else is pending
-HYPERVIBE_GUARD_ALLOW_SWEEP=1 git add -A
+git status --short   # must show ONLY what this conversion moved, created or rewrote; stop and ask if anything else is pending
+HYPERVIBE_GUARD_ALLOW_SWEEP=1 git add -u
+git add -- package.json pnpm-workspace.yaml turbo.json apps/web/.gitignore
+test -d packages/db && git add -- packages/db
+git status --short   # what is staged: no .env, no .vercel/, nothing this conversion did not touch
 git commit -m "refactor: convert to Turborepo monorepo"
 ```
 
 ⚠️ **Don't push automatically** - let the caller (`/add-automation`) decide when to push.
 
-## Step 12 - Return to caller
+## Step 12 - Point the site's hosting at apps/web/, then return to caller
 
-Tell the user:
+The site now lives in `apps/web/`, and its hosting still builds the repository's root: from the next push on, every deployment of the site would fail (the live site keeps its last version, and nothing new goes online). Before anything is pushed, the person changes one setting. Tell the user:
 > ✅ Conversion to a Turborepo monorepo complete. Your app now lives in `apps/web/`<if has-db>, and your shared DB in `packages/db/`</if>.
+>
+> **One setting to change on Vercel before the next push**, or every deployment of your site will fail from then on (your live site stays as it is, but nothing new goes online):
+> 1. Open your project on https://vercel.com, then **Settings** → **Build and Deployment**
+> 2. **Root Directory**: `apps/web`, then **Save**
+>
+> Tell me once it is done.
 >
 > New commands: `pnpm dev` (all apps), `pnpm dev --filter=web` (just the frontend), `pnpm build`.
 >
 > Commit made locally, not pushed - the caller will decide when to push.
+
+Wait for the confirmation, and pass it on to the caller: it pushes only once the setting is changed, then checks that the site still deploys.
 
 Return control to the calling skill (`/add-automation`).

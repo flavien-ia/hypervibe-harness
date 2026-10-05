@@ -491,7 +491,8 @@ else
       echo "CF_WORKER_PATCHED=$WT"
       # Redeploy from the worker's directory
       WORKER_DIR=$(dirname "$WT")
-      (cd "$WORKER_DIR" && npx wrangler deploy < /dev/null 2>&1 | tail -3) \
+      # pipefail: the pipeline's status is the deploy's, not tail's (always 0).
+      (set -o pipefail; cd "$WORKER_DIR" && npx wrangler deploy < /dev/null 2>&1 | tail -3) \
         && echo "CF_WORKER_REDEPLOYED=$WT" \
         || echo "CF_WORKER_REDEPLOY_FAILED=$WT"
     fi
@@ -520,6 +521,7 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" list --project-dir 
 
 - Exit 4 (no Render key in the vault) or `services` empty -> silent, nothing to fix.
 - Exit 2 -> the vault is locked: unlock it, run again.
+- Exit 1 -> the vault or Render could not be read: never silent. Nothing says there is no Render service to fix: say it, and move it to the manual actions (11.5).
 - Services marked `inManifest: true` are this project's. A service not in the manifest may belong to another project: ask before touching it. The script refuses it (exit 6) until `--outside-manifest` says the user confirmed it is this project's.
 
 Then point the chosen services' addresses at the domain: only this project's addresses at Vercel change, another project's `*.vercel.app` address (a shared API) is kept and listed. Redeploy them:
@@ -529,7 +531,8 @@ node "${CLAUDE_SKILL_DIR}/../../scripts/render/env-vars.mjs" retarget --project-
   --service <srv-id> [--service <srv-id> ...] --to-origin "https://<domain>"
 ```
 
-- `results[].changed` not empty -> ✅ announce `✅ Render service <name> updated (<variables>), redeploy started`.
+- `results[].changed` not empty and `redeployed: true` -> ✅ announce `✅ Render service <name> updated (<variables>), redeploy started`.
+- `results[].changed` not empty and `redeployed: false` -> the addresses are written, but Render refused the redeploy: the service still uses the old ones. Move it to the manual actions (11.5): redeploy it from the Render dashboard (the service, then **Manual Deploy**).
 - `results[].kept` not empty -> another project's addresses, left as they are: mention them in one line.
 - Exit 6 -> a named service is not in the manifest and the user has not confirmed it: nothing was written.
 - Exit 1 -> Render refused or did not answer: surface the message and move it to the manual actions (11.5).

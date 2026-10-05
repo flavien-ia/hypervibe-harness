@@ -131,6 +131,15 @@ console.log("\n── Écrire : dans les services nommés, la valeur lue dans le
   check("no Render key: said (4), never taken for 'no service'", noKey?.code === 4);
   const locked = await thrown(() => run(["list", "--project-dir", dir, "--key", "X"], { fetchImpl: r.fetch, readKey: () => { throw Object.assign(new Error("locked"), { code: 2 }); } }));
   check("a locked vault is its own exit code (2)", locked?.code === 2);
+  // Lot 6 bis (05/10/2026): any other vault error was "no Render key" (4), which /rotate-secret
+  // reads as "no Render" in silence: a rotation then skipped the project's services without a word.
+  const vaultError = (code) => () => { throw Object.assign(new Error(`vault error ${code}`), { code }); };
+  const unread = await thrown(() => run(["list", "--project-dir", dir, "--key", "X"], { fetchImpl: r.fetch, readKey: vaultError(1) }));
+  check("a vault that could not be read is an error (1), never 'no Render key' (4)", unread?.code === 1 && /could not be read/.test(unread.message), unread?.message);
+  const crashed = await thrown(() => run(["list", "--project-dir", dir, "--key", "X"], { fetchImpl: r.fetch, readKey: () => { throw new Error("bw crashed"); } }));
+  check("... and so is an error without a code", crashed?.code === 1);
+  check("an item or a field the vault does not hold: 'no Render key' (4)", (await thrown(() => run(["list", "--project-dir", dir, "--key", "X"], { fetchImpl: r.fetch, readKey: vaultError(4) })))?.code === 4 && (await thrown(() => run(["list", "--project-dir", dir, "--key", "X"], { fetchImpl: r.fetch, readKey: vaultError(5) })))?.code === 4);
+  check("an expired session keeps its code (3)", (await thrown(() => run(["list", "--project-dir", dir, "--key", "X"], { fetchImpl: r.fetch, readKey: vaultError(3) })))?.code === 3);
   rmSync(dir, { recursive: true, force: true });
 }
 
@@ -194,6 +203,8 @@ for (const skill of ["rotate-secret", "add-domain"]) {
   const text = readFileSync(join(ROOT, "skills", skill, "SKILL.md"), "utf8");
   check(`${skill}: no curl loop over every service of the account`, !/api\.render\.com\/v1\/services\?limit/.test(text));
   check(`${skill}: writes through scripts/render/env-vars.mjs`, /scripts\/render\/env-vars\.mjs/.test(text));
+  check(`${skill}: a vault or Render that could not be read is never taken for "no Render" in silence`, /Exit 1[^\n]*could not be read[^\n]*never silent/i.test(text));
+  check(`${skill}: a redeploy is announced only when Render accepted it, a refused one is said`, /redeployed: true[^\n]*redeploy started/.test(text) && /redeployed: false/.test(text));
 }
 
 console.log(`\n${checks - failures}/${checks} checks`);

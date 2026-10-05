@@ -139,8 +139,16 @@ export async function sendAgentFailureEmail(opts: {
   }
 }
 
+// The braces too: Brevo reads "{{ ... }}" in a message as its own template syntax, and a
+// message it cannot render is dropped AFTER the API said yes, without any error here. A
+// failure reason often quotes a provider's raw text, so it can carry "{{".
 function escape(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\{/g, "&#123;")
+    .replace(/\}/g, "&#125;");
 }
 
 // Re-export ToolName so loop.ts can access it via this module too.

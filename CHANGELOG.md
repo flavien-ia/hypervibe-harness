@@ -1,5 +1,19 @@
 # Changelog
 
+## v3.4.2 (5 octobre 2026)
+
+### Améliorations
+- **Les automatisations sur Render se réveillent enfin** : un processus gratuit chez Render devait être réveillé par votre horloge partagée, ce qu'elle n'a jamais su faire, si bien qu'il ne tournait pas. C'est maintenant une route de votre site qui le réveille aux heures choisies, avec un secret que seuls les deux connaissent.
+- **Un processus répond tout de suite** : il accepte le travail, répond, puis travaille. Il ne répondait qu'à la fin, et un appel qui n'attendait pas assez le croyait en panne.
+- **Supprimer un projet supprime aussi son agent** : le service Render d'un agent (environ 7 USD par mois) et sa clé d'IA plafonnée survivaient à la suppression du projet. Ils sont désormais inscrits dans le projet, et `/delete-project` reconnaît aussi un agent créé avant cette version, par le dépôt dont il est construit.
+- **Le passage en monorepo ne casse plus le projet** : les automatismes du dépôt et la liste des ressources du projet restent à leur place, aucun fichier de secrets ne peut entrer dans le commit, et on vous dit quel réglage changer chez Vercel avant de pousser.
+- **/add-domain** ne dit plus « redéployé » quand le redéploiement d'un Worker Cloudflare a échoué.
+- **/rotate-secret** ne se tait plus quand le coffre ou Render n'ont pas pu être lus, et dit quand Render a refusé un redéploiement.
+- **Les emails d'erreur d'un agent** ne se perdent plus en silence quand le motif contient des accolades.
+
+### Coulisses
+- Cinq vérifications de plus à chaque version, dont une qui lance pour de vrai le code d'un processus.
+
 ## v3.4.1 (4 octobre 2026)
 
 ### Améliorations

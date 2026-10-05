@@ -170,7 +170,7 @@ Based on what you've learned, choose ONE architecture using these heuristics:
 - Beneficiary = the app; Pattern = heavy work the app should not run inline
 - Load = heavy (CPU/RAM intensive, exceeds Cloudflare Worker limits); Duration = long (minutes/hours); State = stateful
 - **Examples**: video transcoding, massive scraping, Redis queue processor, persistent Discord bot
-- ⚠️ **Two plans, and the answer changes the shape of what gets scaffolded.** On the free plan it is a **web service** woken by the shared clock and asleep in between: right for heavy-but-triggered work, wrong for anything that must not miss an event. A process that genuinely has to stay awake (persistent websocket, queue consumer that cannot drop a message) needs a real background worker at ~7 USD/month, because Render's free instance type does not exist for that service type. Ask the user which of the two it is **before** scaffolding; `_create-render-worker` carries the detail.
+- ⚠️ **Two plans, and the answer changes the shape of what gets scaffolded.** On the free plan it is a **web service** that the project's site wakes on schedule, asleep in between: right for heavy-but-triggered work that ends within 15 minutes of its call, wrong for anything that must not miss an event. A process that genuinely has to stay awake (persistent websocket, queue consumer that cannot drop a message) needs a real background worker at ~7 USD/month, because Render's free instance type does not exist for that service type. Ask the user which of the two it is **before** scaffolding; `_create-render-worker` carries the detail.
 
 ### Present the recommendation
 
@@ -229,7 +229,7 @@ Tell the user, with explicit reasoning:
 > 2. Convert your project to a Turborepo monorepo (the worker will live in `apps/worker/`)
 > 3. Create the worker code with a "long-running process" template
 > 4. Generate `render.yaml` and guide you to create the service via the Render dashboard
-> <if needs cron>5. Configure the scheduled runs via `add-cron` (Render free does not have native CRON)</if>
+> <if needs cron>5. Configure the scheduled runs via `add-cron`: a route of your site wakes the service at the chosen times (Render free has no clock of its own)</if>
 >
 > Setup in ~10-15 minutes depending on the installs and the Render deployment.
 > </if>
@@ -264,10 +264,10 @@ Invoke the **`_create-workflow`** skill with the brief (TRIGGER, STEPS and which
 1. Invoke **`_setup-render`** (idempotent - ensures `RENDER.api_key` is in the vault)
 2. Invoke **`_convert-to-turborepo`** (idempotent)
 3. Invoke **`_create-render-worker`**. It scaffolds a **web service on the free plan** by default, exposing `POST /run`. If the discovery established that the process must never stop, say so when invoking it: it then switches to `type: worker` + `plan: starter` and drops the HTTP layer.
-4. **If the user needs scheduled execution** → invoke **`add-cron`** *after* the service is up. Tell the user explicitly:
-   > Render has no CRON of its own on the free plan, so the schedule comes from your shared clock (via `add-cron`). It calls the service's `POST /run` directly, with the token Render generated. That call is also what wakes the service up, which is exactly the point: it sleeps the rest of the time and costs nothing.
+4. **If the user needs scheduled execution** → once `_create-render-worker` has returned with the relay wired (its Step 6: the service's address and its secret are on the site), invoke **`add-cron`** for the schedule, like any task of the site. Then put the relay `_create-render-worker` handed back in place of the `// YOUR CRON LOGIC HERE` line of the route `add-cron` created, and commit that route by name. Tell the user explicitly:
+   > Render has no clock of its own on the free plan, so the schedule comes from your shared clock: it calls a route of your site, and that route wakes the service, with a secret only the two of them know. The call is also what wakes the service up, which is exactly the point: it sleeps the rest of the time and costs nothing.
 
-   Pass the generated `RUN_TOKEN` to `add-cron` as the authentication header. Read it from the Render dashboard or the API, never print it in the conversation.
+   The shared clock only ever calls the project's own site: never register the service's address on it.
 
 ### Branch D - User accepted a routine
 

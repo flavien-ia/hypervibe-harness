@@ -33,6 +33,7 @@ import { readLinkedProject, teamIdFromOrgId } from "../_vercel-auth.mjs";
 import { vercelContext, listAllProjects, getProject, pickTargets } from "../_vercel-projects.mjs";
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
 import { manifestExistant } from "../manifest/locate.mjs";
+import { matchOf, projectRepository } from "./_render-match.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -438,14 +439,28 @@ function scanCronPings() {
 async function scanRender() {
   if (!RENDER_API_KEY) return { found: false, error: missingKey("RENDER_API_KEY") };
   try {
-    const data = await httpJson("https://api.render.com/v1/services?limit=100", {
-      headers: { Authorization: `Bearer ${RENDER_API_KEY}` },
-    });
-    if (data.__error) return { found: false, error: data.__error };
-    const services = (Array.isArray(data) ? data : data.services || [])
-      .map((d) => d.service || d)
-      .filter((s) => tokenMatches(PROJECT_LOWER, s.name || ""));
-    return { found: services.length > 0, services: services.map((s) => ({ id: s.id, name: s.name, type: s.type, suspended: s.suspended })) };
+    // Every page: an account with more than 100 services hid the rest (cursor pagination).
+    const all = [];
+    let cursor = null;
+    for (let page = 0; page < 50; page += 1) {
+      const data = await httpJson(`https://api.render.com/v1/services?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`, {
+        headers: { Authorization: `Bearer ${RENDER_API_KEY}` },
+      });
+      if (data.__error) return { found: false, error: data.__error };
+      const items = Array.isArray(data) ? data : data.services || [];
+      for (const d of items) all.push(d.service || d);
+      cursor = items.length ? items[items.length - 1].cursor : null;
+      if (!cursor || items.length < 100) break;
+    }
+    // By its name, or by the repository it is built from: an agent's service named after the
+    // agent alone is still the project's (scripts/delete-project/_render-match.mjs).
+    const repository = projectRepository(PROJECT_DIR);
+    const services = [];
+    for (const s of all) {
+      const how = matchOf(s, { projectLower: PROJECT_LOWER, repository, tokenMatches });
+      if (how) services.push({ id: s.id, name: s.name, type: s.type, suspended: s.suspended, ...(how === "repository" ? { foundVia: "repository" } : {}) });
+    }
+    return { found: services.length > 0, services };
   } catch (e) {
     return { found: false, error: String(e) };
   }

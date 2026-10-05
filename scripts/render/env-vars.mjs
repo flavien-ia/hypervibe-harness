@@ -32,8 +32,9 @@
 // `inManifest`. The skills asked before writing; the script wrote anyway, with the same answer
 // as for the project's own service (outside review, 3.3.2).
 //
-// Prints ONE JSON object. Exit codes: 0 ok, 1 usage or provider error, 2/3 vault to open,
-// 4 no Render key / value absent from .env, 6 refused (a service that does not declare the key).
+// Prints ONE JSON object. Exit codes: 0 ok, 1 usage or provider error, or a vault that could not
+// be read (never taken for "no Render key"), 2/3 vault to open, 4 no Render key / value absent
+// from .env, 6 refused (a service that does not declare the key).
 
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -45,11 +46,21 @@ import { checkOrigin, projectNameOf, repointOwn } from "../vercel/own-address.mj
 
 const API = "https://api.render.com/v1";
 
-class Failure extends Error {
+export class Failure extends Error {
   constructor(code, message) {
     super(message);
     this.code = code;
   }
+}
+
+/** What a failed read of the Render key means. Locked (2) and expired (3) say so; an item or a
+ *  field the vault does not hold is "no Render key" (4); anything else is a read that failed, and
+ *  never "no Render key": the skills say "no Render" in silence on 4, and a rotation would then
+ *  skip the project's services without a word. */
+export function keyFailure(e) {
+  if (e?.code === 2 || e?.code === 3) return new Failure(e.code, "The vault is locked: open it, then run the same command again.");
+  if (e?.code === 4 || e?.code === 5) return new Failure(4, "No Render key in the vault (item RENDER, field api_key).");
+  return new Failure(1, `The vault could not be read (${e?.message ?? e}): nothing is known about Render yet. Run the same command again.`);
 }
 
 /** The Render services the project's manifest records. */
@@ -64,7 +75,7 @@ export function manifestServices(projectDir) {
   }
 }
 
-function client(key, fetchImpl) {
+export function client(key, fetchImpl) {
   return async (method, path, body) => {
     let res;
     try {
@@ -103,7 +114,7 @@ async function all(api, path, pick) {
   return out;
 }
 
-const services = (api) => all(api, "/services", (it) => it.service ?? it);
+export const services = (api) => all(api, "/services", (it) => it.service ?? it);
 const envVars = (api, id) => all(api, `/services/${encodeURIComponent(id)}/env-vars`, (it) => it.envVar ?? it);
 
 export async function run(argv, { fetchImpl = globalThis.fetch, readKey } = {}) {
@@ -129,7 +140,7 @@ export async function run(argv, { fetchImpl = globalThis.fetch, readKey } = {}) 
   try {
     key = readKey();
   } catch (e) {
-    throw new Failure(e?.code === 2 || e?.code === 3 ? e.code : 4, e?.code === 2 || e?.code === 3 ? "The vault is locked: open it, then run the same command again." : "No Render key in the vault (item RENDER, field api_key).");
+    throw keyFailure(e);
   }
   if (!key) throw new Failure(4, "No Render key in the vault (item RENDER, field api_key).");
   const api = client(key, fetchImpl);
