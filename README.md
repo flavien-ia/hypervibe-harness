@@ -21,22 +21,24 @@ Then type `/start`: it installs everything else for you (Node.js, pnpm, Git, and
 
 Prefer a guided, click-by-click version? See the full walkthrough at **[hypervibe.fr/plugin/installation](https://hypervibe.fr/plugin/installation)**.
 
-## Codex and OpenCode
+## Codex, OpenCode and Antigravity
 
-Hypervibe is written for Claude Code, but the same plugin also runs on **OpenAI Codex** and on **OpenCode**: the same skills, the same guardrail, the same MCP server. hypervibe.fr serves a version converted for each host and explains how to install it without writing a line of code:
+Hypervibe is written for Claude Code, but the same plugin also runs on **OpenAI Codex**, on **OpenCode** and on **Google Antigravity**: the same skills, the same guardrail, the same MCP server. hypervibe.fr serves a version converted for each host and explains how to install it without writing a line of code:
 
 - [Hypervibe for Codex](https://hypervibe.fr/en/plugin/codex)
 - [Hypervibe for OpenCode](https://hypervibe.fr/en/plugin/opencode)
+- [Hypervibe for Antigravity](https://hypervibe.fr/en/plugin/antigravity)
 
-Developers can also convert this repository themselves with the open source converters behind those downloads, [claude-plugin-to-codex](https://www.npmjs.com/package/claude-plugin-to-codex) and [claude-plugin-to-opencode](https://www.npmjs.com/package/claude-plugin-to-opencode) (one engine, [claude-plugin-port](https://github.com/flavien-ia/claude-plugin-port)):
+Developers can also convert this repository themselves with the open source converters behind those downloads, [claude-plugin-to-codex](https://www.npmjs.com/package/claude-plugin-to-codex), [claude-plugin-to-opencode](https://www.npmjs.com/package/claude-plugin-to-opencode) and [claude-plugin-to-antigravity](https://www.npmjs.com/package/claude-plugin-to-antigravity) (one engine, [claude-plugin-port](https://github.com/flavien-ia/claude-plugin-port)):
 
 ```bash
 git clone https://github.com/flavien-ia/hypervibe-harness.git
-npx claude-plugin-to-codex --source ./hypervibe-harness      # Codex
-npx claude-plugin-to-opencode --source ./hypervibe-harness   # OpenCode
+npx claude-plugin-to-codex --source ./hypervibe-harness         # Codex
+npx claude-plugin-to-opencode --source ./hypervibe-harness      # OpenCode
+npx claude-plugin-to-antigravity --source ./hypervibe-harness   # Antigravity
 ```
 
-What differs from Claude Code: the rules file is `AGENTS.md` (or your existing `CLAUDE.md` on a machine that also runs Claude Code), a question to you is asked in plain text on Codex and through the `question` tool on OpenCode, and a few skills still describe menus that only Claude Code has. Everything else, vault included, is the same scripts.
+What differs from Claude Code: the rules file is `AGENTS.md` (on Codex and OpenCode, your existing `CLAUDE.md` on a machine that also runs Claude Code; Antigravity reads `AGENTS.md` only), a question to you is asked in plain text on Codex and through the `question` tool on OpenCode, routines run in the scheduler of Codex's and Antigravity's desktop apps, and a few skills still describe menus that only Claude Code has. Everything else, vault included, is the same scripts.
 
 ## Getting started
 

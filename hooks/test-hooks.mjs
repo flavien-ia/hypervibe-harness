@@ -13,7 +13,8 @@
 //   node hooks/test-hooks.mjs
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -22,15 +23,32 @@ const HOOK = join(dirname(fileURLToPath(import.meta.url)), "guard-bash.mjs");
 let failures = 0;
 let checks = 0;
 const timings = [];
+// What the guardrail costs on its own, apart from starting Node: every eighth call is paired with a
+// bare start of Node (an empty module, the same input and environment) right after it, under the
+// same load. A busy machine slows both; only a guardrail that grew heavy widens the gap. Measured on
+// 05/10/2026: a bare start took 110 to 190 ms on a Windows machine, the guardrail's own share about
+// 15 ms, and a budget on the whole call failed whenever the machine was busy.
+const gaps = [];
+const bareStarts = [];
+const BARE = join(mkdtempSync(join(tmpdir(), "hv-garde-nu-")), "nu.mjs");
+writeFileSync(BARE, "");
+
+function timed(file, input, env) {
+  const started = process.hrtime.bigint();
+  const out = execFileSync(process.execPath, [file], { input, encoding: "utf8", env });
+  return { out, ms: Number(process.hrtime.bigint() - started) / 1e6 };
+}
 
 function call(payload, env = {}) {
-  const started = process.hrtime.bigint();
-  const out = execFileSync(process.execPath, [HOOK], {
-    input: typeof payload === "string" ? payload : JSON.stringify(payload),
-    encoding: "utf8",
-    env: { ...process.env, HYPERVIBE_GUARD_ALLOW_DB_PUSH: "", ...env },
-  });
-  timings.push(Number(process.hrtime.bigint() - started) / 1e6);
+  const input = typeof payload === "string" ? payload : JSON.stringify(payload);
+  const fullEnv = { ...process.env, HYPERVIBE_GUARD_ALLOW_DB_PUSH: "", ...env };
+  const { out, ms } = timed(HOOK, input, fullEnv);
+  timings.push(ms);
+  if (timings.length % 8 === 0) {
+    const bare = timed(BARE, input, fullEnv).ms;
+    bareStarts.push(bare);
+    gaps.push(ms - bare);
+  }
   if (!out.trim()) return null;
   return JSON.parse(out).hookSpecificOutput;
 }
@@ -1038,13 +1056,17 @@ console.log("\n── Un dossier hooks/ recopie seul garde ses regles (revue ext
   console.log(`${ok ? "OK  " : "FAIL"} hooks/ seul : exit ${r.status}, decision ${decision}${ok ? "" : `, stderr ${r.stderr.trim().split("\n")[0]}`}`);
 }
 
-const median = timings.sort((a, b) => a - b)[Math.floor(timings.length / 2)];
+const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+const own = median(gaps);
 checks += 1;
-const rapide = median < 150;
+// The guardrail's own share of a call, whatever the machine and its load: under 75 ms. A guardrail
+// that reads the network, waits, or loads a heavy module goes well above it.
+const rapide = gaps.length >= 20 && own < 75;
 if (!rapide) failures += 1;
 console.log(
-  `${rapide ? "OK  " : "FAIL"} cout par appel : ${median.toFixed(0)} ms median (budget 150 ms)`,
+  `${rapide ? "OK  " : "FAIL"} cout propre du garde-fou : ${own.toFixed(0)} ms median par appel (budget 75 ms ; appel complet ${median(timings).toFixed(0)} ms, demarrage nu de Node ${median(bareStarts).toFixed(0)} ms, ${gaps.length} paires)`,
 );
+rmSync(dirname(BARE), { recursive: true, force: true });
 
 console.log(`\n${checks - failures}/${checks} verifications`);
 if (failures) {

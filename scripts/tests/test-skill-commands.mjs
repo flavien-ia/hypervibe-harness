@@ -49,7 +49,7 @@ const ANCRE_SANS_ACCOLADES = new RegExp("\\" + DOLLAR + "CLAUDE_(?:SKILL_DIR|PLU
 // que la ou le plugin a ete televerse dans Claude Desktop, jamais dans un port.
 // Sept commandes du Team l'ont porte jusqu'en 2.1.10 (le `start` solo jusqu'en 3.1.6).
 const CHEMIN_CODE_EN_DUR = /\.claude\/plugins\/marketplaces\/[^/\s"'`]+\/hypervibe/;
-const VARIANTE = /\.(codex|opencode)\.md$/;
+const VARIANTE = /\.(codex|opencode|antigravity)\.md$/;
 
 console.log("\nLes motifs eux-memes");
 verifier("une continuation ecrite \\n est reperee", CONTINUATION_LITTERALE.test('add --project-dir "<p>" \\n  --kind db-backup'));
@@ -163,7 +163,7 @@ console.log("\nTextes par outil et ports.json");
 const variantes = markdowns.filter((f) => VARIANTE.test(f.rel));
 for (const v of variantes) {
   verifier(`${v.rel} remplace un fichier qui existe`, existsSync(v.p.replace(VARIANTE, ".md")));
-  if (/(^|\/)SKILL\.(codex|opencode)\.md$/.test(v.rel)) {
+  if (/(^|\/)SKILL\.(codex|opencode|antigravity)\.md$/.test(v.rel)) {
     const nom = readFileSync(v.p, "utf8").match(/^name:\s*(.+?)\s*$/m)?.[1];
     verifier(`${v.rel} porte le nom de sa skill`, nom === v.skill, nom);
   }
@@ -172,6 +172,14 @@ const ports = JSON.parse(readFileSync(join(ROOT, "ports.json"), "utf8"));
 const exclues = Array.isArray(ports.exclude) ? ports.exclude : Object.values(ports.exclude ?? {}).flat();
 for (const skill of new Set(exclues)) {
   verifier(`ports.json exclut une skill qui existe : ${skill}`, existsSync(join(SKILLS, skill, "SKILL.md")));
+}
+// Codex et Antigravity ont un planificateur : chaque routine y a sa variante, ou reste hors de leur
+// port (sinon le port garderait le texte de Claude Code, qui parle d'un autre planificateur).
+for (const outil of ["codex", "antigravity"]) {
+  for (const skill of ["add-routine", "_create-routine"]) {
+    const variante = existsSync(join(SKILLS, skill, `SKILL.${outil}.md`));
+    verifier(`${skill} : une variante ${outil}, ou hors du port ${outil}`, variante || (ports.exclude?.[outil] ?? []).includes(skill));
+  }
 }
 verifier(
   "ports.json : prefixe des skills internes conforme",

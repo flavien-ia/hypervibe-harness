@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.4.4 (5 octobre 2026)
+
+### Nouveautés
+- **Hypervibe sur Google Antigravity** : le harnais tourne aussi dans Antigravity, en vrai plugin, avec les mêmes skills, le même garde-fou et le même serveur MCP. hypervibe.fr sert une version convertie et explique comment l'installer : hypervibe.fr/plugin/antigravity. Tes routines y tournent dans le planificateur d'Antigravity : la mission que tu valides, les permissions les plus étroites, et c'est toi qui l'allumes dans le tableau Automations.
+
+### Coulisses
+- Les recettes vérifient que chaque routine a son texte pour chaque outil qui sait planifier.
+- Le contrôle de durée du garde-fou mesure désormais ce que coûte le garde-fou lui-même, et non plus la vitesse de la machine : il échouait dès que l'ordinateur était chargé.
+
 ## v3.4.3 (5 octobre 2026)
 
 ### Améliorations
