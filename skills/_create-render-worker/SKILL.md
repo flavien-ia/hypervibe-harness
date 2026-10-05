@@ -226,6 +226,9 @@ services:
     name: <project-name>-worker
     runtime: node
     plan: free
+    # Frankfurt, in the EU. A Blueprint that names no region gets Render's
+    # default, Oregon (USA), and a service never changes region afterwards.
+    region: frankfurt
     rootDir: apps/worker
     buildCommand: pnpm install && pnpm build
     startCommand: pnpm start
@@ -246,6 +249,8 @@ services:
 ```
 
 Replace `<project-name>` with the actual project name.
+
+**`region: frankfurt` stays.** Without it, Render creates the service in Oregon, in the USA (its default for a Blueprint), and a service never changes region: a worker created by a version before 3.4.3 may run there. Moving one means creating it again in Frankfurt, then removing the old one once the new one runs.
 
 ⚠️ **`type: web`, not `worker`, and not `cron`.** The reasons are in the block at the top of this skill: `plan: free` exists for neither `worker` nor `cron`, and only a web service can receive the HTTP call that wakes it. Do not "simplify" this back to `type: worker` while keeping `plan: free` - that Blueprint does not deploy.
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.4.3 (5 octobre 2026)
+
+### Améliorations
+- **Tes processus Render tournent en Europe** : une automatisation réveillée par ton site ou un agent, créés par le harnais, tournent désormais à Francfort. Jusqu'ici, faute de région précisée, Render les plaçait par défaut dans l'Oregon, aux États-Unis. Un service déjà créé ne change pas de région tout seul : la marche à suivre pour le recréer à Francfort est indiquée.
+
+### Coulisses
+- Une recette vérifie à chaque version que chaque service décrit par le harnais tourne à Francfort.
+
 ## v3.4.2 (5 octobre 2026)
 
 ### Améliorations

@@ -39,6 +39,7 @@ const SUITES = [
   ["a Render service found by its exact name, and recorded in the project's manifest", join(ROOT, "scripts", "tests", "test-render-service.mjs")],
   ["a Render service is the project's by its name or by the repository it builds from", join(ROOT, "scripts", "tests", "test-render-match.mjs")],
   ["the Render worker answers as soon as it accepts the work, and the site wakes it", join(ROOT, "scripts", "tests", "test-render-worker.mjs")],
+  ["every Render service the harness creates runs in the EU", join(ROOT, "scripts", "tests", "test-render-region.mjs")],
   ["a deployment read through a pipeline, and a conversion that leaves the repository's files", join(ROOT, "scripts", "tests", "test-skill-pipelines.mjs")],
   ["/delete-project keeps a person's shared accounts without shipping them", join(ROOT, "scripts", "tests", "test-delete-keep.mjs")],
   ["skill descriptions", join(ROOT, "scripts", "tests", "test-skill-descriptions.mjs")],

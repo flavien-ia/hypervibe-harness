@@ -25,6 +25,9 @@ services:
     name: {{RENDER_SERVICE_NAME}}
     runtime: node
     plan: starter
+    # Frankfurt, in the EU. A Blueprint that names no region gets Render's
+    # default, Oregon (USA), and a service never changes region afterwards.
+    region: frankfurt
     rootDir: apps/{{AGENT_NAME}}
     buildCommand: pnpm install --frozen-lockfile && pnpm build
     startCommand: pnpm start
