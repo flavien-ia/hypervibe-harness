@@ -93,7 +93,7 @@ import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
 import { buildRuleSets } from "./rules/rules.mjs";
 import { PROJECT_BLOCK } from "./rules/blocks.mjs";
 import { syncManagedBlock } from "./rules/managed-block.mjs";
-import { PNPM_OVERRIDES, setWorkspaceBlock } from "./_pnpm-workspace.mjs";
+import { PNPM_OVERRIDES, PNPM_PUBLIC_HOIST, setWorkspaceBlock } from "./_pnpm-workspace.mjs";
 import { parseDeployOutput } from "./vercel/parse-deploy-output.mjs";
 import { loadAuthToken, readCliCurrentTeam } from "./_vercel-auth.mjs";
 
@@ -502,6 +502,10 @@ function scaffoldT3() {
   // pnpm 10 would then stop on ERR_PNPM_LOCKFILE_CONFIG_MISMATCH (see
   // PNPM_OVERRIDES in _pnpm-workspace.mjs).
   setWorkspaceBlock(join(PROJECT_DIR, "pnpm-workspace.yaml"), "overrides", PNPM_OVERRIDES);
+  // ESLint's plugins reachable from the project's root, or `pnpm lint` stops on "couldn't find
+  // the plugin" (PNPM_PUBLIC_HOIST in _pnpm-workspace.mjs). Before the first install, which lays
+  // out node_modules accordingly.
+  setWorkspaceBlock(join(PROJECT_DIR, "pnpm-workspace.yaml"), "publicHoistPattern", PNPM_PUBLIC_HOIST);
   const installLabel = PNPM_BUILD_FLAGS ? `with flags: ${PNPM_BUILD_FLAGS}` : "no extra flags (pnpm ≤10, onlyBuiltDependencies in package.json)";
   log(`Installing with pnpm (${installLabel})`);
   run(`pnpm install${PNPM_BUILD_FLAGS ? ` ${PNPM_BUILD_FLAGS}` : ""}`, PROJECT_DIR);

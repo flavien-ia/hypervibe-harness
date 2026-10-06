@@ -30,8 +30,10 @@ Pass each `KEY=VALUE` as a single shell-quoted argument. The script splits on th
 
 ```bash
 grep '^DATABASE_URL=' .env | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
-printf '%s=%s\n' KEY "$VALUE" | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
+printf '%s' "$VALUE" | node "${CLAUDE_SKILL_DIR}/../../scripts/_env-line.mjs" KEY | node "${CLAUDE_SKILL_DIR}/../../scripts/push-env-vars.mjs" --stdin
 ```
+
+Each line is read as the site reads a line of its `.env`: quotes taken off, a `# comment` left out (since 3.4.5; before, a quoted line reached the hosting with its quotes). A value taken raw from a shell variable therefore goes through `_env-line.mjs` first, which writes it as a `.env` line, between quotes when it has to (a `#`, a quote, a space at its edge). `printf 'KEY=%s\n' "$VALUE"` straight is only for a value the harness generated (hex, base64url). The local `.env` is written the same way, so the site reads back exactly what was pushed.
 
 (`printf` is a shell builtin: the value in `$VALUE` never sits in a process argument.) An empty value is refused and nothing is written, because in a pipe it is what a step that failed upstream sends: read a value into a variable and check it (`[ -n "$VALUE" ]`) before the pipe. `--allow-empty` sets an empty value on purpose; `--no-local` writes the hosting only, the local `.env` left as it is.
 

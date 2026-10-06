@@ -17,7 +17,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PNPM_OVERRIDES, setWorkspaceBlock } from "../_pnpm-workspace.mjs";
+import { PNPM_OVERRIDES, PNPM_PUBLIC_HOIST, readWorkspaceList, setWorkspaceBlock } from "../_pnpm-workspace.mjs";
 
 const RACINE = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -64,6 +64,16 @@ try {
     existant,
   );
   verifier("overrides ajouté", existant.includes(`overrides:\n  postcss: "${PNPM_OVERRIDES.postcss}"`));
+
+  console.log("\nUn bloc en liste (publicHoistPattern, 3.4.5)");
+  verifier("absent : la lecture dit null, jamais une liste vide", readWorkspaceList(ws, "publicHoistPattern") === null);
+  setWorkspaceBlock(ws, "publicHoistPattern", PNPM_PUBLIC_HOIST);
+  const liste = readFileSync(ws, "utf8");
+  verifier("écrit en liste, chaque motif entre guillemets", liste.includes('publicHoistPattern:\n  - "*eslint*"\n  - "*prettier*"'), liste);
+  verifier("relu tel qu'écrit", JSON.stringify(readWorkspaceList(ws, "publicHoistPattern")) === JSON.stringify(PNPM_PUBLIC_HOIST));
+  verifier("les autres blocs sont gardés", liste.includes(`overrides:\n  postcss: "${PNPM_OVERRIDES.postcss}"`) && liste.includes("  - apps/*"), liste);
+  verifier("même liste : rien n'est réécrit", setWorkspaceBlock(ws, "publicHoistPattern", PNPM_PUBLIC_HOIST) === false);
+  verifier("la liste d'un autre bloc se lit aussi (packages)", JSON.stringify(readWorkspaceList(ws, "packages")) === JSON.stringify(["apps/*"]));
 } finally {
   rmSync(dossier, { recursive: true, force: true });
 }
@@ -87,6 +97,9 @@ verifier(
   !/writeFileSync\(wsPath, newWs\)/.test(boot) && /setWorkspaceBlock\(wsPath, "allowBuilds"/.test(boot),
 );
 verifier("aucun override dans package.json", !/pkg\.pnpm\.overrides/.test(boot));
+const iHoist = boot.indexOf('setWorkspaceBlock(join(PROJECT_DIR, "pnpm-workspace.yaml"), "publicHoistPattern", PNPM_PUBLIC_HOIST)');
+verifier("les greffons d'ESLint remontent à la racine : le bloc est posé avant le premier pnpm install", iHoist > 0 && iHoist < iInstall);
+verifier("... et il porte *eslint* et *prettier* (ce que pnpm 9 faisait seul)", PNPM_PUBLIC_HOIST.includes("*eslint*") && PNPM_PUBLIC_HOIST.includes("*prettier*"));
 
 console.log(`\n${total - echecs}/${total} vérifications passent`);
 if (echecs) process.exit(1);

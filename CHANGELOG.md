@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.4.5 (6 octobre 2026)
+
+### Améliorations
+- **La vérification de code de tes projets remarche** : sur les projets créés par `/bootstrap` avec une version récente de pnpm, `pnpm lint` s'arrêtait sur « ESLint couldn't find the plugin ». Les nouveaux projets naissent avec le bon réglage, et `/update-hypervibe` propose de réparer le projet ouvert : un réglage ajouté, une réinstallation d'une minute, et le fichier de verrou ne bouge pas. Rien n'est touché sans ton accord.
+- **Une clé arrive en ligne telle quelle** : une ligne recopiée d'un `.env` avec des guillemets (`CLE="valeur"`) partait chez l'hébergeur avec ses guillemets. Elle est désormais lue comme ton site la lit : guillemets retirés, note de fin de ligne laissée de côté.
+- **Un mot de passe avec un `#` reste entier** : une valeur tapée dans la fenêtre masquée, ou écrite dans ton `.env`, est mise entre guillemets quand il le faut, pour que ton site la relise exactement.
+
+### Coulisses
+- Une seule règle pour lire et écrire une ligne de `.env`, partagée par tous les outils qui en manipulent, avec ses recettes.
+
 ## v3.4.4 (5 octobre 2026)
 
 ### Nouveautés

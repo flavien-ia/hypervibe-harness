@@ -25,6 +25,7 @@ import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { resolveLang, makeT } from "./i18n.mjs";
 import { useBwHome } from "./bw-home.mjs";
+import { dotenvLine } from "../_env-line.mjs";
 
 const IS_WIN = platform() === "win32";
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -391,7 +392,9 @@ async function doCollectEnv() {
       ? await promptMasked(t("hiddenPrompt", { name: s.name }))
       : await promptVisible(t("plainPrompt", { name: s.name }));
     if (!val) throw new Error(t("emptyValue", { name: s.name }));
-    pairs.push(`${s.name}=${val}`);
+    // A .env line the site reads back as typed: a password with a #, a quote or a space at its
+    // edge is quoted, and push-env-vars.mjs reads the line the same way (_env-line.mjs).
+    pairs.push(dotenvLine(s.name, val));
   }
 
   // --file <.env.name>: the values are kept in that file of the project, gitignored, and go

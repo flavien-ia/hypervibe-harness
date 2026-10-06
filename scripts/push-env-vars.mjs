@@ -16,6 +16,12 @@
 // standard input cannot. Both forms can be mixed. To push again a value already in .env
 // without it ever being typed or shown:
 //   grep '^DATABASE_URL=' .env | node push-env-vars.mjs --stdin
+// Each line on the standard input is read as the site's own loader reads a .env line
+// (_env-line.mjs): KEY="abc" is abc, KEY=abc # note is abc. A raw value held by the shell goes
+// through `printf '%s' "$VALUE" | node _env-line.mjs KEY` first, which quotes it when it has to;
+// `printf 'KEY=%s\n'` straight is for a value the harness generated (hex, base64url). The local
+// .env is written the same way: a value the site would read differently is quoted, and one no
+// quoting can carry is refused before anything is written.
 //
 // --target options:
 //   - omitted (default): writes to "production" + "preview" for sensitive vars,
@@ -56,6 +62,7 @@ import { spawn } from "node:child_process";
 import { platform } from "node:os";
 import { loadAuthToken } from "./_vercel-auth.mjs";
 import { vercelApiBase } from "./_vercel-projects.mjs";
+import { dotenvLine, dotenvValue } from "./_env-line.mjs";
 
 const USAGE = [
   "Usage:",
@@ -164,8 +171,9 @@ if (removeMode && removeKeys.length === 0) {
 }
 
 if (readStdin) {
-  // One KEY=VALUE per line. A line that is not one is refused WITHOUT being echoed: it may
-  // be half of a secret.
+  // One KEY=VALUE per line, its value read as the site's loader reads a .env line (quotes taken
+  // off, a comment left out). A line that is not one is refused WITHOUT being echoed: it may be
+  // half of a secret.
   const lines = readFileSync(0, "utf8").split(/\r?\n/).filter((l) => l.trim() !== "");
   for (const [n, line] of lines.entries()) {
     const idx = line.indexOf("=");
@@ -173,7 +181,7 @@ if (readStdin) {
       console.error(`Invalid line ${n + 1} on the standard input (expected KEY=VALUE).`);
       process.exit(1);
     }
-    pairs.push({ key: line.slice(0, idx), value: line.slice(idx + 1) });
+    pairs.push({ key: line.slice(0, idx), value: dotenvValue(line.slice(idx + 1)) });
   }
 }
 
@@ -196,6 +204,17 @@ if (emptyKeys.length && !allowEmpty) {
     "In a pipe, an empty value is what a step that failed upstream sends: check that step. To really set an empty value, pass --allow-empty.",
   );
   process.exit(1);
+}
+
+// A value written into the local .env must come back unchanged when the site reads it: one no
+// quoting can carry is refused here, by its name, before anything is written anywhere.
+if (!noLocal && !removeMode) {
+  try {
+    for (const { key, value } of pairs) dotenvLine(key, value);
+  } catch (e) {
+    console.error(`Refused: ${e.message} Nothing was written, neither the local .env nor the hosting.`);
+    process.exit(1);
+  }
 }
 
 // ─── Step 1 - Update .env (unless --no-local) ──────────────────────────
@@ -222,7 +241,7 @@ while (filtered.length > 0 && filtered[filtered.length - 1].trim() === "") {
 }
 
 for (const { key, value } of pairs) {
-  filtered.push(`${key}=${value}`);
+  filtered.push(dotenvLine(key, value));
 }
 
 if (removeMode) {

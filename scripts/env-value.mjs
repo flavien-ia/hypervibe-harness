@@ -18,6 +18,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { dotenvValue } from "./_env-line.mjs";
 
 /** The value of one variable in the project's .env, then .env.local (or in the one file named);
  *  null when absent. */
@@ -28,9 +29,8 @@ export function envValue(projectDir, name, { file = null } = {}) {
     for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
       const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
       if (!m || m[1] !== name) continue;
-      let v = m[2].trim();
-      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) v = v.slice(1, -1);
-      return v;
+      // As the site's loader reads it: quotes taken off, a comment left out (_env-line.mjs).
+      return dotenvValue(m[2]);
     }
   }
   return null;

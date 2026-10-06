@@ -137,6 +137,27 @@ node "$PLUGIN_DIR/scripts/shared-worker/worker-check.mjs"
 - `ok: false` with an `error` about `CLOUDFLARE_API_TOKEN` → the vault is locked. Say a window will open for the master password, run `node "$PLUGIN_DIR/scripts/vault/launch.mjs" unlock`, then run the check once more.
 - any other `ok: false` → pass on `error` (and `howTo` when present), and say the clock keeps its previous version until the next `/quotas` or the next update. Never hold the rest of the update on it.
 
+## Step 3e - Repair the code check of the current project
+
+Projects made by `/bootstrap` before 3.4.5 may have a broken code check: `pnpm lint` stops on "ESLint couldn't find the plugin eslint-plugin-react-hooks", because pnpm 10 and later no longer put ESLint's plugins at the project's root. If the current folder is a web project (`package.json` with `next`), diagnose it (nothing is written):
+
+```bash
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
+node "$PLUGIN_DIR/scripts/repair-lint.mjs" --project-dir "<project-root>"
+```
+
+- `needed: false` → say nothing.
+- `needed: true` → say it in one sentence (with `reachable: true`, the check works today only thanks to an older install, and the next reinstall would break it), then what the repair does: one block in `pnpm-workspace.yaml`, then a reinstall of the project's dependencies (about a minute; the lockfile does not change). Run it only if the user agrees:
+
+```bash
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
+node "$PLUGIN_DIR/scripts/repair-lint.mjs" --project-dir "<project-root>" --write
+```
+
+`repaired: true` → the code check works again, and the one file to commit is `pnpm-workspace.yaml` (offer to commit it by name). `note` present → no dependencies are installed here: the block is in place, and the next `pnpm install` finishes the job. `ok: false` with `step: "install"` → pass on `detail`: the lockfile is probably not in step with `package.json`; a `pnpm install` run by the user brings it in step, then the same command again.
+
+Other projects made by `/bootstrap` need the same pass: mention it once, with the command to run from each project's folder.
+
 ## Step 4 - Wrap up
 
 > **Update installed (version `<version>`)! ✨**
