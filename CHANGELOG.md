@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.4.6 (6 octobre 2026)
+
+### Améliorations
+- **La réparation de la vérification de code marche aussi avec un ancien pnpm** : un projet resté sur une ancienne version de pnpm 10 ne lisait pas le réglage posé par la 3.4.5, et `pnpm lint` restait cassé après la réparation. Elle demande maintenant à pnpm, dans le projet, où il lit ce réglage, et l'écrit aussi dans `.npmrc` quand il le faut. Les nouveaux projets naissent de la même façon. Le fichier de verrou ne bouge toujours pas, et rien n'est touché sans ton accord.
+- **Une réparation qui ne suffit pas est dite** : `/update-hypervibe` l'annonce franchement au lieu de laisser croire que c'est réglé.
+
 ## v3.4.5 (6 octobre 2026)
 
 ### Améliorations

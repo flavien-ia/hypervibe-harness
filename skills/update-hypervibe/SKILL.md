@@ -147,14 +147,14 @@ node "$PLUGIN_DIR/scripts/repair-lint.mjs" --project-dir "<project-root>"
 ```
 
 - `needed: false` → say nothing.
-- `needed: true` → say it in one sentence (with `reachable: true`, the check works today only thanks to an older install, and the next reinstall would break it), then what the repair does: one block in `pnpm-workspace.yaml`, then a reinstall of the project's dependencies (about a minute; the lockfile does not change). Run it only if the user agrees:
+- `needed: true` → say it in one sentence (with `reachable: true`, the check works today only thanks to an older install, and the next reinstall would break it), then what the repair does: one block in `pnpm-workspace.yaml`, the same setting in `.npmrc` when the project's version of pnpm reads it only there (an older pnpm 10, `reason: "npmrc-missing"`), then a reinstall of the project's dependencies (about a minute; the lockfile does not change). Run it only if the user agrees:
 
 ```bash
 PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
 node "$PLUGIN_DIR/scripts/repair-lint.mjs" --project-dir "<project-root>" --write
 ```
 
-`repaired: true` → the code check works again, and the one file to commit is `pnpm-workspace.yaml` (offer to commit it by name). `note` present → no dependencies are installed here: the block is in place, and the next `pnpm install` finishes the job. `ok: false` with `step: "install"` → pass on `detail`: the lockfile is probably not in step with `package.json`; a `pnpm install` run by the user brings it in step, then the same command again.
+`repaired: true` → the code check works again, and the files to commit are the ones `commit` lists (`pnpm-workspace.yaml`, `.npmrc`, or both: offer to commit them by name). `repaired: false` after a reinstall → say so plainly, the code check still stops: nothing more is tried, and the files written stay to look at. `note` present → no dependencies are installed here: the block is in place, and the next `pnpm install` finishes the job. `ok: false` with `step: "install"` → pass on `detail`: the lockfile is probably not in step with `package.json`; a `pnpm install` run by the user brings it in step, then the same command again.
 
 Other projects made by `/bootstrap` need the same pass: mention it once, with the command to run from each project's folder.
 

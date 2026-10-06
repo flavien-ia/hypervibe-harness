@@ -17,7 +17,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PNPM_OVERRIDES, PNPM_PUBLIC_HOIST, readWorkspaceList, setWorkspaceBlock } from "../_pnpm-workspace.mjs";
+import { NPMRC_PUBLIC_HOIST, PNPM_OVERRIDES, PNPM_PUBLIC_HOIST, addLines, missingLines, pnpmReadsHoist, readWorkspaceList, setWorkspaceBlock } from "../_pnpm-workspace.mjs";
 
 const RACINE = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -74,6 +74,24 @@ try {
   verifier("les autres blocs sont gardés", liste.includes(`overrides:\n  postcss: "${PNPM_OVERRIDES.postcss}"`) && liste.includes("  - apps/*"), liste);
   verifier("même liste : rien n'est réécrit", setWorkspaceBlock(ws, "publicHoistPattern", PNPM_PUBLIC_HOIST) === false);
   verifier("la liste d'un autre bloc se lit aussi (packages)", JSON.stringify(readWorkspaceList(ws, "packages")) === JSON.stringify(["apps/*"]));
+
+  console.log("\nLes mêmes motifs dans .npmrc, pour un ancien pnpm 10 (3.4.6)");
+  verifier("deux lignes, au format de .npmrc", JSON.stringify(NPMRC_PUBLIC_HOIST) === JSON.stringify(["public-hoist-pattern[]=*eslint*", "public-hoist-pattern[]=*prettier*"]));
+  const rc = join(dossier, ".npmrc");
+  verifier("absent : toutes les lignes manquent", missingLines(rc, NPMRC_PUBLIC_HOIST).length === 2);
+  writeFileSync(rc, "# commentaire\r\nstrict-dep-builds=false");
+  verifier("ajoutées à la fin, sans fin de ligne finale au départ", addLines(rc, NPMRC_PUBLIC_HOIST) === true);
+  verifier("... les autres lignes et les fins de ligne du fichier gardées", readFileSync(rc, "utf8") === "# commentaire\r\nstrict-dep-builds=false\r\npublic-hoist-pattern[]=*eslint*\r\npublic-hoist-pattern[]=*prettier*\r\n", JSON.stringify(readFileSync(rc, "utf8")));
+  verifier("déjà là : rien n'est réécrit", addLines(rc, NPMRC_PUBLIC_HOIST) === false && missingLines(rc, NPMRC_PUBLIC_HOIST).length === 0);
+
+  console.log("\npnpm, interrogé dans le projet (réponses relevées le 06/10/2026)");
+  const repond = (stdout, status = 0) => ({ ask: () => ({ status, stdout }) });
+  verifier("pnpm 10.4.1 ou 10.5.2, bloc seul : « undefined », il ne le lit pas", pnpmReadsHoist(dossier, repond("undefined\n")) === false);
+  verifier("pnpm 10.4.1 avec .npmrc : la liste séparée par des virgules", pnpmReadsHoist(dossier, repond("*eslint*,*prettier*\n")) === true);
+  verifier("pnpm 10.28.0 : un avertissement, puis la liste", pnpmReadsHoist(dossier, repond("WARN  `pnpm config get` would display an array as comma-separated list due to legacy implementation, use `--json` to print them as json\n*eslint*,*prettier*\n")) === true);
+  verifier("pnpm 11.1.1 : la liste en JSON", pnpmReadsHoist(dossier, repond('[\n  "*eslint*",\n  "*prettier*"\n]\n')) === true);
+  verifier("un seul des deux motifs : pas lu", pnpmReadsHoist(dossier, repond("*eslint*\n")) === false);
+  verifier("pnpm introuvable ou en échec : on ne sait pas (null), jamais « lu »", pnpmReadsHoist(dossier, repond("", 1)) === null);
 } finally {
   rmSync(dossier, { recursive: true, force: true });
 }
@@ -100,6 +118,12 @@ verifier("aucun override dans package.json", !/pkg\.pnpm\.overrides/.test(boot))
 const iHoist = boot.indexOf('setWorkspaceBlock(join(PROJECT_DIR, "pnpm-workspace.yaml"), "publicHoistPattern", PNPM_PUBLIC_HOIST)');
 verifier("les greffons d'ESLint remontent à la racine : le bloc est posé avant le premier pnpm install", iHoist > 0 && iHoist < iInstall);
 verifier("... et il porte *eslint* et *prettier* (ce que pnpm 9 faisait seul)", PNPM_PUBLIC_HOIST.includes("*eslint*") && PNPM_PUBLIC_HOIST.includes("*prettier*"));
+const iAsk = boot.indexOf("const npmrcHoist = pnpmReadsHoist(PROJECT_DIR) !== true;");
+const iRcBefore = boot.indexOf('if (npmrcHoist) addLines(join(PROJECT_DIR, ".npmrc"), NPMRC_PUBLIC_HOIST);');
+verifier("pnpm interrogé dans le projet après le bloc, et .npmrc complété avant le premier pnpm install là où il ne le lit pas (3.4.6)", iHoist < iAsk && iAsk < iRcBefore && iRcBefore > 0 && iRcBefore < iInstall);
+const iWriter = boot.indexOf("writeFileSync(\n    npmrcPath,");
+const iRcAfter = boot.indexOf("if (npmrcHoist) addLines(npmrcPath, NPMRC_PUBLIC_HOIST);");
+verifier("... et remis après l'écriture de .npmrc qui suit l'installation, qui remplace le fichier", iWriter > iInstall && iRcAfter > iWriter);
 
 console.log(`\n${total - echecs}/${total} vérifications passent`);
 if (echecs) process.exit(1);

@@ -4,6 +4,7 @@
 // for native install scripts, overrides for security floors): each step must
 // replace ITS block without erasing the others.
 
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 // Security floors on indirect dependencies, written by every /bootstrap.
@@ -39,12 +40,47 @@ export const PNPM_OVERRIDES = { postcss: "^8.5.23" };
 // up to 9 put every *eslint* and *prettier* package there by default; pnpm 10 stopped, and pnpm
 // 11 no longer reads that setting from .npmrc. On a site made by /bootstrap with pnpm 10 or later,
 // `pnpm lint` then stopped on "ESLint couldn't find the plugin eslint-plugin-react-hooks" (8 of
-// Flavien's 9 projects, found on 2026-10-05). In pnpm-workspace.yaml both majors read it.
-// Checked the same day on a copy of a real site's configuration: lint passes after the block and
-// a reinstall, and the lockfile written by pnpm 11 is accepted by a frozen install with pnpm 10
-// (Vercel's) and pnpm 11. A project made before this release is repaired by
+// Flavien's 9 projects, found on 2026-10-05). pnpm 11 reads it in pnpm-workspace.yaml, and so does
+// a recent pnpm 10 (10.28.0); an older pnpm 10 reads it only in .npmrc (10.4.1 and 10.5.2, tried
+// on 2026-10-06 on two of Flavien's projects that pin them, where the block alone repaired
+// nothing). Each version reads its own place and ignores the other without a word: the block
+// always, and NPMRC_PUBLIC_HOIST where the project's own pnpm does not read the block
+// (pnpmReadsHoist). Checked on 2026-10-05 on a copy of a real site's configuration: lint passes
+// after the block and a reinstall, and the lockfile written by pnpm 11 is accepted by a frozen
+// install with pnpm 10 (Vercel's) and pnpm 11. A project made before this release is repaired by
 // scripts/repair-lint.mjs, offered by /update-hypervibe.
 export const PNPM_PUBLIC_HOIST = ["*eslint*", "*prettier*"];
+
+/** The same patterns as .npmrc says them, for an older pnpm 10. */
+export const NPMRC_PUBLIC_HOIST = PNPM_PUBLIC_HOIST.map((p) => `public-hoist-pattern[]=${p}`);
+
+/** The lines of `wanted` a file lacks: every one of them when it is absent. */
+export function missingLines(file, wanted) {
+  const have = existsSync(file) ? readFileSync(file, "utf8").split(/\r?\n/).map((l) => l.trim()) : [];
+  return wanted.filter((l) => !have.includes(l));
+}
+
+/** Adds at its end the lines a file lacks, every other line kept as it is, its line endings too.
+ *  Returns true when it wrote. */
+export function addLines(file, wanted) {
+  const missing = missingLines(file, wanted);
+  if (!missing.length) return false;
+  const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+  const eol = current.includes("\r\n") ? "\r\n" : "\n";
+  const sep = current && !current.endsWith("\n") ? eol : "";
+  writeFileSync(file, `${current}${sep}${missing.join(eol)}${eol}`);
+  return true;
+}
+
+/** Whether the project's pnpm reads the hoisting patterns where they are written, asked of pnpm
+ *  itself in the project (the version the project pins is the one that answers): true, false, or
+ *  null when pnpm could not be asked. `ask`: recettes only. */
+export function pnpmReadsHoist(dir, { ask = (command, cwd) => spawnSync(command, { cwd, shell: true, encoding: "utf8", windowsHide: true, timeout: 120000 }) } = {}) {
+  const r = ask("pnpm config get public-hoist-pattern", dir);
+  if (!r || r.status !== 0) return null;
+  const text = String(r.stdout ?? "");
+  return PNPM_PUBLIC_HOIST.every((p) => text.includes(p));
+}
 
 /**
  * Replace (or add) the top-level `key:` block of a pnpm-workspace.yaml and

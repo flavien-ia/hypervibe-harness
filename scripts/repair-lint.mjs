@@ -5,21 +5,26 @@
 // (PNPM_PUBLIC_HOIST in _pnpm-workspace.mjs). This puts them back, with the person's agreement:
 //
 //   node repair-lint.mjs --project-dir <dir>           what it would do; nothing is written
-//   node repair-lint.mjs --project-dir <dir> --write   the block in pnpm-workspace.yaml, then a
-//                                                      reinstall that lays node_modules out again
+//   node repair-lint.mjs --project-dir <dir> --write   the block in pnpm-workspace.yaml (and in
+//                                                      .npmrc where the project's pnpm reads it
+//                                                      only there), then a reinstall that lays
+//                                                      node_modules out again
 //
 // One JSON line. `needed: false` when the project does not use Next's ESLint configuration, is not
-// a pnpm project, or already has the block with the plugins reachable. With --write, the only file
-// to commit is pnpm-workspace.yaml: the lockfile does not change (checked on 2026-10-05 with a
-// frozen install under pnpm 10, Vercel's, and pnpm 11). The reinstall is a frozen one (CI): when
-// the lockfile is not in step with package.json, it stops, and that is said, never forced.
+// a pnpm project, or already has the block, read by its pnpm, with the plugins reachable. An older
+// pnpm 10 reads the block only in .npmrc (10.4.1 and 10.5.2, found on 2026-10-06 on two projects
+// that pin them, where 3.4.5's block alone repaired nothing): pnpm itself is asked, in the project
+// (pnpmReadsHoist). With --write, the files to commit are listed in `commit`: the lockfile does
+// not change (checked on 2026-10-05 with a frozen install under pnpm 10, Vercel's, and pnpm 11,
+// and on 2026-10-06 under pnpm 10.4.1 and 10.5.2). The reinstall is a frozen one (CI): when the
+// lockfile is not in step with package.json, it stops, and that is said, never forced.
 // Exit 0, or 1 when a step failed (`step` says which).
 
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import { PNPM_PUBLIC_HOIST, readWorkspaceList, setWorkspaceBlock } from "./_pnpm-workspace.mjs";
+import { NPMRC_PUBLIC_HOIST, PNPM_PUBLIC_HOIST, addLines, missingLines, pnpmReadsHoist, readWorkspaceList, setWorkspaceBlock } from "./_pnpm-workspace.mjs";
 
 const PLUGIN = "eslint-plugin-react-hooks";
 
@@ -50,7 +55,9 @@ function reachable(dir) {
   }
 }
 
-export function diagnose(dir) {
+/** `ask`: how pnpm is asked whether it reads the block (recettes only). It is asked only when the
+ *  block is there and .npmrc does not carry the patterns: the one case where the answer matters. */
+export function diagnose(dir, { ask } = {}) {
   const ws = join(dir, "pnpm-workspace.yaml");
   if (!existsSync(join(dir, "package.json"))) return { needed: false, reason: "not-a-project" };
   if (!existsSync(join(dir, "pnpm-lock.yaml")) && !existsSync(ws)) return { needed: false, reason: "not-pnpm" };
@@ -58,30 +65,39 @@ export function diagnose(dir) {
   if (!dirs.length) return { needed: false, reason: "no-next-eslint" };
   const list = readWorkspaceList(ws, "publicHoistPattern");
   const block = list !== null && PNPM_PUBLIC_HOIST.every((p) => list.includes(p)) ? "present" : "absent";
+  const npmrc = missingLines(join(dir, ".npmrc"), NPMRC_PUBLIC_HOIST).length ? "absent" : "present";
   const states = dirs.map(reachable);
   const reach = states.includes(false) ? false : states.includes(null) ? null : true;
-  if (block === "present" && reach !== false) return { needed: false, reason: "already", block, reachable: reach };
-  return { needed: true, block, reachable: reach, reason: block === "absent" ? "block-missing" : "reinstall-needed" };
+  // The block alone is enough only for a pnpm that reads it there.
+  const npmrcNeeded = block === "present" && npmrc === "absent" && pnpmReadsHoist(dir, ask ? { ask } : {}) === false;
+  if (block === "present" && !npmrcNeeded && reach !== false) return { needed: false, reason: "already", block, npmrc, reachable: reach };
+  return { needed: true, block, npmrc, reachable: reach, reason: block === "absent" ? "block-missing" : npmrcNeeded ? "npmrc-missing" : "reinstall-needed" };
 }
 
-export function repair(dir, { run = (cmd, cwd) => spawnSync(cmd, { cwd, shell: true, encoding: "utf8", env: { ...process.env, CI: "true" } }) } = {}) {
-  const before = diagnose(dir);
+export function repair(dir, { run = (cmd, cwd) => spawnSync(cmd, { cwd, shell: true, encoding: "utf8", env: { ...process.env, CI: "true" } }), ask } = {}) {
+  const before = diagnose(dir, { ask });
   if (!before.needed) return { ...before, written: false, reinstalled: false };
-  let written = false;
+  const commit = [];
   if (before.block === "absent") {
     const list = readWorkspaceList(join(dir, "pnpm-workspace.yaml"), "publicHoistPattern") ?? [];
-    written = setWorkspaceBlock(join(dir, "pnpm-workspace.yaml"), "publicHoistPattern", [...new Set([...list, ...PNPM_PUBLIC_HOIST])]);
+    if (setWorkspaceBlock(join(dir, "pnpm-workspace.yaml"), "publicHoistPattern", [...new Set([...list, ...PNPM_PUBLIC_HOIST])])) commit.push("pnpm-workspace.yaml");
   }
+  // The block written, the project's pnpm must read it: an older pnpm 10 reads it only in .npmrc.
+  // A pnpm that cannot be asked gets both (each version ignores the place it does not read).
+  if (before.npmrc === "absent" && pnpmReadsHoist(dir, ask ? { ask } : {}) !== true) {
+    if (addLines(join(dir, ".npmrc"), NPMRC_PUBLIC_HOIST)) commit.push(".npmrc");
+  }
+  const written = commit.length > 0;
   if (!existsSync(join(dir, "node_modules"))) {
-    return { needed: true, written, reinstalled: false, reachable: null, commit: written ? ["pnpm-workspace.yaml"] : [], note: "no node_modules here: the next pnpm install lays them out with the plugins at the root" };
+    return { needed: true, written, reinstalled: false, reachable: null, commit, note: "no node_modules here: the next pnpm install lays them out with the plugins at the root" };
   }
   const r = run("pnpm install", dir);
   if (r.status !== 0) {
     const tail = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim().split("\n").filter(Boolean).slice(-3).join(" | ").slice(0, 400);
-    return { ok: false, step: "install", written, reinstalled: false, commit: written ? ["pnpm-workspace.yaml"] : [], detail: tail };
+    return { ok: false, step: "install", written, reinstalled: false, commit, detail: tail };
   }
-  const after = diagnose(dir);
-  return { needed: true, written, reinstalled: true, reachable: after.reachable ?? null, repaired: !after.needed, commit: written ? ["pnpm-workspace.yaml"] : [] };
+  const after = diagnose(dir, { ask });
+  return { needed: true, written, reinstalled: true, reachable: after.reachable ?? null, repaired: !after.needed, commit };
 }
 
 // ─── Launched as a script, or imported ────────────────────────────────────────

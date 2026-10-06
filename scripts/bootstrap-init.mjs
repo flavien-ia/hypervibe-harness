@@ -93,7 +93,7 @@ import { ensureToolsInPath } from "./_ensure-tools-path.mjs";
 import { buildRuleSets } from "./rules/rules.mjs";
 import { PROJECT_BLOCK } from "./rules/blocks.mjs";
 import { syncManagedBlock } from "./rules/managed-block.mjs";
-import { PNPM_OVERRIDES, PNPM_PUBLIC_HOIST, setWorkspaceBlock } from "./_pnpm-workspace.mjs";
+import { NPMRC_PUBLIC_HOIST, PNPM_OVERRIDES, PNPM_PUBLIC_HOIST, addLines, pnpmReadsHoist, setWorkspaceBlock } from "./_pnpm-workspace.mjs";
 import { parseDeployOutput } from "./vercel/parse-deploy-output.mjs";
 import { loadAuthToken, readCliCurrentTeam } from "./_vercel-auth.mjs";
 
@@ -506,6 +506,10 @@ function scaffoldT3() {
   // the plugin" (PNPM_PUBLIC_HOIST in _pnpm-workspace.mjs). Before the first install, which lays
   // out node_modules accordingly.
   setWorkspaceBlock(join(PROJECT_DIR, "pnpm-workspace.yaml"), "publicHoistPattern", PNPM_PUBLIC_HOIST);
+  // An older pnpm 10 reads it only in .npmrc (10.4.1 and 10.5.2, tried on 2026-10-06): pnpm itself
+  // is asked, in the project, and the same patterns go to .npmrc where it does not read the block.
+  const npmrcHoist = pnpmReadsHoist(PROJECT_DIR) !== true;
+  if (npmrcHoist) addLines(join(PROJECT_DIR, ".npmrc"), NPMRC_PUBLIC_HOIST);
   const installLabel = PNPM_BUILD_FLAGS ? `with flags: ${PNPM_BUILD_FLAGS}` : "no extra flags (pnpm ≤10, onlyBuiltDependencies in package.json)";
   log(`Installing with pnpm (${installLabel})`);
   run(`pnpm install${PNPM_BUILD_FLAGS ? ` ${PNPM_BUILD_FLAGS}` : ""}`, PROJECT_DIR);
@@ -524,6 +528,8 @@ function scaffoldT3() {
       "# a warning so `pnpm add foo` won't break in the middle of development.\n" +
       "strict-dep-builds=false\n",
   );
+  // The writer above replaces the file: the hoisting lines go back where they were needed.
+  if (npmrcHoist) addLines(npmrcPath, NPMRC_PUBLIC_HOIST);
 
   // Normalize any pnpm-workspace.yaml that pnpm install may have generated
   // (replace placeholder `set this to true or false` with `true`).
