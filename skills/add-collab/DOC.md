@@ -26,7 +26,7 @@ Invite or remove collaborators on your project without paying for one Vercel sea
   - *"Add charlie and remove dave"*, multiple actions in a single sentence
   - *"Add eve as admin"*, a specific role (you can also ask for `pull`, `triage`, `push`, `maintain`)
 
-4. **Verification + recap**: Hypervibe re-lists the collaborators after each action so you can see the up-to-date state.
+4. **Verification + recap**: Hypervibe re-lists the collaborators after each action so you can see the up-to-date state. It says "removed" only once GitHub confirms it: an invitation still pending is cancelled, and a list that could not be read is said to be so.
 
 ## What it creates for you
 

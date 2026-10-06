@@ -266,7 +266,7 @@ For each entry in `envVars.thirdPartyDetected`: name of the service with its lab
 Include conditionally:
 - If `envVars.hasGoogleOAuth === true` → Google Cloud Console OAuth action + entire GCP project
 - If `envVars.hasGitHubOAuth === true` → GitHub OAuth App action
-- Always: deletion of the GitHub repo if `github.exists`
+- Always: deletion of the GitHub repo if `github.exists`. It is the repository the project's folder pushes to (`github.foundVia: "origin"`); with `github.guessed: true` the folder pushed nowhere and the repository was found by the signed-in account and the project's name only: say so, and have the user confirm it is this project's before listing it
 - Deletion of the local folder if `localDir.exists` (to be done via Windows Explorer)
 
 ### 2.3b Section "🔴 Scans that could not run" (only if at least one `error`)
@@ -388,7 +388,7 @@ Ordered list with click-by-click instructions:
    - Note: *"I would have liked to do it automatically, but my sandbox blocks deleting folders under C:\DEV\ for your safety."*
 
 2. **Delete the GitHub repo** (if `github.exists`)
-   - URL: `https://github.com/<your-github-account>/<PROJECT_NAME>/settings`
+   - URL: `<github.url>/settings` (the address the inventory read, never one composed from an account and a name)
    - Action: scroll all the way down → Danger Zone → "Delete this repository" → retype the repo name
 
 3. **Delete the Google OAuth client** (if `envVars.hasGoogleOAuth === true`)

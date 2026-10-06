@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.4.7 (6 octobre 2026)
+
+### Améliorations
+- **Une page Cloudflare s'ouvre une fois vers la fin de `/start`**, sur un compte Cloudflare tout neuf : l'ouvrir suffit à activer le réglage dont les tâches automatiques ont besoin. Il n'y a rien à faire dessus, tu peux la fermer, et `/start` termine tout seul.
+- **Le garde-fou pose aussi ses questions sur GitHub** : avant d'accepter une demande de fusion ou de relancer une mise en ligne (les deux publient), et avant de supprimer, rendre public ou déplacer quelque chose là-bas (un dépôt, un secret, une variable). Il le faisait déjà pour un envoi par `git push`.
+- **Changer la clé des tâches planifiées n'en casse plus aucune** : `/rotate-secret` la met aussi à jour dans le dépôt quand `/add-cron` y a installé son horloge de secours. Avant, chaque tâche lancée par GitHub était refusée après le changement.
+- **`/add-collab` ne dit « retiré » que quand c'est vrai** : il relit toute la liste, annule une invitation encore en attente, et une lecture ratée n'est plus prise pour un départ.
+- **`/delete-project` trouve le bon dépôt** : il le lit dans le dossier du projet, y compris quand le dépôt appartient à une organisation, au lieu de le deviner. Une lecture ratée n'est plus prise pour une absence, et quand il doit deviner, il te demande de confirmer.
+
+### Coulisses
+- Deux nouvelles vérifications à chaque version : aucune commande écrite dans une skill n'est refusée par le garde-fou, et chaque skill trouve elle-même le dossier du plugin et le nom de l'organisation dont elle se sert.
+
 ## v3.4.6 (6 octobre 2026)
 
 ### Améliorations

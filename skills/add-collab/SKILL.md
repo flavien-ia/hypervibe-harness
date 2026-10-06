@@ -52,12 +52,13 @@ Get the repo identifier:
 gh repo view --json nameWithOwner -q .nameWithOwner
 ```
 
-List all collaborators:
+List all collaborators (every page: the forge answers 30 at a time), then the invitations not accepted yet:
 ```bash
-gh api repos/{owner}/{repo}/collaborators -q '.[] | {login, role: .role_name, permission: (if .permissions.admin then "admin" elif .permissions.push then "push" elif .permissions.triage then "triage" else "read" end)}'
+gh api --paginate repos/{owner}/{repo}/collaborators -q '.[] | {login, role: .role_name, permission: (if .permissions.admin then "admin" elif .permissions.push then "push" elif .permissions.triage then "triage" else "read" end)}'
+gh api --paginate repos/{owner}/{repo}/invitations -q '.[] | {id, invitee: .invitee.login, permission: .permissions}'
 ```
 
-Replace `{owner}/{repo}` with the value returned above.
+Replace `{owner}/{repo}` with the value returned above. If either command fails, say so: an unread list is not an empty one, and nothing is added or removed until it reads.
 
 Display the list to the user. Format example:
 > ## 👥 Current collaborators on repo `{owner}/{repo}`
@@ -125,12 +126,23 @@ If the user gave a number from the list, resolve it to a username first.
 gh api repos/{owner}/{repo}/collaborators/{username} -X DELETE
 ```
 
-This is silent on success (HTTP 204). Verify with:
+This is silent on success (HTTP 204). A person who has not accepted their invitation yet is not a collaborator: cancel the invitation instead, by its `id` from the list of Step 2:
 ```bash
-gh api repos/{owner}/{repo}/collaborators -q '.[].login' | grep -x "{username}" || echo "removed"
+gh api repos/{owner}/{repo}/invitations/{invitation_id} -X DELETE
 ```
 
-After each successful remove, confirm:
+Then read the forge again, and say "removed" only on what it answers: `GET .../collaborators/{username}` answers 204 while the person is still a collaborator and 404 once they are not.
+```bash
+gh api -i repos/{owner}/{repo}/collaborators/{username} 2>/dev/null | grep -m1 '^HTTP' || echo "NO_ANSWER"
+INV=$(gh api --paginate repos/{owner}/{repo}/invitations -q '.[].invitee.login') \
+  && { printf '%s\n' "$INV" | grep -qx "{username}" && echo "INVITATION_STILL_PENDING" || echo "NO_INVITATION"; } \
+  || echo "INVITATIONS_UNREAD"
+```
+- A `404` status line and `NO_INVITATION` → removed.
+- A `204` status line, or `INVITATION_STILL_PENDING` → the access is still there: the removal did not go through, say so.
+- `NO_ANSWER`, `INVITATIONS_UNREAD`, or any other status → **unknown**: say that the removal could not be checked, never "removed".
+
+After each verified remove, confirm:
 > ✅ **{username}** has been removed from the collaborators.
 >
 > ⚠️ Important: they can no longer push or trigger a deploy. **But the deployments they already triggered stay online** - nothing is rolled back automatically. If you want to remove a specific deployment, do it manually from your Vercel dashboard.

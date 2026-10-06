@@ -271,7 +271,7 @@ console.log("vault:" + putItem(process.env.VITEM, [{ name: process.env.VFIELD, v
 | `ANTHROPIC_API_KEY` | ✅ (already done in Step 4) | - | - |
 | `RESEND_API_KEY` | ✅ | - | ✅ (agent if emails) |
 | `BREVO_API_KEY` | ✅ | - | ✅ (agent if emails) |
-| `CRON_SECRET` | ✅ | ✅ (the shared clock, and any dedicated cron worker) | - |
+| `CRON_SECRET` | ✅ | ✅ (the shared clock, and any dedicated cron worker; the repository too, below) | - |
 | `DATABASE_URL` | ✅ | - | ✅ (agent reads the DB) |
 | `CLOUDFLARE_API_TOKEN` | ✅ (if NEXT_PUBLIC) | - | ✅ (agent pgvector / Workers AI) |
 | `AUTH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, OAuth secrets | ✅ only | - | - |
@@ -279,7 +279,7 @@ console.log("vault:" + putItem(process.env.VITEM, [{ name: process.env.VFIELD, v
 
 If the rotated secret is NOT in the table → skip this step.
 
-If the secret IS in the table with a Cloudflare or Render checkmark → run the matching block.
+If the secret IS in the table with a Cloudflare or Render checkmark → run the matching block. `CRON_SECRET` has one more copy when `/add-cron` used its GitHub fallback: a secret of the project's own repository, read by its scheduled automations (the block « Push to the project's repository » below).
 
 ### Push to Cloudflare Workers (if applicable)
 
@@ -332,6 +332,26 @@ Depending on the JSON:
 - `"action":"secret-replaced"` → announce `✅ Shared clock: CRON_SECRET updated for its scheduled task(s)`.
 - `"action":"no-job"` → no task of this project runs on the shared clock: nothing to do there, silent.
 - `"Shared worker not provisioned"` → the user has no shared clock: silent skip. Any other error → surface it: until the clock holds the new key, the project's scheduled tasks answer 401.
+
+### Push to the project's repository (`CRON_SECRET` only, the GitHub fallback of `/add-cron`)
+
+When `/add-cron` could not use the shared clock, the project's scheduled tasks run as automations of its own repository (`.github/workflows/cron-<task>.yml`), and they read their own copy of the key, a secret of the repository. Without this step, they answer 401 from their next run on.
+
+```bash
+REPO_ROOT=$(git -C "<WEB_DIR>" rev-parse --show-toplevel 2>/dev/null || echo "<WEB_DIR>")
+if grep -qs 'secrets.CRON_SECRET' "$REPO_ROOT"/.github/workflows/cron-*.yml; then
+  NEW_VALUE=$(node "${CLAUDE_SKILL_DIR}/../../scripts/env-value.mjs" --project-dir "<WEB_DIR>" CRON_SECRET) && [ -n "$NEW_VALUE" ] \
+    || { echo "CRON_SECRET is not in <WEB_DIR>/.env, or it is empty: nothing was sent to the repository."; exit 1; }
+  (cd "$REPO_ROOT" && printf '%s' "$NEW_VALUE" | gh secret set CRON_SECRET) && echo "REPO_PUSH_OK" || echo "REPO_PUSH_FAILED"
+else
+  echo "REPO_PUSH=no_scheduled_automation"
+fi
+```
+
+Depending on the output:
+- `REPO_PUSH=no_scheduled_automation` → no scheduled task of the project runs in its repository: silent.
+- `REPO_PUSH_OK` → announce `✅ The repository's scheduled automations: CRON_SECRET updated`.
+- `REPO_PUSH_FAILED` → surface it: until the repository holds the new key, those tasks answer 401. When `gh` is not signed in, `gh auth login` first, then the same block again; count the repository among the targets not yet in sync (the warning below applies).
 
 ### Push to Render Services (if applicable)
 

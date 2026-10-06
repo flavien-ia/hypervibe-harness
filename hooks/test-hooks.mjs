@@ -95,6 +95,38 @@ console.log("\n── Confirmation humaine (legitime, mais irreversible ou publi
 expect("git push", "ask");
 expect("git push origin main", "ask");
 expect("git push -u origin feat/x", "ask");
+
+console.log("\n── La forge (gh) : publier, détruire, exposer, déplacer demandent ; lire et écrire passent ──");
+expect("gh pr merge 12 --squash", "ask");
+expect("gh pr merge --squash --delete-branch=false", "ask");
+expect('GH_TOKEN=$(node vault.mjs get GITHUB org_pat) gh pr merge 3 --repo acme/site --squash', "ask");
+expect("gh run rerun 123456 --repo acme/site", "ask");
+expect("gh repo delete acme/site --yes", "ask");
+expect("gh secret delete CRON_SECRET", "ask");
+expect("gh secret remove HOST_TOKEN --repo acme/site", "ask");
+expect("gh variable delete PROD_ALLOWLIST", "ask");
+expect("gh repo edit acme/site --visibility public --accept-visibility-change-consequences", "ask");
+expect("gh repo create site --public --source=. --push", "ask");
+expect("gh api -X DELETE repos/acme/site/collaborators/bob", "ask");
+expect("gh api --method DELETE orgs/acme/members/bob", "ask");
+expect("gh api --method=delete orgs/acme/invitations/42", "ask");
+expect("gh api -XDELETE repos/acme/site/git/refs/heads/collab/bob", "ask");
+expect("gh api -X POST repos/moi/site/transfer -f new_owner=acme", "ask");
+expect("gh pr create --base main --fill", "pass");
+expect("gh pr view --json url", "pass");
+expect("gh run list --workflow deploy.yml --limit 1", "pass");
+expect("gh run watch 123 --exit-status", "pass");
+expect("gh api user --jq .login", "pass");
+expect("gh api --paginate repos/acme/site/collaborators", "pass");
+expect("gh api -X POST orgs/acme/invitations -f email=a@b.fr", "pass");
+expect("gh secret list", "pass");
+expect("printf '%s' \"$V\" | gh secret set CRON_SECRET", "pass");
+expect("gh repo create acme/site --private --add-readme", "pass");
+expect("gh repo edit acme/site --visibility private", "pass");
+expect("gh repo view acme/site --json url", "pass");
+expect("gh workflow run cron-digest.yml", "pass");
+expect("grep -rn 'gh pr merge' skills/", "pass");
+expect('echo "gh repo delete acme/site"', "pass");
 expect('git -C "C:/DEV/hypervibe-harness" push origin main --follow-tags', "ask");
 expect("git --no-pager -C x push", "ask");
 expect("vercel --prod", "ask");
@@ -605,6 +637,22 @@ console.log("\n── La table OpenCode : pas plus large que le garde-fou, la ou
     ["git checkout -- src/a.ts", "allow"],
     ["git restore src/a.ts", "allow"],
   ];
+  // The forge's command line (lot 7 inventory, 06/10/2026): what publishes, destroys, exposes or
+  // moves asks in both, and the reads and writes beside it pass in both.
+  dressed.push(
+    ["gh pr merge 3 --squash", "ask"],
+    ["gh run rerun 42", "ask"],
+    ["gh repo delete acme/site --yes", "ask"],
+    ["gh secret delete CRON_SECRET", "ask"],
+    ["gh api -X DELETE repos/acme/site/collaborators/bob", "ask"],
+    ["gh api --method DELETE orgs/acme/members/bob", "ask"],
+    ["gh repo edit acme/site --visibility public", "ask"],
+    ["gh api -X POST repos/moi/site/transfer -f new_owner=acme", "ask"],
+    ["gh pr view 3", "allow"],
+    ["gh api user --jq .login", "allow"],
+    ["gh secret list", "allow"],
+    ["gh repo edit acme/site --visibility private", "allow"],
+  );
   const undressed = dressed.filter(([command, expected]) => openCodeSays(command) !== expected || hookSays(command) !== expected).map(([command]) => command);
   checks += 1;
   if (undressed.length) failures += 1;

@@ -81,7 +81,10 @@ runs shell commands), refuses a sweeping `git add -A` and destructive SQL, and
 asks for your confirmation before a push, a direct production deploy, a worker
 deploy (also when one of the plugin's own scripts would do it), a schema push,
 cloud deletions, a hard reset, or the opt-in that lets a checkout's versioned
-git hooks run. The rules never see the
+git hooks run. It asks the same on the forge's command line: before a merge
+into the main branch or a deployment run again (both publish), and before what
+deletes, exposes or moves something there (a repository deleted, made public or
+transferred, a secret removed, an access deleted). The rules never see the
 raw head of a command: `sudo`, `command`, `env`, `time`, a launcher (`npx`,
 `pnpm dlx`), a version pin, an absolute path, a subshell or a `sh -c` payload
 are stripped or unfolded first, so a shape the rules did not foresee does not

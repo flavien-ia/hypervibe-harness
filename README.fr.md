@@ -167,6 +167,8 @@ Les opérations irréversibles sont donc gardées, pas seulement déconseillées
 |---|---|---|
 | `git add -A`, `git add .`, `git add :/`, `git add ':(top)'`, `git add '*'`, `git add -u`, `git commit -a`, `git commit --all` | **refus** | Un balayage a déjà emporté dans un commit le travail non commité d'une autre session. Indexer nommément : `git add <fichier>`. |
 | `git push` | **confirmation** | Pousser publie. Le consentement vit dans la conversation, donc un humain confirme. |
+| `gh pr merge`, `gh run rerun` | **confirmation** | Une fusion vers la branche principale publie (la branche principale, c'est la production), et relancer un déploiement aussi. |
+| `gh repo delete`, `gh secret delete`, `gh variable delete`, `gh api` en `DELETE`, un dépôt rendu public ou transféré | **confirmation** | Supprime, expose ou déplace quelque chose sur la forge : un dépôt, un secret, un accès, une branche. Les lectures, `gh pr create` et `gh secret set` passent. |
 | `vercel --prod`, `--target production`, `promote`, `rollback` | **confirmation** | Les déploiements passent normalement par `git push`. `vercel build --prod` ne déploie rien et n'est pas demandé. |
 | `wrangler deploy`, `wrangler secret put` (pas `--dry-run`) | **confirmation** | Le worker partagé tourne avec les clés du compte ; un déploiement publie du code qui les détient. |
 | `pnpm db:push`, `pnpm --filter web db:push`, `drizzle-kit push` | **confirmation** | Sur cette stack, la base que vous atteignez EST la production. |

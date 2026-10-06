@@ -280,13 +280,23 @@ export async function accountSubdomain(token, accountId, fetchImpl = fetch) {
     const res = await fetchImpl(`https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/subdomain`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return { state: "unknown", status: res.status };
-    const data = await res.json();
-    return data.result?.subdomain ? { state: "present", subdomain: data.result.subdomain } : { state: "absent" };
+    const data = await res.json().catch(() => null);
+    // An account that never registered its workers.dev address: an empty answer, or a "not found"
+    // (HTTP 404, or Cloudflare's error 10007, which wrangler reads the same way). Any other refusal
+    // stays unknown: the clock then deploys without its control plane, as for an absent address.
+    if (!res.ok) {
+      const notFound = res.status === 404 || (data?.errors ?? []).some((e) => e?.code === 10007);
+      return notFound ? { state: "absent" } : { state: "unknown", status: res.status };
+    }
+    return data?.result?.subdomain ? { state: "present", subdomain: data.result.subdomain } : { state: "absent" };
   } catch {
     return { state: "unknown" };
   }
 }
+
+/** The page of the Cloudflare dashboard whose first opening registers the account's workers.dev
+ *  address, with nothing to do on it (seen on a new account, 06/10/2026). */
+export const workersDevPage = (accountId) => `https://dash.cloudflare.com/${accountId}/workers-and-pages`;
 
 /** Whether the clock serves its workers.dev address, per its wrangler.toml (wrangler's default,
  *  when the line is absent, is yes). A clock that does not has no /status nor /trigger at all. */

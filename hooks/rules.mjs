@@ -1517,6 +1517,24 @@ function throughVariables(seg, vars) {
  * @param {boolean} [carried]  the line was rewritten from a segment that carried a substitution
  * @returns {{decision: "deny"|"ask", reason: string} | null}
  */
+/** What destroys, exposes or moves something on the forge, read on `gh`'s own words: a
+ *  repository deleted, made public (an edit, or a creation) or transferred, a secret or a
+ *  variable removed, and whatever the API is asked to DELETE (an access, a member, a branch, an
+ *  invitation). The method is read in each spelling gh takes (`-X DELETE`, `-XDELETE`,
+ *  `--method DELETE`, `--method=DELETE`). */
+function forgeDestroys(seg) {
+  if (!/^gh\s/.test(seg)) return false;
+  if (/^gh\s+repo\s+delete\b/.test(seg)) return true;
+  if (/^gh\s+(?:secret|variable)\s+(?:delete|remove)\b/.test(seg)) return true;
+  if (/^gh\s+repo\s+edit\b/.test(seg) && /--visibility(?:\s+|=)["']?public\b/i.test(seg)) return true;
+  if (/^gh\s+repo\s+create\b/.test(seg) && /(?:^|\s)--public\b/.test(seg)) return true;
+  if (/^gh\s+api\b/.test(seg)) {
+    if (/(?:^|\s)(?:-X\s*|--method(?:\s+|=))["']?DELETE\b/i.test(seg)) return true;
+    if (/\/transfer(?:["'\s]|$)/.test(seg)) return true;
+  }
+  return false;
+}
+
 export function decide(command, inherited = new Map(), vars = new Map(), carried = false) {
   if (!command || typeof command !== "string") return null;
 
@@ -1683,6 +1701,27 @@ export function decide(command, inherited = new Map(), vars = new Map(), carried
       keep(
         ASK,
         "A push publishes. Confirm with the user first (a standing agreement stated in chat counts).",
+      );
+      continue;
+    }
+
+    // 2b. The forge's command line. A merge into the main branch publishes (on these projects
+    //     the main branch is production), and so does running a deployment again: the same
+    //     question as a push, which the guard asked while `gh pr merge` walked past (lot 7
+    //     inventory, 06/10/2026). And what destroys, exposes or moves something on the forge
+    //     (forgeDestroys). Reads pass, and so do the gestures that create or write
+    //     (`gh pr create`, `gh secret set`, `gh workflow run`).
+    if (/^gh\s+(?:pr\s+merge|run\s+rerun)\b/.test(seg)) {
+      keep(
+        ASK,
+        "A merge into the main branch publishes (on these projects the main branch is production), and so does running a deployment again. Confirm with the user first (a standing agreement stated in chat counts).",
+      );
+      continue;
+    }
+    if (forgeDestroys(seg)) {
+      keep(
+        ASK,
+        "This deletes, exposes or moves something on the forge (a repository, a secret, an access, a branch or an invitation, or code made public). Say exactly what is targeted, by name, and confirm with the user.",
       );
       continue;
     }

@@ -126,7 +126,22 @@
       "git restore * .": "ask",
       "git restore * . *": "ask",
       "git restore*\".\"*": "ask",
-      "git restore*'.'*": "ask"
+      "git restore*'.'*": "ask",
+      "*gh pr merge*": "ask",
+      "*gh run rerun*": "ask",
+      "*gh repo delete*": "ask",
+      "*gh secret delete*": "ask",
+      "*gh secret remove*": "ask",
+      "*gh variable delete*": "ask",
+      "*gh variable remove*": "ask",
+      "*gh repo edit*--visibility*public*": "ask",
+      "*gh repo create*--public*": "ask",
+      "*gh api*-X DELETE*": "ask",
+      "*gh api*-XDELETE*": "ask",
+      "*gh api*-X delete*": "ask",
+      "*gh api*--method*DELETE*": "ask",
+      "*gh api*--method*delete*": "ask",
+      "*gh api*/transfer*": "ask"
     }
   }
 }

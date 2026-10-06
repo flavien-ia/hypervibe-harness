@@ -26,7 +26,7 @@ Invite ou retire des collaborateurs sur votre projet sans payer une place Vercel
   - *"Ajoute charlie et retire dave"*, plusieurs actions en une seule phrase
   - *"Ajoute eve en admin"*, rôle spécifique (vous pouvez aussi demander `pull`, `triage`, `push`, `maintain`)
 
-4. **Vérification + récap** : Hypervibe re-liste les collaborateurs après chaque action pour que vous voyez l'état à jour.
+4. **Vérification + récap** : Hypervibe relit les collaborateurs après chaque action pour que vous voyiez l'état à jour. Il ne dit « retiré » qu'une fois que GitHub le confirme : une invitation encore en attente est annulée, et une liste qui n'a pas pu être lue est dite comme telle.
 
 ## Ce que ça crée pour vous
 

@@ -56,6 +56,7 @@ import {
   servesWorkersDev,
   workersDevBlock,
   enableWorkersDev,
+  workersDevPage,
 } from "./_lib.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -121,7 +122,19 @@ async function main() {
     }
     let jobs = null;
     if (scaffolded) { try { jobs = readRegistry(DIR).jobs.length; } catch { jobs = null; } }
-    out({ ok: true, dryRun: true, status, dir: DIR, workerName: WORKER_NAME, workerUrl, controlPlane: workerUrl ? "on" : "off", jobs, adminTokenVar: ADMIN_TOKEN_VAR, reasons });
+    // The account's workers.dev address: a Cloudflare account that has never opened its Workers
+    // page has none, and a clock made then has no control plane (/status, /trigger). /start opens
+    // that page once (workersDevPage) before the real run, which then makes the clock whole.
+    let workersDev = "unknown";
+    let workersDevPageUrl = null;
+    if (token) {
+      const accountId = flags["account-id"] || (await getCfAccountId(token).catch(() => null));
+      if (accountId) {
+        workersDev = (await accountSubdomain(token, accountId)).state;
+        if (workersDev === "absent") workersDevPageUrl = workersDevPage(accountId);
+      }
+    }
+    out({ ok: true, dryRun: true, status, dir: DIR, workerName: WORKER_NAME, workerUrl, controlPlane: workerUrl ? "on" : "off", workersDev, ...(workersDevPageUrl ? { workersDevPage: workersDevPageUrl } : {}), jobs, adminTokenVar: ADMIN_TOKEN_VAR, reasons });
     return;
   }
 

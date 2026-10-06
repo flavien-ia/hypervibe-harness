@@ -50,6 +50,16 @@ check("a registered subdomain is present", (await lib.accountSubdomain("t", ACCO
 check("an account without one is absent", (await lib.accountSubdomain("t", ACCOUNT, answer(200, { result: { subdomain: "" } }))).state === "absent");
 check("a refusal is unknown", (await lib.accountSubdomain("t", ACCOUNT, answer(403))).state === "unknown");
 check("a network failure too", (await lib.accountSubdomain("t", ACCOUNT, unreachable)).state === "unknown");
+// A new account (06/10/2026): its address appears the first time its Workers page is opened, and
+// until then Cloudflare may answer with a "not found" rather than an empty address.
+check("a 404 is an account without one, absent", (await lib.accountSubdomain("t", ACCOUNT, answer(404, { success: false, errors: [{ code: 10007, message: "not found" }] }))).state === "absent");
+check("... and so is Cloudflare's error 10007, whatever its status", (await lib.accountSubdomain("t", ACCOUNT, answer(400, { success: false, errors: [{ code: 10007 }] }))).state === "absent");
+check("... while a server error stays unknown", (await lib.accountSubdomain("t", ACCOUNT, answer(500, { success: false, errors: [{ code: 10000 }] }))).state === "unknown");
+check("the page that registers it: the account's Workers page in the dashboard", lib.workersDevPage(ACCOUNT) === `https://dash.cloudflare.com/${ACCOUNT}/workers-and-pages`);
+{
+  const ensureSrc = readFileSync(join(WORKER_DIR, "ensure.mjs"), "utf8");
+  check("the dry run says whether the account has its address, and the page to open when it has not", /workersDev,/.test(ensureSrc) && /workersDevPage: workersDevPageUrl/.test(ensureSrc) && /if \(workersDev === "absent"\) workersDevPageUrl = workersDevPage\(accountId\);/.test(ensureSrc));
+}
 
 const dir = mkdtempSync(join(tmpdir(), "hv-clock-"));
 try {

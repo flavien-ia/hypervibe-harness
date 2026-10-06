@@ -34,6 +34,7 @@ import { vercelContext, listAllProjects, getProject, pickTargets } from "../_ver
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
 import { manifestExistant } from "../manifest/locate.mjs";
 import { matchOf, projectRepository } from "./_render-match.mjs";
+import { githubRepositoryOf } from "./_github-repo.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -694,18 +695,9 @@ function scanMemory() {
 }
 
 // ─── 14. GitHub repo ───────────────────────────────────────────────────────
+// The repository the project's folder pushes to, a read that failed said as such (_github-repo.mjs).
 async function scanGitHub() {
-  try {
-    const who = await runCmd("gh", ["api", "user", "--jq", ".login"]);
-    const owner = (who.stdout || "").trim();
-    if (!owner) return { exists: false };
-    const r = await runCmd("gh", ["repo", "view", `${owner}/${PROJECT}`, "--json", "name,url,visibility,isPrivate"]);
-    if (r.code !== 0) return { exists: false };
-    const data = JSON.parse(r.stdout);
-    return { exists: true, ...data };
-  } catch (e) {
-    return { exists: false, error: String(e) };
-  }
+  return githubRepositoryOf({ projectDir: PROJECT_DIR, project: PROJECT, run: runCmd });
 }
 
 // ─── orchestrator ──────────────────────────────────────────────────────────

@@ -344,6 +344,15 @@ eval "$(node "$PLUGIN_DIR/scripts/wrangler-env-init.mjs")"
 node "$PLUGIN_DIR/scripts/shared-worker/ensure.mjs" --dry-run
 ```
 
+**A Cloudflare account that has never opened its Workers page** (a brand-new account, typically) has no workers.dev address yet, and a clock made then has no control panel (`/status`, `/trigger`). The first opening of that page in the dashboard registers the address, with nothing to do on it. The dry run says it: `workersDev: "absent"`, with the page in `workersDevPage`. In that case, before anything else, tell the user in one sentence that a Cloudflare page is about to open in their browser, that there is nothing to do on it and they can close it, then open it:
+
+```bash
+PLUGIN_DIR="${CLAUDE_SKILL_DIR}/../.."
+node "$PLUGIN_DIR/scripts/open-url.mjs" "<workersDevPage, as the dry run gave it>"
+```
+
+Then run the dry run again (the same command as above). `workersDev: "present"` → go on with its new answer. Still `"absent"` (the browser was not signed in to Cloudflare, for instance) → go on all the same and never insist: the clock is made without its control panel, and switches it on by itself at a later run, once the address exists. `workersDev: "unknown"` (the key could not read it) → go on, nothing to open.
+
 The dry run changes nothing and says whether the real run would deploy: `status: "not-scaffolded"` (first setup, the clock would be created and deployed), `"would-deploy"` (the clock is behind or missing on the account; `reasons` says why), or `"in-step"` (nothing would change). **In step: do not run the real command**, treat the dry run's JSON as the provisioning result (it carries `dir`, `workerName`, `workerUrl`, `jobs`; read its `status` as `already_present`). Otherwise, say in one sentence what is about to happen on the user's Cloudflare account, then run the real command below; the guardrail asks for confirmation at that moment, and that question is the user's yes (outside review, 3.1.6):
 
 ```bash

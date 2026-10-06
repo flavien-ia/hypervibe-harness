@@ -197,6 +197,13 @@ check(
     /function normalise\(/.test(lire("hooks/rules.mjs")) && /raw head of a command/.test(securite),
   );
   check(
+    "la forge : une fusion vers la branche principale et ce qui y supprime, expose ou deplace demandent, et les regles le font",
+    /It asks the same on the forge's command line: before a merge\s+into the main branch or a deployment run again/.test(securite) &&
+      /deletes, exposes or moves something there/.test(securite) &&
+      /\^gh\\s\+\(\?:pr\\s\+merge\|run\\s\+rerun\)\\b/.test(lire("hooks/rules.mjs")) &&
+      /function forgeDestroys\(seg\)/.test(lire("hooks/rules.mjs")),
+  );
+  check(
     "il pointe sur guard-bash.mjs via CLAUDE_PLUGIN_ROOT",
     JSON.stringify(pre).includes("guard-bash.mjs") &&
       JSON.stringify(pre).includes("CLAUDE_PLUGIN_ROOT"),
