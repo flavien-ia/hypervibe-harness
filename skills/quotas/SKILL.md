@@ -161,6 +161,7 @@ If it does not, register it:
   > ⚠️ *To activate the quota alert, Resend needs a verified domain to send from. `/add-domain` sets one up (or verify one at https://resend.com/domains), then re-run `/quotas`. Not blocking - your current storage is at X%.*
 - Provisioning or registration returned `ok: false` → show after the table, short, without blocking:
   > ⚠️ *The quota watch could not be set up: `<error>`. Re-run `/start` if needed.*
+- The provisioning JSON (dry run or real run) or the registration JSON carries `neonOrg`: which Neon organisation the quota watch reads. With a `remedy` (`status: "undecided"`: several organisations, or none listed; `"unreadable"`: Neon did not answer) → show it **after the table**, in one or two sentences: the watch cannot tell which Neon organisation to read, and what to do. Never choose an organisation for the user. `"set"`, `"kept"` or `"not-needed"` → say nothing more.
 
 Never let the table display fail because of this step. It is a bonus, not a critical step.
 

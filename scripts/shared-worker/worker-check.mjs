@@ -23,7 +23,7 @@
 // Output: single JSON line on stdout. Logs on stderr.
 //   { ok: true, status: "absent" | "up_to_date", dir }
 //   { ok: true, status: "stale", dir, knownBugs }                  (--dry-run)
-//   { ok: true, status: "updated", dir, knownBugs, deployed, healed }
+//   { ok: true, status: "updated", dir, knownBugs, deployed, healed, neonOrg? }
 //   { ok: false, status: "stale", dir, knownBugs, error, howTo? }  (repair failed)
 
 import { existsSync, readFileSync } from "node:fs";
@@ -70,6 +70,16 @@ const KNOWN_BUGS = [
     test: (src) => /function escapeHtml\(/.test(src) && !src.includes("&#123;"),
     message:
       "An alert email whose text carried braces (the answer of a site, the message of a provider) could be accepted by the email service and then dropped: the failure was counted as told, and never read.",
+  },
+  {
+    id: "quota-watch-neon-org-required",
+    // The watch listed Neon's projects without naming an organisation (nothing ever wrote
+    // neonOrgId), and some accounts now refuse that outright: 400 "org_id is required". The old
+    // worker mailed Neon's raw reply; the fixed one says what to do, and the repair (ensure.mjs)
+    // records the organisation on the watch when it is certain.
+    test: (src) => /async function checkNeonUsage\(/.test(src) && !/org_id is required/.test(src),
+    message:
+      "On some Neon accounts the quota watch read no database at all: Neon asks which organisation to read (\"org_id is required\") and the watch did not know it. The repair records your organisation when it is certain, and the alert email now says how to fix it otherwise.",
   },
 ];
 
@@ -118,4 +128,6 @@ if (!res?.ok) {
   );
   process.exit(1);
 }
-out({ ok: true, status: "updated", dir: DIR, knownBugs, deployed: res.deployed, healed: res.healed });
+// neonOrg: what the repair could say of the quota watch's Neon organisation (ensure.mjs), its
+// remedy included when the organisation could not be decided: the update skill passes it on.
+out({ ok: true, status: "updated", dir: DIR, knownBugs, deployed: res.deployed, healed: res.healed, ...(res.neonOrg ? { neonOrg: res.neonOrg } : {}) });

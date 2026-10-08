@@ -1,14 +1,18 @@
 // neon-org.mjs - resolve WHICH Neon organisation the plugin is talking to.
 //
 // Neon's /projects endpoints are organisation-scoped, and that is easy to miss because
-// omitting the scope does NOT fail. A personal API key with no `org_id` silently answers
-// for the account's DEFAULT organisation. So an account whose projects live in an
+// omitting the scope usually does NOT fail. A personal API key with no `org_id` silently
+// answers for the account's DEFAULT organisation. So an account whose projects live in an
 // organisation it created gets:
 //   - an empty project list, so the name-collision guard confidently reports "no clash",
 //   - a creation that lands somewhere else, or trips the default organisation's free
 //     project cap with a message that names neither the organisation nor the remedy.
-// Both failures are silent, which is what makes them expensive. An ORGANISATION api key
-// scopes itself and needs no parameter at all.
+// Both failures are silent, which is what makes them expensive. And Neon may also refuse
+// outright: some accounts now get 400 "org_id is required" where they used to get the
+// default organisation's answer (a participant's shared clock, 08/10/2026, whose quota
+// watch then read no database at all). Every caller that lists projects names the
+// organisation when it is known. An ORGANISATION api key scopes itself and needs no
+// parameter at all.
 //
 // Resolution order, deliberately explicit rather than clever:
 //   1. NEON.org_id in the vault  -> it has been decided. Always wins.

@@ -34,7 +34,11 @@
 //                 "r2ThresholdGb": 9, "neonThresholdPct": 60,
 //                 "neonOrgId": "org-..." } }
 //     (R2 needs CLOUDFLARE_API_TOKEN + cloudflareAccountId + r2ThresholdGb;
-//      the Neon block runs as soon as NEON_API_KEY is present.)
+//      the Neon block runs as soon as NEON_API_KEY is present. "neonOrgId" says WHICH
+//      Neon organisation to watch: register.mjs writes it when it is certain, ensure.mjs
+//      completes a watch registered before, and the NEON_ORG_ID secret is the hand-made
+//      fallback. Without one Neon answers for the account's default organisation, or
+//      refuses outright: 400 "org_id is required", told in plain words in the email.)
 //   Any job may carry "enabled": false to pause it without deleting it.
 //
 // Secrets (uploaded via `wrangler secret put`, never in git):
@@ -540,7 +544,8 @@ export async function runQuotaJob(job, env) {
 
   if (env.NEON_API_KEY) {
     checks.push(
-      checkNeonUsage(env, cfg).catch((e) => ({ _error: `Neon: ${e.message}` })),
+      // `help`: what to do, in plain words, when the cause is known (orgRequiredHelp).
+      checkNeonUsage(env, cfg).catch((e) => ({ _error: `Neon: ${e.message}`, ...(e.help ? { help: e.help } : {}) })),
     );
   }
 
@@ -693,7 +698,17 @@ async function checkNeonUsage(env, cfg) {
   // nothing forever, which reads exactly like "everything is fine".
   const orgId = cfg.neonOrgId || env.NEON_ORG_ID || "";
   const scope = orgId ? `&org_id=${encodeURIComponent(orgId)}` : "";
-  const { projects } = await neon("GET", `/projects?limit=400${scope}`, env.NEON_API_KEY);
+  let listing;
+  try {
+    listing = await neon("GET", `/projects?limit=400${scope}`, env.NEON_API_KEY);
+  } catch (e) {
+    // Some accounts now get an outright refusal instead of the default organisation's answer:
+    // 400 "org_id is required" (a participant's clock, 08/10/2026). Neon's words say neither
+    // where the id is nor what picks it up, so the email says both.
+    if (isOrgRequired(e.message)) e.help = orgRequiredHelp();
+    throw e;
+  }
+  const { projects } = listing;
   if (!projects?.length) return [];
 
   // The list endpoint carries storage but NOT the consumption counters, so each
@@ -765,6 +780,42 @@ async function checkNeonUsage(env, cfg) {
   return alerts;
 }
 
+/** Neon refused a project listing that names no organisation. */
+function isOrgRequired(message) {
+  return /-> 4\d\d:/.test(String(message)) && /org_id is required/i.test(String(message));
+}
+
+/** What the watch's email says when Neon wants to know which organisation to read: where the id
+ *  is, where it goes, what picks it up, and a prompt that stands alone (whoever pastes it has only
+ *  the email in front of them). It writes no secret and redeploys nothing on its own. */
+function orgRequiredHelp() {
+  return {
+    cause: "Neon demande desormais quelle organisation lire (\"org_id is required\"), et la veille ne la connait pas : elle ne voit donc aucune de tes bases Neon, ni leurs depassements.",
+    steps: [
+      "Dans la console Neon, ouvre Organization settings et releve l'identifiant de ton organisation : il commence par org-.",
+      "Range-le dans ton coffre-fort : element NEON, champ org_id.",
+      "Relance /quotas dans Claude Code : il reenregistre la veille avec cette organisation.",
+    ],
+    prompt: "La veille des quotas de mon horloge Cloudflare \"hypervibe-jobs\" ne lit plus Neon : Neon repond 400 \"org_id is required\", il faut lui dire quelle organisation lire. Lis la cle Neon du coffre Bitwarden (item NEON, champ api_key), liste mes organisations Neon et aide-moi a choisir celle qui porte mes projets. Range ensuite son identifiant dans le coffre (item NEON, champ org_id), puis relance /quotas pour reenregistrer la veille. Ne redeploie rien sans mon accord.",
+  };
+}
+
+/** One check the watch could not read: its words as they came, or, when the cause is known, what
+ *  to do in plain words, with the provider's reply kept under it. */
+function unreadItem(e) {
+  if (!e.help) return `<li>${escapeHtml(e._error)}</li>`;
+  const { cause, steps, prompt } = e.help;
+  return `<li style="margin-bottom:12px;">${escapeHtml(cause)}
+        <ol style="margin:8px 0;">${steps.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol>
+        <p style="margin:8px 0 4px;">Ou, a copier-coller dans Claude Code :</p>
+        <pre style="white-space:pre-wrap;word-break:break-word;background:#f7f7f7;border:1px solid #e2e2e2;border-radius:4px;padding:12px;font-size:13px;margin:0 0 8px;">${escapeHtml(prompt)}</pre>
+        <details>
+          <summary style="cursor:pointer;color:#666;font-size:13px;">Reponse brute de l'API</summary>
+          <pre style="white-space:pre-wrap;word-break:break-word;color:#666;font-size:12px;margin:8px 0 0;">${escapeHtml(e._error)}</pre>
+        </details>
+      </li>`;
+}
+
 async function sendQuotaEmail(env, cfg, alerts, errors = []) {
   const subject = !alerts.length
     ? `[Hypervibe] La veille des quotas n'a pas pu lire ${errors.length} service(s)`
@@ -772,7 +823,7 @@ async function sendQuotaEmail(env, cfg, alerts, errors = []) {
       ? `[Hypervibe] Quota ${alerts[0].service} a depasse le seuil`
       : `[Hypervibe] ${alerts.length} quotas ont depasse le seuil`;
   const unread = errors.length
-    ? `<h3 style="margin-top: 24px;">Ce que la veille n'a pas pu lire</h3><p>Sans ces lectures, un depassement ne serait pas vu. Une cle revoquee ou expiree se renouvelle, puis se remet sur l'horloge ; un service en panne se relit au prochain passage.</p><ul style="font-size:14px;">${errors.map((e) => `<li>${escapeHtml(e._error)}</li>`).join("")}</ul>`
+    ? `<h3 style="margin-top: 24px;">Ce que la veille n'a pas pu lire</h3><p>Sans ces lectures, un depassement ne serait pas vu. Une cle revoquee ou expiree se renouvelle, puis se remet sur l'horloge ; un service en panne se relit au prochain passage.</p><ul style="font-size:14px;">${errors.map(unreadItem).join("")}</ul>`
     : "";
 
   const rows = alerts

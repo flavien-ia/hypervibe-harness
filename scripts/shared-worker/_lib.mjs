@@ -5,6 +5,9 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readUserEnv } from "../_read-user-env.mjs";
+import { getSecret } from "../vault/vault.mjs";
+import { resolveNeonOrg } from "../neon-org.mjs";
 
 export const WORKER_NAME_DEFAULT = "hypervibe-jobs";
 export const DIR_DEFAULT = join(homedir(), ".hypervibe-jobs");
@@ -340,6 +343,108 @@ export function enableWorkersDev(dir) {
   lines.splice(from, at - from + 1, ...WORKERS_DEV_ON);
   writeFileSync(file, lines.join("\n"));
   return true;
+}
+
+// ── The Neon organisation the quota watch reads ──────────────────────────
+//
+// Neon scopes its project listing to ONE organisation. Named nowhere, it answered for the
+// account's default one, and some accounts now get an outright refusal instead: 400 "org_id is
+// required" (a participant's clock, 08/10/2026). The watch then read no database at all, so it
+// could see no overage either. The worker reads `config.neonOrgId` (then the NEON_ORG_ID
+// secret), but nothing wrote it until 3.4.8. One rule for the two scripts that write it:
+// register.mjs at registration, ensure.mjs on a watch registered before.
+
+/** Where the organisation's id goes, and what then records it on the watch. */
+const KEEP_IT_IN_THE_VAULT =
+  "dans le coffre (élément NEON, champ org_id), puis relance /quotas : la veille l'enregistrera.";
+
+/**
+ * What the watch records about the Neon organisation, from resolveNeonOrg's answer
+ * (scripts/neon-org.mjs). Only a CERTAIN organisation is written: the vault's, or the only one
+ * of the account. An organisation key scopes itself and needs none. Among several, never the
+ * first: the list holds every organisation the key is a member of, other people's included.
+ * `previous` is the organisation the job already names: an answer that is not certain never
+ * takes it away (Neon unreachable on the day of a re-registration, say).
+ *
+ * @param {{orgId: string|null, source: string, orgs?: Array<{id: string, name: string}>}} resolved
+ * @param {string|null} previous
+ * @returns {{status: "set"|"kept"|"not-needed"|"undecided"|"unreadable"|"no-key",
+ *   neonOrgId: string|null, source: string, orgs?: Array<{id: string, name: string}>, remedy?: string}}
+ */
+export function watchNeonOrg(resolved, previous = null) {
+  const source = resolved?.source || "injoignable";
+  if ((source === "vault" || source === "unique") && resolved.orgId) {
+    return { status: "set", neonOrgId: resolved.orgId, source };
+  }
+  if (previous) return { status: "kept", neonOrgId: previous, source };
+  if (source === "cle-org") return { status: "not-needed", neonOrgId: null, source };
+  if (source === "cle-absente") return { status: "no-key", neonOrgId: null, source };
+  if (source === "ambigu") {
+    const orgs = resolved.orgs || [];
+    const liste = orgs.map((o) => `${o.name} (${o.id})`).join(", ");
+    return {
+      status: "undecided",
+      neonOrgId: null,
+      source,
+      orgs,
+      remedy:
+        `Ce compte Neon appartient à plusieurs organisations : ${liste}. La veille des quotas ne sait pas ` +
+        "laquelle lire, et ne choisit jamais à ta place (la première de la liste peut être celle de quelqu'un d'autre). " +
+        `Range l'identifiant de celle qui porte tes projets ${KEEP_IT_IN_THE_VAULT}`,
+    };
+  }
+  if (source === "aucune") {
+    return {
+      status: "undecided",
+      neonOrgId: null,
+      source,
+      orgs: [],
+      remedy:
+        "Neon ne liste aucune organisation pour cette clé : la veille des quotas lit l'espace par défaut du compte, " +
+        "et Neon peut refuser de répondre sans organisation (« org_id is required »). Si la veille le signale, relève " +
+        "l'identifiant de ton organisation dans la console Neon (Organization settings, il commence par org-) et range-le " +
+        KEEP_IT_IN_THE_VAULT,
+    };
+  }
+  return {
+    status: "unreadable",
+    neonOrgId: null,
+    source,
+    remedy:
+      "L'organisation Neon n'a pas pu être lue (Neon n'a pas répondu) : la veille des quotas ne la connaît pas encore. " +
+      "Relance /quotas un peu plus tard : elle l'enregistrera.",
+  };
+}
+
+/** A vault field read the way every caller of resolveNeonOrg reads one: "" when unavailable. */
+function vaultField(item, field) {
+  try {
+    return getSecret(item, field) || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * The organisation for the watch, with the Neon key and NEON.org_id read from the vault like every
+ * other caller of resolveNeonOrg. Never throws: an organisation that could not be read never blocks
+ * a registration. `deps` is the recettes' seam.
+ */
+export async function resolveWatchNeonOrg(previous = null, deps = {}) {
+  const { readKey = () => readUserEnv("NEON_API_KEY"), vaultGet = vaultField, resolve = resolveNeonOrg } = deps;
+  let resolved;
+  try {
+    const key = readKey();
+    resolved = key ? await resolve(key, vaultGet) : { orgId: null, source: "cle-absente", orgs: [] };
+  } catch {
+    resolved = { orgId: null, source: "injoignable", orgs: [] };
+  }
+  return watchNeonOrg(resolved, previous);
+}
+
+/** The quota jobs of a registry that name no Neon organisation: the ones ensure.mjs completes. */
+export function quotaJobsWithoutNeonOrg(registry) {
+  return (registry?.jobs || []).filter((j) => j?.kind === "quota" && !j.config?.neonOrgId);
 }
 
 // ── misc ─────────────────────────────────────────────────────────────────

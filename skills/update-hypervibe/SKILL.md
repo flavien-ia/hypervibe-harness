@@ -133,7 +133,7 @@ The dry run never creates a worker (no `~/.hypervibe-jobs` on this machine means
 node "$PLUGIN_DIR/scripts/shared-worker/worker-check.mjs"
 ```
 
-- `status: "updated"` → one sentence: the shared clock now runs this version of the plugin.
+- `status: "updated"` → one sentence: the shared clock now runs this version of the plugin. When it also carries `neonOrg` with a `remedy` (the quota watch cannot tell which Neon organisation to read), pass the remedy on in one or two sentences, without choosing an organisation for the user.
 - `ok: false` with an `error` about `CLOUDFLARE_API_TOKEN` → the vault is locked. Say a window will open for the master password, run `node "$PLUGIN_DIR/scripts/vault/launch.mjs" unlock`, then run the check once more.
 - any other `ok: false` → pass on `error` (and `howTo` when present), and say the clock keeps its previous version until the next `/quotas` or the next update. Never hold the rest of the update on it.
 

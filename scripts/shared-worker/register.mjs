@@ -41,6 +41,12 @@
 //       cadence: daily at 06:00 UTC). Alerts go out through the given email
 //       provider; without the flag, whichever key the vault holds decides
 //       (Brevo first, the historical default).
+//       The Neon organisation the watch reads is resolved here (scripts/neon-org.mjs)
+//       and written as config.neonOrgId when it is certain: the vault's NEON.org_id, or
+//       the account's only one. Never the first of several. The JSON output says the
+//       outcome in `neonOrg` ({status, neonOrgId, source, remedy?}), and the remedy is
+//       printed on stderr; an organisation that could not be read never blocks the
+//       registration.
 //       Required secrets: CLOUDFLARE_API_TOKEN, plus BREVO_API_KEY or
 //       RESEND_API_KEY per the provider (auto-uploaded with --put-secrets).
 //
@@ -70,6 +76,7 @@ import {
   listWranglerSecrets,
   putWranglerSecret,
   getCfAccountId,
+  resolveWatchNeonOrg,
 } from "./_lib.mjs";
 
 const SNAPSHOT_JOB_NAME = "neon-backups";
@@ -295,6 +302,16 @@ async function doQuota() {
     (readUserEnv("BREVO_API_KEY") ? "brevo" : readUserEnv("RESEND_API_KEY") ? "resend" : "brevo");
   const emailSecretName = emailProvider === "brevo" ? "BREVO_API_KEY" : "RESEND_API_KEY";
 
+  const registry = readRegistry(DIR);
+
+  // Which Neon organisation the watch reads. Neon scopes its project listing to one, and some
+  // accounts now get 400 "org_id is required" instead of the default one's answer: the watch then
+  // read no database at all. Only a certain organisation is written, never the first of several,
+  // and one the job already names stays when today's answer is not certain (see watchNeonOrg).
+  const previousOrg = registry.jobs.find((j) => j.name === QUOTA_JOB_NAME)?.config?.neonOrgId || null;
+  const neonOrg = await resolveWatchNeonOrg(previousOrg);
+  if (neonOrg.remedy) log(neonOrg.remedy);
+
   const job = {
     kind: "quota",
     name: QUOTA_JOB_NAME,
@@ -306,10 +323,10 @@ async function doQuota() {
       senderName: flags["sender-name"] || "Hypervibe",
       emailProvider,
       r2ThresholdGb: Number(flags["r2-threshold-gb"] || 9),
+      ...(neonOrg.neonOrgId ? { neonOrgId: neonOrg.neonOrgId } : {}),
     },
   };
 
-  const registry = readRegistry(DIR);
   const action = upsertJob(registry, job);
   writeRegistry(DIR, registry);
 
@@ -318,6 +335,7 @@ async function doQuota() {
       action,
       job: QUOTA_JOB_NAME,
       emailProvider,
+      neonOrg,
       commitMsg: `jobs: ${action === "added" ? "configure" : "update"} quota monitor`,
     },
     [

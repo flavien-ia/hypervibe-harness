@@ -15,6 +15,9 @@
 //   - the worker is deployed on the user's Cloudflare account (1 cron slot)
 //   - the ADMIN_TOKEN secret is set (manual /trigger + /status endpoints) and
 //     persisted at User scope as HYPERVIBE_JOBS_ADMIN_TOKEN
+//   - a quota watch registered before 3.4.8 names the Neon organisation it reads,
+//     whenever that organisation is certain (see watchNeonOrg in _lib.mjs); the
+//     dry run says so first, and both runs carry the outcome in `neonOrg`
 //
 // Flags (all optional):
 //   --dir <path>          default: ~/.hypervibe-jobs
@@ -26,7 +29,7 @@
 //
 // Output: single JSON line on stdout. Logs on stderr.
 //   { ok, status: "created" | "already_present", dir, workerName, workerUrl,
-//     jobs, deployed, adminTokenVar, healed: [...] }
+//     jobs, deployed, adminTokenVar, healed: [...], neonOrg? }
 //   { ok: false, error, howTo? }
 
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -43,6 +46,7 @@ import {
   fail,
   log,
   readRegistry,
+  writeRegistry,
   ensureGitRepo,
   gitCommitAll,
   checkWrangler,
@@ -57,6 +61,8 @@ import {
   workersDevBlock,
   enableWorkersDev,
   workersDevPage,
+  quotaJobsWithoutNeonOrg,
+  resolveWatchNeonOrg,
 } from "./_lib.mjs";
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -115,6 +121,13 @@ async function main() {
         reasons.push("CLOUDFLARE_API_TOKEN not readable (vault locked): the deployment state is unknown");
       }
     }
+    // A quota watch that names no Neon organisation: the real run records it when it is certain.
+    // Said here, or the skills (which run the real command only when the dry run asks for it) would
+    // never let it happen on a clock already in step.
+    const neonOrg = scaffolded ? await neonOrgToRecord() : null;
+    if (neonOrg?.status === "set") {
+      reasons.push(`the quota watch names no Neon organisation: the real run would record ${neonOrg.neonOrgId} and redeploy`);
+    }
     const status = !scaffolded ? "not-scaffolded" : reasons.length ? "would-deploy" : "in-step";
     let workerUrl = null;
     if (scaffolded && token && status === "in-step") {
@@ -134,7 +147,7 @@ async function main() {
         if (workersDev === "absent") workersDevPageUrl = workersDevPage(accountId);
       }
     }
-    out({ ok: true, dryRun: true, status, dir: DIR, workerName: WORKER_NAME, workerUrl, controlPlane: workerUrl ? "on" : "off", workersDev, ...(workersDevPageUrl ? { workersDevPage: workersDevPageUrl } : {}), jobs, adminTokenVar: ADMIN_TOKEN_VAR, reasons });
+    out({ ok: true, dryRun: true, status, dir: DIR, workerName: WORKER_NAME, workerUrl, controlPlane: workerUrl ? "on" : "off", workersDev, ...(workersDevPageUrl ? { workersDevPage: workersDevPageUrl } : {}), jobs, adminTokenVar: ADMIN_TOKEN_VAR, reasons, ...(neonOrg ? { neonOrg } : {}) });
     return;
   }
 
@@ -168,6 +181,18 @@ async function main() {
       gitCommitAll(DIR, "fix: switch the clock's control plane (workers.dev) back on");
       healed.push("control plane switched on: /status and /trigger answer again");
     }
+  }
+
+  // A quota watch registered before 3.4.8 names no Neon organisation, and Neon may then refuse to
+  // list a single database (400 "org_id is required"): recorded here when it is certain, so that
+  // updating the plugin is enough. Idempotent: a watch that names one is never looked at again.
+  const neonOrg = scaffolded ? await neonOrgToRecord() : null;
+  if (neonOrg?.status === "set") {
+    const registry = readRegistry(DIR);
+    for (const job of quotaJobsWithoutNeonOrg(registry)) job.config = { ...job.config, neonOrgId: neonOrg.neonOrgId };
+    writeRegistry(DIR, registry);
+    gitCommitAll(DIR, `jobs: the quota watch reads the Neon organisation ${neonOrg.neonOrgId}`);
+    healed.push(`quota watch: Neon organisation ${neonOrg.neonOrgId} recorded`);
   }
 
   // ── Deploy ────────────────────────────────────────────────────────────
@@ -216,6 +241,7 @@ async function main() {
     jobs: registry.jobs.length,
     adminTokenVar: ADMIN_TOKEN_VAR,
     healed,
+    ...(neonOrg ? { neonOrg } : {}),
   });
 }
 
@@ -327,4 +353,13 @@ async function computeWorkerUrl(token) {
   if (!servesWorkersDev(DIR)) return null;
   const sub = await accountSubdomain(token, await accountFor(token));
   return sub.state === "present" ? `https://${WORKER_NAME}.${sub.subdomain}.workers.dev` : null;
+}
+
+// ── The quota watch's Neon organisation ───────────────────────────────────
+
+/** What the quota watch would record about its Neon organisation (watchNeonOrg), or null when no
+ *  quota job lacks one: then nothing is read, neither the vault nor Neon. */
+async function neonOrgToRecord() {
+  if (!quotaJobsWithoutNeonOrg(readRegistry(DIR)).length) return null;
+  return resolveWatchNeonOrg();
 }

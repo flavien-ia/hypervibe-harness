@@ -147,6 +147,26 @@ try {
   }
 
   {
+    // The defect fixed in 3.4.8 / 2.4.7, as the old workers shipped it: the watch listed Neon's
+    // projects with whatever organisation the registry named (none, since nothing wrote it), and
+    // mailed Neon's raw reply when Neon refused ("org_id is required").
+    const dir = workerDir(
+      [
+        "async function checkNeonUsage(env, cfg) {",
+        '  const orgId = cfg.neonOrgId || env.NEON_ORG_ID || "";',
+        '  const scope = orgId ? `&org_id=${encodeURIComponent(orgId)}` : "";',
+        '  const { projects } = await neon("GET", `/projects?limit=400${scope}`, env.NEON_API_KEY);',
+        "}",
+        "",
+      ].join("\n"),
+    );
+    const r = run(dir, "--dry-run");
+    const ids = (r.json?.knownBugs ?? []).map((b) => b.id);
+    check("Neon organisation bug: recognised by name", ids.includes("quota-watch-neon-org-required"), r.raw);
+    check("Neon organisation bug: the only one claimed", ids.length === 1, r.raw);
+  }
+
+  {
     // The fixed worker, one comment apart: stale, but no bug claimed.
     const dir = workerDir(`${LATEST}\n// an older build\n`);
     const r = run(dir, "--dry-run");

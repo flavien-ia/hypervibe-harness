@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.4.8 (8 octobre 2026)
+
+### Améliorations
+- **La veille des quotas voit de nouveau tes bases Neon** : sur certains comptes, Neon refuse désormais de lister les bases tant qu'on ne lui dit pas de quelle organisation il s'agit, et la veille quotidienne de ton horloge ne voyait plus aucune base, donc aucun dépassement. Elle retient maintenant ton organisation Neon quand elle est certaine : celle rangée dans ton coffre-fort, ou la seule de ton compte. La mise à jour de l'horloge, que `/update-hypervibe` te propose, suffit : rien à reconfigurer.
+- **Quand l'organisation ne se devine pas, tu sais quoi faire** : si ton compte Neon appartient à plusieurs organisations, Hypervibe ne choisit jamais à ta place, et `/quotas` te donne la marche à suivre. Il suffit de ranger l'identifiant de la bonne organisation dans ton coffre-fort, puis de relancer `/quotas`.
+- **Le mail d'alerte dit quoi faire** : quand Neon réclame l'organisation, le mail explique où trouver son identifiant (dans la console Neon, rubrique Organization settings) et où le ranger, avec un message tout prêt à coller dans Claude Code. La réponse brute de Neon reste en bas, pour qui veut la lire.
+
+### Coulisses
+- Une nouvelle recette joue chaque cas avec un faux Neon : une seule organisation, plusieurs, aucune, une clé d'organisation, Neon injoignable, et une horloge mise en place avant ce correctif.
+
 ## v3.4.7 (6 octobre 2026)
 
 ### Améliorations

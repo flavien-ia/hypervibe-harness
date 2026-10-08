@@ -632,6 +632,64 @@ function jsonResponse(obj, status = 200) {
   restoreFetch();
 }
 
+// ── 9. The watch reads the Neon organisation it is told, and says what to do when Neon wants one ──
+// Neon scopes its project listing to one organisation, and some accounts now get an outright
+// refusal when none is named: 400 "org_id is required" (a participant's clock, 08/10/2026). The
+// email then carried Neon's JSON, and nothing ever wrote config.neonOrgId (until 3.4.8 / 2.4.7).
+
+{
+  const channel = { recipient: "moi@x.fr", senderEmail: "moi@x.fr" };
+  const watch = (config) => ({ kind: "quota", name: "quota-monitor", cron: "0 6 * * *", config: { ...channel, ...config } });
+  const listing = () => calls.find((c) => c.url.includes("/projects?"))?.url ?? "";
+  const quiet = (call) => (call.url.includes("/projects?") ? jsonResponse({ projects: [] }) : jsonResponse({ messageId: "x" }, 201));
+  const htmlOf = () => {
+    const mail = calls.find((c) => c.url.includes("brevo"));
+    return mail ? JSON.parse(mail.body).htmlContent : "";
+  };
+
+  mockFetch(quiet);
+  await runQuotaJob(watch({ neonOrgId: "org-recette" }), { NEON_API_KEY: "k", BREVO_API_KEY: "b" });
+  check("neon org: the listing names the organisation the registry records", /[?&]org_id=org-recette(&|$)/.test(listing()));
+  mockFetch(quiet);
+  await runQuotaJob(watch({}), { NEON_API_KEY: "k", NEON_ORG_ID: "org-secret", BREVO_API_KEY: "b" });
+  check("neon org: without one, the NEON_ORG_ID secret's", /[?&]org_id=org-secret(&|$)/.test(listing()));
+  mockFetch(quiet);
+  await runQuotaJob(watch({ neonOrgId: "org-registre" }), { NEON_API_KEY: "k", NEON_ORG_ID: "org-secret", BREVO_API_KEY: "b" });
+  check("neon org: the registry's wins over the secret", /org_id=org-registre/.test(listing()) && !listing().includes("org-secret"));
+  mockFetch(quiet);
+  await runQuotaJob(watch({}), { NEON_API_KEY: "k", BREVO_API_KEY: "b" });
+  check("neon org: none named, none sent", listing() !== "" && !/org_id=/.test(listing()));
+
+  // Neon refuses a listing that names no organisation: the email says where the id is, where it
+  // goes and what picks it up, with a prompt that stands alone; Neon's reply stays under it.
+  const refusal = '{"code":"","message":"org_id is required, you can find it on your organization settings page"}';
+  mockFetch((call) => (call.url.includes("console.neon.tech") ? new Response(refusal, { status: 400 }) : jsonResponse({ messageId: "x" }, 201)));
+  await runQuotaJob(watch({}), { NEON_API_KEY: "k", BREVO_API_KEY: "b" });
+  const html = htmlOf();
+  check("org_id required: the watch says so by email", html.includes("pas pu lire"));
+  check(
+    "org_id required: where the id is (Organization settings), where it goes (NEON, org_id), what picks it up (/quotas)",
+    html.includes("Organization settings") && html.includes("element NEON, champ org_id") && html.includes("Relance /quotas"),
+  );
+  check(
+    "org_id required: a prompt ready to paste, that writes no secret and redeploys nothing on its own",
+    html.includes("a copier-coller dans Claude Code") && html.includes("Ne redeploie rien sans mon accord") && !/wrangler secret put/.test(html),
+  );
+  check(
+    "org_id required: Neon's JSON is no longer the message, it comes after the remedy, braces neutralized",
+    html.indexOf("Organization settings") > -1 && html.indexOf("Organization settings") < html.indexOf("org_id is required, you can find it") && !/[{}]/.test(html),
+  );
+
+  // Any other refusal keeps its words as they came, with no remedy invented for it.
+  for (const [status, body] of [[400, '{"message":"limit must be at most 400"}'], [500, '{"message":"internal"}']]) {
+    mockFetch((call) => (call.url.includes("console.neon.tech") ? new Response(body, { status }) : jsonResponse({ messageId: "x" }, 201)));
+    await runQuotaJob(watch({}), { NEON_API_KEY: "k", BREVO_API_KEY: "b" });
+    const other = htmlOf();
+    check(`another Neon refusal (${status}) is listed as it came, with no remedy`, other.includes(`-&gt; ${status}`) && !other.includes("Organization settings"));
+  }
+  restoreFetch();
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);

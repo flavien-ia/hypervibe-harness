@@ -73,6 +73,7 @@ const SUITES = [
   ["accessibility: what shuts someone out is reported, its accessible counterpart is not", join(ROOT, "scripts", "tests", "test-a11y-audit.mjs")],
   ["a secret the host never gives back never erases the project's", join(ROOT, "scripts", "tests", "test-pull-sensitive-empty.mjs")],
   ["database organisation: which answers are certain", join(ROOT, "scripts", "tests", "test-neon-org.mjs")],
+  ["the quota watch reads the database organisation it is told: recorded when certain, never guessed, completed on an older clock", join(ROOT, "scripts", "tests", "test-watch-neon-org.mjs")],
   ["git identity: checked and repaired, never shown", join(ROOT, "scripts", "tests", "test-git-identity.mjs")],
   ["the vault's sign-in: one folder for every program on Windows, taken over by a copy", join(ROOT, "scripts", "tests", "test-bw-home.mjs")],
 ];

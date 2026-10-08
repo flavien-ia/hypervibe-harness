@@ -390,6 +390,7 @@ What to say in the onboarding summary:
 - Worker `created` (and/or quota job just registered) → mention once: *"Your shared clock is in place: one mechanism for all your projects' scheduled tasks, database backups and quota alerts. It will email you if you approach the 10 GB of the R2 free tier."*
 - `already_present` and quota job already registered → say nothing (silent).
 - Missing verified sender (Brevo) or verified domain (Resend) → covered in point 2 above.
+- The provisioning or the registration JSON carries `neonOrg` (which Neon organisation the quota watch reads) with a `remedy` → one or two sentences in the summary, with that remedy. Never choose an organisation for the user.
 - Any other error → report it briefly, it is not critical.
 
 ### Missing CLIs
