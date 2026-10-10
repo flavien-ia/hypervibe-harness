@@ -76,6 +76,8 @@ const SUITES = [
   ["the quota watch reads the database organisation it is told: recorded when certain, never guessed, completed on an older clock", join(ROOT, "scripts", "tests", "test-watch-neon-org.mjs")],
   ["git identity: checked and repaired, never shown", join(ROOT, "scripts", "tests", "test-git-identity.mjs")],
   ["the vault's sign-in: one folder for every program on Windows, taken over by a copy", join(ROOT, "scripts", "tests", "test-bw-home.mjs")],
+  ["the vault's unlock: one window at a time, none when the vault is already open", join(ROOT, "scripts", "tests", "test-vault-unlock.mjs")],
+  ["a local payment test run by Claude: a test price checked, both started in the background, never a command to type", join(ROOT, "scripts", "tests", "test-stripe-local-test.mjs")],
 ];
 
 // The vault's tool never runs during a recette (_no-real-vault.mjs): every Node process of a suite

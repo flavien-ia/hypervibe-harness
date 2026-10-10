@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.4.9 (10 octobre 2026)
+
+### Améliorations
+- **Une seule fenêtre de mot de passe à la fois** : quand deux tâches trouvaient ton coffre-fort fermé à la même minute, chacune ouvrait sa fenêtre, et il fallait taper ton mot de passe deux fois. Désormais, un coffre déjà ouvert n'ouvre aucune fenêtre, et une seconde demande attend celle qui est ouverte au lieu d'en ouvrir une autre.
+- **Ton coffre-fort reste à un seul endroit** : une simple vérification de l'outil du coffre recréait un ancien fichier de connexion, vide, tourné vers le serveur américain de Bitwarden. Plus aucune commande ne passe à côté du dossier unique.
+- **`/delete-project` supprime aussi le dépôt de code créé par `/bootstrap`** : c'était jusqu'ici une étape à faire à la main. Hypervibe ne supprime que ce dépôt-là, celui qu'il a créé pour le projet, et laisse tout autre dépôt à ta main. L'inventaire le dit avant que tu choisisses, tu peux le garder, et GitHub demande d'abord une autorisation de plus : un code à coller sur une page GitHub.
+- **Tester un paiement sans taper de commande** : après `/add-stripe`, dis simplement « on teste un paiement ». Claude lance le site et le relais de Stripe, vérifie qu'un produit est achetable en mode test, puis te donne les liens et la carte de test.
+- **Un mot de passe avec un `$` arrive entier** : ton site relisait `pa$$w0rd` comme `pa$`. Les valeurs sont maintenant écrites pour qu'il les relise telles quelles, y compris celles que tu récupères depuis l'hébergeur.
+- **Le garde-fou de GitHub ne se contourne plus en déplaçant un mot** : fusionner, supprimer ou rendre un dépôt public demande ta confirmation même quand la commande est écrite autrement, ou passe par l'API de GitHub. Supprimer une publication et renommer un dépôt demandent aussi.
+
+### Coulisses
+- Chaque point a sa recette, éprouvée en abîmant le code décision par décision ; la lecture des `$` est vérifiée avec le chargeur de Next lui-même. Une liste d'exemples d'outils corrigée dans `/start`.
+
 ## v3.4.8 (8 octobre 2026)
 
 ### Améliorations

@@ -39,7 +39,7 @@ Hypervibe runs a parallel scan over **17 surfaces** to identify everything that 
 - Local and Vercel environment variables
 - Local code folder + dependencies
 - The project's Claude memory
-- GitHub repo
+- GitHub repo (deleted by the skill when `/bootstrap` created it for this project)
 
 The scan also detects **third-party services** plugged in outside the Hypervibe stack (Sentry, OpenAI, Mapbox, Notion, etc.) by analyzing your environment variables.
 
@@ -53,14 +53,14 @@ Hypervibe presents you with a clear recap in 4 sections:
 
 - **🔵 Hypervibe infrastructure** that the skill can delete automatically
 - **🟠 Detected third-party services** for you to delete yourself (Hypervibe gives you the exact URL and the click-by-click steps for each one)
-- **🟡 Mandatory manual actions** (deletion of the local folder, the GitHub repo, the Google/GitHub OAuth clients) that the skill cannot do for you
+- **🟡 Mandatory manual actions** (deletion of the local folder, of a GitHub repo `/bootstrap` did not create, the Google/GitHub OAuth clients) that the skill cannot do for you
 - **⚪ Deliberately left untouched** (shared Brevo/Resend, parent Cloudflare zones, Stripe products)
 
-You choose: delete everything, or keep certain pieces (DB, DNS, local folder). The skill launches nothing until this choice is validated.
+You choose: delete everything, or keep certain pieces (the database, the DNS, the code repository). The skill launches nothing until this choice is validated.
 
 **Phase 4: Execution + report**
 
-Hypervibe chains the deletions in parallel where possible (Vercel, R2, Workers, DNS, Stripe webhooks, Render, Upstash, Email Routing) then serially where there are dependencies (Neon, then removal of the project from the shared `db-backup` worker, then its scheduled tasks on the shared worker, then Claude memory).
+Hypervibe chains the deletions in parallel where possible (Vercel, R2, Workers, DNS, Stripe webhooks, Render, Upstash, Email Routing) then serially where there are dependencies (Neon, then removal of the project from the shared `db-backup` worker, then its scheduled tasks on the shared worker, then Claude memory, and the GitHub repo last).
 
 If your vault has closed in the meantime (its session lasts twelve hours, and confirming can take an evening), nothing is deleted at all, the site included: Hypervibe asks you to open the vault again, then resumes with the same inventory. A project is never left half deleted for a key that could not be read.
 
@@ -101,6 +101,10 @@ If you are hesitant about permanently deleting, choose the "just pause it" optio
 At Phase 3, you are not required to delete everything in one block. For example, you can keep the database (to recover the data later) while deleting the hosting, or keep the DNS (to reuse the domain on a new project) while cleaning up the rest. Hypervibe offers you each option à la carte.
 {{/callout}}
 
-{{callout:info|The local folder and the GitHub repo remain your responsibility}}
-For security reasons, Hypervibe never deletes the code folder on your computer, nor the GitHub repo. At the end of the process, you receive the exact path to open in Windows Explorer to delete the folder, and the GitHub URL to delete the repo (in Settings: Danger Zone). It is a conscious step to avoid losing code by mistake.
+{{callout:info|The GitHub repo: only the one /bootstrap created}}
+Hypervibe deletes one repository, and only that one: the repository `/bootstrap` created for this project, which the project's folder pushes to. The inventory says it plainly before you choose, and you can keep it. Any other repository (created by hand, adopted, or found only by its name) stays yours to delete: you receive its GitHub address at the end (in Settings: Danger Zone). To delete a repository, GitHub has to give Claude one more permission (`delete_repo`, deleting repositories): Hypervibe asks you before anything is deleted, and you paste a short code on a GitHub page. Say no, and the repository simply becomes a manual step.
+{{/callout}}
+
+{{callout:info|The local folder remains your responsibility}}
+For security reasons, Hypervibe never deletes the code folder on your computer. At the end of the process, you receive the exact path to open in Windows Explorer to delete it. It is a conscious step to avoid losing code by mistake: until you delete it, the code still sits there, even once the repository is gone.
 {{/callout}}

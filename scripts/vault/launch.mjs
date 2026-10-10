@@ -14,8 +14,15 @@
 // the conversation" convention: a GLOBAL key reused across projects goes to the vault, a
 // PROJECT secret goes to that project's .env + Vercel. Same window, same guarantee.
 //
+// `unlock` opens ONE window at a time (unlock-once.mjs): none when the vault is already open, and
+// a second call while a window is open waits for it, then reads the session again.
+//
 // Design note: ALL secret logic is in interactive.mjs (cross-OS Node). This launcher only
 // knows how to OPEN a window per OS - the single piece of OS-specific code in the vault layer.
+//
+// Recettes only: HYPERVIBE_VAULT_STANDIN, a stand-in (a .mjs run by node) for the window
+// (`<stand-in> <cmd> <flags>`) and for the session's check (`<stand-in> check`, 0 when the vault
+// is open): two launches are then played side by side without a window or a vault.
 
 import { spawnSync, spawn } from "node:child_process";
 import { existsSync, rmSync, readFileSync } from "node:fs";
@@ -26,6 +33,7 @@ import { resolveLang, makeT } from "./i18n.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const INTERACTIVE = join(__dirname, "interactive.mjs");
+const STANDIN = (process.env.HYPERVIBE_VAULT_STANDIN ?? "").endsWith(".mjs") ? process.env.HYPERVIBE_VAULT_STANDIN : null;
 
 const [cmd, ...passthrough] = process.argv.slice(2);
 if (!["login", "unlock", "add", "collect-env"].includes(cmd)) {
@@ -35,32 +43,38 @@ if (!["login", "unlock", "add", "collect-env"].includes(cmd)) {
 
 const os = platform();
 
-if (os === "win32") {
-  // Open a NEW console window running `node interactive.mjs <cmd> <flags>` and wait for it.
-  // Start-Process -FilePath node creates a fresh console (a real TTY → masked input works),
-  // -Wait blocks until the user finishes.
-  //
-  // Every element is wrapped in DOUBLE quotes inside its PowerShell single
-  // quotes: Start-Process joins -ArgumentList with spaces and never quotes an
-  // element itself, so a profile path with a space (C:\Users\First Last\...)
-  // reached node in two pieces, node failed to find the module, and the
-  // window died before anyone saw it. For those users the vault never opened
-  // and /start never got past its keys (reported in July, diagnosed on 3.1.5).
-  const q = (s) => `'"${String(s).replace(/"/g, '\\"').replace(/'/g, "''")}"'`;
-  const argList = ["--no-deprecation", INTERACTIVE, cmd, ...passthrough].map(q).join(",");
-  // CRITICAL: capture the INNER node process exit code, not PowerShell's. Plain
-  // `Start-Process -Wait` makes PowerShell exit 0 as soon as it launched the window -
-  // even if interactive.mjs failed (wrong password / wrong 2FA code). `-PassThru` returns
-  // the process object so we can `exit $p.ExitCode` and propagate the REAL result.
-  // Without this, a failed login looked like a success to the caller (bug confirmed 2026-05-31).
-  const res = spawnSync(
-    "powershell.exe",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
-      `$p = Start-Process -FilePath node -ArgumentList @(${argList}) -Wait -PassThru; exit $p.ExitCode`],
-    { stdio: "inherit" }
-  );
-  process.exit(res.status || 0);
-} else {
+/** Opens the window of `cmd` and resolves to its exit code once the person has closed it. */
+async function openWindow() {
+  if (STANDIN) {
+    const r = spawnSync(process.execPath, [STANDIN, cmd, ...passthrough], { stdio: "inherit" });
+    return r.status ?? 1;
+  }
+  if (os === "win32") {
+    // Open a NEW console window running `node interactive.mjs <cmd> <flags>` and wait for it.
+    // Start-Process -FilePath node creates a fresh console (a real TTY → masked input works),
+    // -Wait blocks until the user finishes.
+    //
+    // Every element is wrapped in DOUBLE quotes inside its PowerShell single
+    // quotes: Start-Process joins -ArgumentList with spaces and never quotes an
+    // element itself, so a profile path with a space (C:\Users\First Last\...)
+    // reached node in two pieces, node failed to find the module, and the
+    // window died before anyone saw it. For those users the vault never opened
+    // and /start never got past its keys (reported in July, diagnosed on 3.1.5).
+    const q = (s) => `'"${String(s).replace(/"/g, '\\"').replace(/'/g, "''")}"'`;
+    const argList = ["--no-deprecation", INTERACTIVE, cmd, ...passthrough].map(q).join(",");
+    // CRITICAL: capture the INNER node process exit code, not PowerShell's. Plain
+    // `Start-Process -Wait` makes PowerShell exit 0 as soon as it launched the window -
+    // even if interactive.mjs failed (wrong password / wrong 2FA code). `-PassThru` returns
+    // the process object so we can `exit $p.ExitCode` and propagate the REAL result.
+    // Without this, a failed login looked like a success to the caller (bug confirmed 2026-05-31).
+    const res = spawnSync(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+        `$p = Start-Process -FilePath node -ArgumentList @(${argList}) -Wait -PassThru; exit $p.ExitCode`],
+      { stdio: "inherit" }
+    );
+    return res.status || 0;
+  }
   // macOS / Linux - UNTESTED (validate on a real machine before shipping to non-Windows users).
   // Open a terminal running the node command, then `touch` a sentinel so we can block here.
   const sentinel = join(tmpdir(), `hv-vault-${cmd}-${process.pid}.done`);
@@ -88,7 +102,7 @@ if (os === "win32") {
     if (r.status !== 0) {
       console.error(t("osascriptFailed", { detail: r.stderr ? ": " + r.stderr.trim() : "" }));
       console.error(t("osascriptFix"));
-      process.exit(1);
+      return 1;
     }
   } else {
     // Linux: try common emulators in order.
@@ -105,14 +119,14 @@ if (os === "win32") {
     }
     if (!launched) {
       console.error(t("noEmulator", { cmd: nodeCmd }));
-      process.exit(1);
+      return 1;
     }
   }
 
   // Block until the sentinel appears (user finished in the window). Timeout ~15 min.
   const deadline = Date.now() + 15 * 60 * 1000;
   while (!existsSync(sentinel)) {
-    if (Date.now() > deadline) { console.error(t("windowTimeout")); process.exit(1); }
+    if (Date.now() > deadline) { console.error(t("windowTimeout")); return 1; }
     await new Promise((r) => setTimeout(r, 500));
   }
   // Propagate the inner exit code written into the sentinel (0 = success).
@@ -120,5 +134,19 @@ if (os === "win32") {
   try { code = parseInt(readFileSync(sentinel, "utf8").trim(), 10); } catch {}
   if (!Number.isInteger(code)) code = 0;
   try { rmSync(sentinel); } catch {}
-  process.exit(code);
+  return code;
 }
+
+/** Whether the vault is open now: the very check vault.mjs makes (the session's token, accepted
+ *  by bw), or the stand-in's answer in a recette. */
+async function sessionOk() {
+  if (STANDIN) return spawnSync(process.execPath, [STANDIN, "check"], { stdio: "ignore" }).status === 0;
+  const { sessionStatus } = await import("./vault.mjs");
+  return sessionStatus() === "unlocked";
+}
+
+if (cmd === "unlock") {
+  const { unlockOnce } = await import("./unlock-once.mjs");
+  process.exit(await unlockOnce({ openWindow, sessionOk, pollMs: STANDIN ? 100 : 1000 }));
+}
+process.exit(await openWindow());

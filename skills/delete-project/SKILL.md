@@ -50,6 +50,8 @@ of its infrastructure:
  • The stored files (photos, documents, avatars)
  • Any paid subscriptions possibly linked to it
    (Stripe, Render, Upstash, etc.)
+ • The code repository on GitHub, when /bootstrap created it
+   for this project (the inventory says so, and you can keep it)
 
 🔴  This is IRREVERSIBLE.
 🔴  Nothing can be recovered after deletion.
@@ -185,7 +187,10 @@ The resulting JSON has the form:
   },
   "localDir":     { "exists": true, "path": "/path/to/cool-trattoria", "dependencies": [...] },
   "memory":       { "files": [...] },
-  "github":       { "exists": true, "url": "..." }
+  "github":       {
+    "exists": true, "url": "...", "nameWithOwner": "acme/cool-trattoria", "foundVia": "origin", "declared": true,
+    "deletion": { "deletable": true, "repository": "acme/cool-trattoria", "right": { "ok": false, "account": "acme" } }
+  }
 }
 ```
 
@@ -231,7 +236,7 @@ The inventory carries a `manifest` section when the project declares its resourc
 - `missing` - declared but verified gone from the account. Mention it in one line (nothing to delete, the manifest is just stale).
 - `shared` - declared as shared infrastructure: it is in section 2.4, never in the deletion scope, whatever its name matches.
 - `sharedIgnored` (a note, next to the status) - a registration of this project on the shared clock that the manifest marks shared by mistake (a scheduled task, or the backup of a database the manifest does not declare shared): it stays in the deletion scope, since the clock would otherwise keep working for a project that is gone. Say so in one line in the review.
-- `unverified` - declared but not checkable automatically (dns-zone, email-route, cron-job, github-repo...). **List these in 2.1 too**, marked *"declared by the project - please confirm it is really this project's"*: a declaration is a strong signal, but it is not a live verification.
+- `unverified` - declared but not checkable automatically (dns-zone, email-route, cron-job, a github-repo the folder does not push to...). **List these in 2.1 too**, marked *"declared by the project - please confirm it is really this project's"*: a declaration is a strong signal, but it is not a live verification.
 
 Conversely, a resource found ONLY by name similarity (no `declared: true`) deserves the opposite caution: say it was **guessed from its name**, and have the user confirm it truly belongs to this project before it enters the scope.
 
@@ -257,6 +262,13 @@ An entry with `mode: "direct"` has no key of ours to revoke: the project calls a
 provider on the user's own account. Say so in section 2.2, so they can revoke it
 themselves if they want to.
 
+### 2.1d The code repository (GitHub)
+
+`github.deletion` says whether this skill deletes the repository itself. **It deletes one repository, and only that one: the repository `/bootstrap` created for this project** (declared in the manifest by `/bootstrap`, and the one the project's folder pushes to). Any other repository stays a manual step, whatever the person answers: one found by the account and the project's name, one adopted from the folder's remote, one another skill declared, one the manifest names differently. A repository holds the code and its whole history, and none is deleted on a guess.
+
+- `deletable: true` → a row of 2.1, said plainly: *"GitHub (the code repository): `acme/cool-trattoria`, created by /bootstrap for this project - **deleted, with its whole history** (code, versions, issues). The code also stays in your local folder until you delete it."* The person can keep it at 2.5.
+- `deletable: false` → section 2.3, with `deletion.reason` put in plain language.
+
 ### 2.2 Section "🟠 Third-party services detected (to delete by hand)"
 
 For each entry in `envVars.thirdPartyDetected`: name of the service with its label (plain language), how it was detected (env var), URL to open, short instructions. If the list is empty, say so clearly: *"No third-party service detected outside the Hypervibe stack."*
@@ -266,7 +278,7 @@ For each entry in `envVars.thirdPartyDetected`: name of the service with its lab
 Include conditionally:
 - If `envVars.hasGoogleOAuth === true` → Google Cloud Console OAuth action + entire GCP project
 - If `envVars.hasGitHubOAuth === true` → GitHub OAuth App action
-- Always: deletion of the GitHub repo if `github.exists`. It is the repository the project's folder pushes to (`github.foundVia: "origin"`); with `github.guessed: true` the folder pushed nowhere and the repository was found by the signed-in account and the project's name only: say so, and have the user confirm it is this project's before listing it
+- Deletion of the GitHub repo, when `github.exists` and this skill does not delete it (`github.deletion.deletable` false, section 2.1d): say why in one plain sentence (`deletion.reason`). It is the repository the project's folder pushes to (`github.foundVia: "origin"`); with `github.guessed: true` the folder pushed nowhere and the repository was found by the signed-in account and the project's name only: say so, and have the user confirm it is this project's before listing it
 - Deletion of the local folder if `localDir.exists` (to be done via Windows Explorer)
 
 ### 2.3b Section "🔴 Scans that could not run" (only if at least one `error`)
@@ -297,15 +309,32 @@ Then ask via `AskUserQuestion`:
 - `Delete everything` - always.
 - `Keep the database` (excludes `neon` + `db-backup` from the scope) - only if `neon.found`.
 - `Keep the DNS` (excludes `dns` from the scope) - only if `dns.found`.
+- `Keep the code repository` (excludes `github` from the scope) - only if `github.deletion.deletable`.
 
 The local folder is never an option: this skill never deletes it (section 2.3).
 
 How the question is asked depends on what is left:
-- **Three options** (a database AND DNS records): `multiSelect: true`. If the answer holds `Delete everything` together with a `Keep`, the `Keep` wins: say so in one line before executing.
-- **Two options** (`Delete everything` and ONE thing to keep): a single-choice question. The two exclude each other, and a multi-select offered them together.
+- **Two things or more to keep** (`Delete everything` and at least two `Keep`): `multiSelect: true`. If the answer holds `Delete everything` together with a `Keep`, the `Keep` wins: say so in one line before executing.
+- **One thing to keep** (`Delete everything` and ONE `Keep`): a single-choice question. The two exclude each other, and a multi-select offered them together.
 - **Nothing to keep** (no database, no DNS record: a site alone, for instance): a single-choice question all the same, `Delete what is listed` or `Cancel, delete nothing`. Never an improvised yes/no in plain text, and never no question at all.
 
 **Do not proceed until the scope is explicitly validated.** The Phase 0 confirmations are about the **principle**. Phase 2 confirms the **exact inventory**.
+
+### 2.6 The right to delete the code repository (only when it is in the scope)
+
+`gh` does not hold the right to delete a repository by default (`delete_repo`). The inventory read it, without changing anything: `github.deletion.right`.
+
+- `ok: true` → nothing to do.
+- `ok: false`, without `fromEnvironment` → ask via `AskUserQuestion`: *"To delete the code repository myself, GitHub has to give me one more permission: deleting repositories. Do I ask for it now? You will paste a short code on a GitHub page."* Options: `Yes, ask for it` / `No, I will delete it myself at the end`.
+  - **Yes** → run in the background (`run_in_background`: `gh` waits for the person while it runs), never in the foreground:
+    ```bash
+    gh auth refresh -h github.com -s delete_repo
+    ```
+    After a few seconds, read its output: `gh` writes a one-time code (`First copy your one-time code: XXXX-XXXX`) and the page to open (`https://github.com/login/device`). Give both to the person, the page as a link: they open it, sign in to GitHub with the account the inventory names (`right.account`) if asked, paste the code and authorize. The command ends by itself once they have (`Authentication complete`). The execution reads the right again before deleting anything; if it is still missing, the repository becomes a manual step of the final report.
+  - **No**, or the command fails, or the person stops there (the code expires after fifteen minutes) → take `github` out of the scope: the repository becomes a manual step (section 4.2).
+  - Never authorize on the person's behalf, and never open the page in a browser yourself.
+- `ok: false` with `fromEnvironment: true` → `gh` uses a token an environment variable gives (`GH_TOKEN`, `GITHUB_TOKEN`), which `gh auth refresh` cannot change. Say so in one line and take `github` out of the scope: manual step.
+- `ok: null` → the right cannot be read (`reason` says why): take `github` out of the scope, manual step, and say why in one line.
 
 ---
 
@@ -316,10 +345,10 @@ How the question is asked depends on what is left:
 Build the `scope` JSON array from the Phase 2.5 choices. Possible categories:
 
 ```
-["vercel","neon","r2","workers","dns","db-backup","cron-jobs","render","stripe-webhooks","upstash","email-routing","memory"]
+["vercel","neon","r2","workers","dns","db-backup","cron-jobs","render","stripe-webhooks","upstash","email-routing","memory","github"]
 ```
 
-If the user chose "Delete everything", pass `["all"]`. Otherwise remove the categories they want to keep.
+If the user chose "Delete everything", pass `["all"]`. Otherwise remove the categories they want to keep. When 2.6 took `github` out of the scope, list the categories instead of `["all"]`: `["all"]` includes the repository. `github` deletes only the repository `/bootstrap` created for this project (section 2.1d): the script decides it again from the inventory's facts, and any other repository is reported as a manual step, whatever the scope says.
 
 ```bash
 # The EXACT path Phase 1 printed as INVENTORY_FILE=..., pasted as is (shell state does not
@@ -350,7 +379,7 @@ Create a todo list with one entry per scope category. Mark "in_progress" before 
 
 The script runs:
 - **In parallel**: Vercel, R2 (both jurisdictions), Workers, DNS, Render, Stripe webhooks, Upstash, Email Routing
-- **Sequentially afterwards**: Neon → db-backup (needs the Neon projectId to remove the target) → cron-jobs (same shared-worker registry as db-backup, never concurrent) → Memory (last)
+- **Sequentially afterwards**: Neon → db-backup (needs the Neon projectId to remove the target) → cron-jobs (same shared-worker registry as db-backup, never concurrent) → Memory → the GitHub repository (last: a run that stops half way leaves the code where it was)
 
 The resulting JSON:
 
@@ -378,6 +407,8 @@ Table of the `report.deleted` entries translated into accessible language.
 
 For Vercel, name each site with its team. A result `absent` means the site was already gone. `verified: false` means Vercel accepted the deletion but it could not be checked afterwards (the `note` says why): say so, and suggest a look at the team's page on vercel.com rather than announcing a certainty.
 
+For the code repository (`deleted.github.results`): `deleted` names the repository, `verified: false` meaning GitHub accepted the deletion but it could not be checked afterwards; `absent` means it was already gone.
+
 ### 4.2 "🟡 To do yourself via Windows Explorer / the browser"
 
 Ordered list with click-by-click instructions:
@@ -387,7 +418,8 @@ Ordered list with click-by-click instructions:
    - Action: Open Windows Explorer → right-click → Delete (or Shift+Delete)
    - Note: *"I would have liked to do it automatically, but my sandbox blocks deleting folders under C:\DEV\ for your safety."*
 
-2. **Delete the GitHub repo** (if `github.exists`)
+2. **Delete the GitHub repo** (if `github.exists` and it was not deleted above: kept out of the scope, `skipped.github` with `manual: true`, or `failed.github`)
+   - Why it is left to them, in one line: not created by /bootstrap (`reason`), the right to delete it missing (`needsScope`), GitHub refused (`error`), or their own choice. When `needsScope` is set and they would rather have it done for them, offer section 2.6, then the execution again with `--scope '["github"]'` on a fresh inventory
    - URL: `<github.url>/settings` (the address the inventory read, never one composed from an account and a name)
    - Action: scroll all the way down → Danger Zone → "Delete this repository" → retype the repo name
 
@@ -461,6 +493,9 @@ Scheduled tasks created by `/add-cron` live in the same registry as the unified 
 
 ### Neon backups
 The backups (`backup-*` branches) live **in the Neon project itself**. When you delete the project (Phase 3, category `neon`), the backups go with it. No separate action.
+
+### GitHub: the one repository this skill deletes
+Since 3.4.9 the execution deletes the repository `/bootstrap` created for the project (`gh repo delete <owner/name> --yes`), and no other (`scripts/delete-project/_github-repo.mjs`). Three facts must agree, all read again by the execution from the inventory, never taken from a flag: the project's folder pushes to it (`foundVia: "origin"`, never a guess by account and name), the manifest declares it, and the declaration comes from `/bootstrap` (`addedBy: "bootstrap"`; `adopt` or another skill does not count). Before 3.4.9 the step was always manual: two demonstration projects kept their repository (23/09/2026). `gh` needs the `delete_repo` right, absent by default: section 2.6 asks for it with the person (`gh auth refresh`), never on their behalf. The repository goes last.
 
 ### Google OAuth
 No MCP / CLI lets you delete a Google Cloud Console OAuth client. Always manual (URL provided in Phase 4.2).

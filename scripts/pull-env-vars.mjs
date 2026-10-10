@@ -18,6 +18,7 @@
 import { readFileSync, writeFileSync, existsSync, unlinkSync, mkdtempSync, rmSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { spawnSpec } from "./_spawn.mjs";
+import { dotenvLine } from "./_env-line.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -118,6 +119,9 @@ if (keysFilter && keysFilter.length > 0) {
 }
 const filtered = {};
 const unreadable = [];
+// Values no .env line can carry unchanged (every kind of quote mixed with a line break): never
+// written to .env.local, and named in the summary.
+const unwritable = [];
 for (const [k, v] of Object.entries(wanted)) {
   if (v === "") unreadable.push(k);
   else filtered[k] = v;
@@ -136,18 +140,25 @@ if (writeToLocal) {
     }
   }
 
+  // Each line written so that the site's loader reads the host's value back unchanged
+  // (_env-line.mjs): a `$` written bare or between double quotes was expanded by Next, and a `\"`
+  // kept its backslash. The host's file writes line breaks as `\n` between double quotes. A value
+  // no line can carry is not written, and said: the local line, if any, is kept.
+  const lineOf = (k, v) => {
+    try {
+      return dotenvLine(k, String(v).replace(/\\n/g, "\n").replace(/\\r/g, "\r"));
+    } catch {
+      unwritable.push(k);
+      return null;
+    }
+  };
+
   // Update lines that match a pulled key, leave others alone
   const updated = lines.map((line) => {
     const idx = line.indexOf("=");
     if (idx <= 0 || line.trimStart().startsWith("#")) return line;
     const key = line.slice(0, idx).trim();
-    if (key in filtered) {
-      // Quote if value contains spaces or special chars
-      const val = filtered[key];
-      const needsQuote = /[\s"#'$`\\]/.test(val);
-      const safe = needsQuote ? `"${val.replace(/"/g, '\\"')}"` : val;
-      return `${key}=${safe}`;
-    }
+    if (key in filtered) return lineOf(key, filtered[key]) ?? line;
     return line;
   });
 
@@ -159,9 +170,8 @@ if (writeToLocal) {
     }
     updated.push(`# Pulled from Vercel ${target} on ${new Date().toISOString().slice(0, 10)}`);
     for (const [k, v] of toAppend) {
-      const needsQuote = /[\s"#'$`\\]/.test(v);
-      const safe = needsQuote ? `"${v.replace(/"/g, '\\"')}"` : v;
-      updated.push(`${k}=${safe}`);
+      const written = lineOf(k, v);
+      if (written) updated.push(written);
     }
   }
 
@@ -192,6 +202,10 @@ if (asJson) {
     if (unreadable.length) {
       console.log(`${unreadable.length} not readable (a secret the host never gives back${writeToLocal ? "; the local value, if any, is kept" : ""}) :`);
       for (const key of unreadable.sort()) console.log(`  - ${key}`);
+    }
+    if (unwritable.length) {
+      console.log(`${unwritable.length} not written to .env.local (no .env line carries their value unchanged; the local line, if any, is kept) :`);
+      for (const key of unwritable.sort()) console.log(`  - ${key}`);
     }
     if (writeToLocal) {
       console.log(`\nMerged into .env.local.`);

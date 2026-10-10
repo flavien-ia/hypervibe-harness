@@ -3,13 +3,19 @@
 //
 // Next.js loads .env through dotenv: a value between quotes loses them (`\n` and `\r` between
 // double quotes become line breaks), an unquoted one is trimmed and stops at the first `#` (a
-// comment). The harness's tools honour that on both sides:
+// comment). Then through dotenv-expand, whatever the quotes: a `$` followed by a name or a brace
+// is replaced by that variable's value (`pa$$w0rd` is read `pa$`, `x$y` is read `x`), and only
+// `\$` keeps a dollar, read back `$` (measured with @next/env 15.5.26 and 16.3.4 on 10/10/2026,
+// outside review, 3.4.8). The harness's tools honour that on both sides:
 //   - reading: a line piped from a .env (`grep '^KEY=' .env | node push-env-vars.mjs --stdin`)
 //     carries the value the site reads, never the raw text after `=`: KEY="abc" is abc, and
 //     KEY=abc # note is abc. Until 3.4.5 the quotes reached the hosting with the value;
 //   - writing: a value written into a .env must come back unchanged. abc#def written bare is read
-//     back as abc, so it goes between quotes; a value no quoting can carry is refused, by its
-//     name only, never written wrong.
+//     back as abc, so it goes between quotes; every `$` is written `\$`, or the site would expand
+//     it; a value no quoting can carry is refused, by its name only, never written wrong.
+//   - a line whose value holds an unescaped `$name` depends on the rest of the file and on the
+//     environment: its value cannot be read from the line alone (dotenvExpands), and the tools
+//     that push a line to the hosting refuse it rather than guess.
 //
 //   printf '%s' "$VALUE" | node _env-line.mjs KEY      the .env line of a raw value, on stdout
 //                                                      (exit 1 when it cannot be written)
@@ -18,8 +24,9 @@
 
 import { readFileSync } from "node:fs";
 
-/** The value the site's loader reads from what follows `=` on a .env line. */
-export function dotenvValue(raw) {
+/** What dotenv leaves of what follows `=`, before dotenv-expand: quotes taken off, `\n` and `\r`
+ *  turned into line breaks between double quotes, a bare value trimmed and cut at its `#`. */
+function unquoted(raw) {
   const m = /^\s*(?:'((?:\\'|[^'])*)'|"((?:\\"|[^"])*)"|`((?:\\`|[^`])*)`|([^#\r\n]*))/.exec(String(raw ?? ""));
   if (m[2] !== undefined) return m[2].replace(/\\n/g, "\n").replace(/\\r/g, "\r");
   if (m[1] !== undefined) return m[1];
@@ -27,12 +34,31 @@ export function dotenvValue(raw) {
   return (m[4] ?? "").trim();
 }
 
+/** An unescaped `$` that dotenv-expand replaces: followed by a name or a brace, not after a `\`. */
+const EXPANDED = /(?<!\\)\$(?:\{|\w)/;
+
+/** Whether the site's loader replaces part of this value with another variable's: an unescaped
+ *  `$name` or `${name}`. Its value then depends on the rest of the file and on the environment,
+ *  and cannot be read from the line alone. */
+export function dotenvExpands(raw) {
+  return EXPANDED.test(unquoted(raw));
+}
+
+/** The value the site's loader reads from what follows `=` on a .env line: unquoted as dotenv
+ *  does, then every `\$` read back `$` as dotenv-expand does. A line that dotenvExpands is read
+ *  without the expansion, which no single line can tell. */
+export function dotenvValue(raw) {
+  return unquoted(raw).replace(/\\\$/g, "$");
+}
+
 /** A .env line the site's loader reads back as exactly `value`: bare when it can be, between
  *  quotes otherwise (line breaks written as `\n` between double quotes). Throws, naming the key
  *  and never the value, when no form carries it. */
 export function dotenvLine(key, value) {
   const v = String(value ?? "");
-  const candidates = [v, `'${v}'`, `"${v}"`, `\`${v}\``, `"${v.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}"`];
+  // Every `$` written `\$`: dotenv-expand reads it back `$`, between quotes or not.
+  const e = v.replace(/\$/g, "\\$");
+  const candidates = [e, `'${e}'`, `"${e}"`, `\`${e}\``, `"${e.replace(/\r/g, "\\r").replace(/\n/g, "\\n")}"`];
   for (const written of candidates) {
     if (!/[\r\n]/.test(written) && dotenvValue(written) === v) return `${key}=${written}`;
   }

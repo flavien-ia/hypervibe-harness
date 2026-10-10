@@ -89,6 +89,8 @@ The master password is typed **in the window**, never in the chat. The session s
 
 The window asks up to **3 times** before giving up, so a typo is fixed on the spot. If `launch.mjs unlock` still exits non-zero, the three attempts were wrong: say so in the chat and ask before opening another window, rather than looping on the same `get`.
 
+`launch.mjs unlock` opens one window at a time on the machine. A vault already open exits 0 with no window; a call made while another window is open (two scheduled tasks at the same minute) waits for it, then exits 0 if the vault opened, 1 if it did not, without opening its own.
+
 ## Key missing (RC = 4)
 
 The item is not in the vault yet. Offer to add it (the value will be entered in a masked window, never via Claude):

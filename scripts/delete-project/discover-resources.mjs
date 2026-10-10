@@ -34,7 +34,7 @@ import { vercelContext, listAllProjects, getProject, pickTargets } from "../_ver
 import { tokenMatches, tokenMatchCount, moreSpecificOwner, normalizeName } from "../_match.mjs";
 import { manifestExistant } from "../manifest/locate.mjs";
 import { matchOf, projectRepository } from "./_render-match.mjs";
-import { githubRepositoryOf } from "./_github-repo.mjs";
+import { githubRepositoryOf, sameRepository, settleGithubDeletion } from "./_github-repo.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1039,6 +1039,12 @@ async function reconcileManifest() {
         if (mark(upstash && upstash.databases, (d) => (r.id && d.id === r.id) || (r.name && d.name === r.name))) {
           status = "seen-in-scan";
         }
+      } else if (r.kind === "github-repo") {
+        // The repository the folder pushes to, when the manifest names it: declared AND seen.
+        if (sameRepository(github, r.name)) {
+          github.declared = true;
+          status = "seen-in-scan";
+        }
       } else if (r.kind === "vercel-project") {
         // Declared by id and team: the identity that survives a folder without
         // its link (a fresh clone) and a monorepo whose apps are each linked.
@@ -1065,6 +1071,11 @@ async function reconcileManifest() {
   return out;
 }
 const manifestReport = await reconcileManifest();
+
+// The repository /delete-project deletes itself: only the one /bootstrap created for this project
+// and declared, which the folder pushes to; and whether gh has the right to, read now so that the
+// person is asked before the execution (_github-repo.mjs).
+await settleGithubDeletion(github, manifestReport?.resources ?? [], runCmd);
 
 // A project that has no Stripe is not a scan that failed: without a key, the
 // section's `error` stays only when the project references Stripe (the rule,

@@ -22,6 +22,12 @@
 // that spawns it), never when a script is merely imported: a recette that imports a script and
 // never runs `bw` does not move anybody's sign-in. Mac and Linux keep their own folder: nothing
 // virtualises it there.
+//
+// EVERY `bw` goes through it, its version asked included: `bw --version` alone writes a data.json
+// in the folder it is pointed at, bw's own one otherwise. On 10/10/2026 the folder taken over and
+// emptied on 05/10 was back, account-less, pointing at bw's default server (the US one): the probe
+// that runs before every window had asked the version without the folder. `bwAnswers` below is
+// that probe, for every script.
 
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
@@ -144,4 +150,17 @@ export function useBwHome(opts = {}) {
   }
   env.BITWARDENCLI_APPDATA_DIR = found.dir;
   return found.dir;
+}
+
+/**
+ * Whether `cmd` (a `bw`) runs, its version asked, pointed at the plugin's folder like every other
+ * `bw` (the version alone writes a sign-in file in the folder it is given). The probe every script
+ * uses before installing or opening a window. `spawn`, `os` and the options of useBwHome:
+ * recettes only.
+ */
+export function bwAnswers(cmd = "bw", { spawn = spawnSync, os = platform(), ...opts } = {}) {
+  const env = opts.env ?? process.env;
+  useBwHome({ ...opts, os, env });
+  const r = spawn(cmd, ["--version"], { encoding: "utf8", env, shell: os === "win32" && cmd === "bw", windowsHide: true });
+  return r?.status === 0;
 }

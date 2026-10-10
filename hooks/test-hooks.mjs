@@ -125,6 +125,45 @@ expect("gh repo create acme/site --private --add-readme", "pass");
 expect("gh repo edit acme/site --visibility private", "pass");
 expect("gh repo view acme/site --json url", "pass");
 expect("gh workflow run cron-digest.yml", "pass");
+// gh read as gh reads it (outside review, 3.4.8): the repository option before the verb, the
+// method in every spelling, and the same gestures through the API.
+expect("gh pr -R octo/demo merge 12", "ask");
+expect("gh pr --repo octo/demo merge 12", "ask");
+expect("gh pr --repo=octo/demo merge 12", "ask");
+expect("gh -R octo/demo pr merge 12", "ask");
+expect("gh run -R octo/demo rerun 1", "ask");
+expect("gh secret -R octo/demo delete X", "ask");
+expect("gh variable --repo octo/demo delete Y", "ask");
+expect("gh api -X=DELETE repos/octo/demo/collaborators/bob", "ask");
+expect("gh api -iX DELETE repos/octo/demo/collaborators/bob", "ask");
+expect("gh api -iXDELETE repos/octo/demo/collaborators/bob", "ask");
+expect('gh api -X "$METHODE" repos/octo/demo', "ask");
+expect("gh api -X PATCH repos/octo/demo -f visibility=public", "ask");
+expect("gh api -X PATCH repos/octo/demo -F private=false", "ask");
+expect("gh api --method PATCH /repos/octo/demo --field visibility=public", "ask");
+expect("gh api -X PATCH repos/octo/demo -f name=nouveau-nom", "ask");
+expect("gh api -X POST user/repos -f name=x -f visibility=public", "ask");
+expect("gh api -X PUT repos/octo/demo/pulls/12/merge", "ask");
+expect("gh api repos/octo/demo/merges -f base=main -f head=feature", "ask");
+expect("gh api -X POST repos/octo/demo/actions/runs/42/rerun", "ask");
+expect("gh api repos/octo/demo/actions/runs/42/rerun-failed-jobs -X POST", "ask");
+expect("gh release delete v1.0 --yes", "ask");
+expect("gh release -R octo/demo delete v1.0", "ask");
+expect("gh release delete-asset v1.0 app.zip", "ask");
+expect("gh repo rename nouveau-nom", "ask");
+expect("gh repo -R octo/demo rename nouveau-nom", "ask");
+expect("gh pr -R octo/demo view 12", "pass");
+expect("gh pr list --search merge", "pass");
+expect("gh pr view 12 --json mergeable", "pass");
+expect("gh run -R octo/demo list", "pass");
+expect("gh secret -R octo/demo list", "pass");
+expect("gh api repos/octo/demo/pulls/12/merge", "pass");
+expect("gh api -i repos/octo/demo", "pass");
+expect("gh api -X PATCH repos/octo/demo -f description=x", "pass");
+expect("gh api -X PATCH repos/octo/demo -f visibility=private", "pass");
+expect("gh api -X GET search/repositories -f q=hypervibe", "pass");
+expect("gh release list", "pass");
+expect("gh release create v1.0 --notes x", "pass");
 expect("grep -rn 'gh pr merge' skills/", "pass");
 expect('echo "gh repo delete acme/site"', "pass");
 expect('git -C "C:/DEV/hypervibe-harness" push origin main --follow-tags', "ask");
@@ -652,6 +691,25 @@ console.log("\n── La table OpenCode : pas plus large que le garde-fou, la ou
     ["gh api user --jq .login", "allow"],
     ["gh secret list", "allow"],
     ["gh repo edit acme/site --visibility private", "allow"],
+    // The forms the guard reads as gh reads them since 3.4.9: the table asks them too.
+    ["gh pr -R octo/demo merge 12", "ask"],
+    ["gh pr --repo octo/demo merge 12", "ask"],
+    ["gh run -R octo/demo rerun 1", "ask"],
+    ["gh secret -R octo/demo delete X", "ask"],
+    ["gh variable --repo octo/demo delete Y", "ask"],
+    ["gh api -X=DELETE repos/octo/demo/collaborators/bob", "ask"],
+    ["gh api -iX DELETE repos/octo/demo/collaborators/bob", "ask"],
+    ["gh api -X PATCH repos/octo/demo -f visibility=public", "ask"],
+    ["gh api -X PATCH repos/octo/demo -F private=false", "ask"],
+    ["gh api -X PUT repos/octo/demo/pulls/12/merge", "ask"],
+    ["gh api -X POST repos/octo/demo/merges -f base=main -f head=x", "ask"],
+    ["gh api -X POST repos/octo/demo/actions/runs/42/rerun", "ask"],
+    ["gh release delete v1.0 --yes", "ask"],
+    ["gh repo rename nouveau-nom", "ask"],
+    ["gh pr -R octo/demo view 12", "allow"],
+    ["gh run -R octo/demo list", "allow"],
+    ["gh api -X PATCH repos/octo/demo -f description=x", "allow"],
+    ["gh release list", "allow"],
   );
   const undressed = dressed.filter(([command, expected]) => openCodeSays(command) !== expected || hookSays(command) !== expected).map(([command]) => command);
   checks += 1;

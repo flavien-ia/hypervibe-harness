@@ -26,14 +26,16 @@ import { spawnSync, execSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync, rmSync, statSync } from "node:fs";
 import { homedir, platform, tmpdir } from "node:os";
 import { join } from "node:path";
+import { bwAnswers } from "./bw-home.mjs";
 
 const BIN_DIR = join(homedir(), ".hypervibe", "bin");
 const REDIRECTOR = "https://vault.bitwarden.com/download/?app=cli&platform=";
 const RELEASE_PREFIX = "https://github.com/bitwarden/clients/releases/download/";
 
+/** Whether a `bw` on the PATH runs: asked through the plugin's folder (bw-home.mjs), never bw's
+ *  own, which the question alone would write. */
 function bwWorks() {
-  const r = spawnSync("bw", ["--version"], { encoding: "utf8", shell: platform() === "win32", windowsHide: true });
-  return r.status === 0;
+  return bwAnswers("bw");
 }
 
 function ok(msg) { process.stdout.write(msg); process.exit(0); }

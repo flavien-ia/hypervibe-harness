@@ -1517,22 +1517,153 @@ function throughVariables(seg, vars) {
  * @param {boolean} [carried]  the line was rewritten from a segment that carried a substitution
  * @returns {{decision: "deny"|"ask", reason: string} | null}
  */
-/** What destroys, exposes or moves something on the forge, read on `gh`'s own words: a
- *  repository deleted, made public (an edit, or a creation) or transferred, a secret or a
- *  variable removed, and whatever the API is asked to DELETE (an access, a member, a branch, an
- *  invitation). The method is read in each spelling gh takes (`-X DELETE`, `-XDELETE`,
- *  `--method DELETE`, `--method=DELETE`). */
-function forgeDestroys(seg) {
-  if (!/^gh\s/.test(seg)) return false;
-  if (/^gh\s+repo\s+delete\b/.test(seg)) return true;
-  if (/^gh\s+(?:secret|variable)\s+(?:delete|remove)\b/.test(seg)) return true;
-  if (/^gh\s+repo\s+edit\b/.test(seg) && /--visibility(?:\s+|=)["']?public\b/i.test(seg)) return true;
-  if (/^gh\s+repo\s+create\b/.test(seg) && /(?:^|\s)--public\b/.test(seg)) return true;
-  if (/^gh\s+api\b/.test(seg)) {
-    if (/(?:^|\s)(?:-X\s*|--method(?:\s+|=))["']?DELETE\b/i.test(seg)) return true;
-    if (/\/transfer(?:["'\s]|$)/.test(seg)) return true;
+// ── gh, read as gh reads it ──────────────────────────────────────────────────────────────────
+// gh finds its command the way its command library does: a word that starts with `-` is an
+// option wherever it stands, and a lone option it does not know takes the next word as its value
+// unless it carries one (`--repo=x`, `-Rx`). So `gh pr -R octo/demo merge 12` is `gh pr merge`,
+// and the rules read the group and the verb there, never in the text right after `gh`: until
+// 3.4.9 the repository option written before the verb walked past every rule (outside review,
+// 3.4.8). Two readings are kept, the option taking the next word and not taking it: a gesture
+// either one finds is asked about.
+
+/** gh's words after `gh`, a reading of the group, the verb and the operands per way of reading
+ *  an option gh may not know; null when the segment is not gh. */
+function ghWords(seg) {
+  if (!/^gh(?:\s|$)/.test(seg)) return null;
+  const { args, unread } = argumentsOf(seg);
+  const rest = args.slice(1);
+  const positionals = (greedy) => {
+    const out = [];
+    for (let i = 0; i < rest.length; i += 1) {
+      const w = rest[i];
+      if (w === "--") {
+        out.push(...rest.slice(i + 1));
+        break;
+      }
+      if (/^-/.test(w) && w.length > 1) {
+        // `--name value` and `-n value`: the value goes with the option (gh's way of finding its
+        // command); `--name=value`, `-nvalue` and a cluster carry theirs.
+        if (greedy && !w.includes("=") && (/^--[^-]/.test(w) || w.length === 2) && !GH_VALUELESS.has(w)) i += 1;
+        continue;
+      }
+      out.push(w);
+    }
+    return out;
+  };
+  return { args: rest, readings: [positionals(true), positionals(false)], unread };
+}
+
+/** The options of gh that take no value, written before a verb in the wild. */
+const GH_VALUELESS = new Set(["-h", "--help"]);
+
+/** Whether `gh <group> <verb>` is what one of the readings runs. */
+function ghRuns(gh, group, verbs) {
+  return gh.readings.some((p) => p[0] === group && verbs.includes(p[1]));
+}
+
+/** `gh api`, read as gh reads it: its method in every spelling gh takes (`-X DELETE`,
+ *  `-XDELETE`, `-X=DELETE`, `-iX DELETE`, `--method DELETE`, `--method=DELETE`), POST when
+ *  fields or an input are given without one, its endpoint without host, leading slash or query,
+ *  and its fields as typed (`-f`, `-F`, `--field`, `--raw-field`). `methodUnread` when the
+ *  method is not on the command line (a variable). */
+const API_VALUED_SHORT = new Set(["X", "f", "F", "H", "p", "q", "t"]);
+const API_VALUED_LONG = new Set(["--method", "--raw-field", "--field", "--header", "--preview", "--jq", "--template", "--input", "--hostname", "--cache"]);
+function ghApi(gh) {
+  if (!gh.readings.some((p) => p[0] === "api")) return null;
+  const args = gh.args;
+  const start = args.indexOf("api");
+  let method = null;
+  let methodUnread = false;
+  let endpoint = null;
+  let input = false;
+  const fields = [];
+  const take = (name, value) => {
+    if (name === "-X" || name === "--method") {
+      method = String(value ?? "").toUpperCase();
+      if (/[$`]/.test(String(value ?? ""))) methodUnread = true;
+    } else if (["-f", "-F", "--field", "--raw-field"].includes(name)) fields.push(String(value ?? ""));
+    else if (name === "--input") input = true;
+  };
+  for (let i = start + 1; i < args.length; i += 1) {
+    const w = args[i];
+    if (w === "--") {
+      endpoint ??= args[i + 1] ?? null;
+      break;
+    }
+    if (/^--./.test(w)) {
+      const eq = w.indexOf("=");
+      const name = eq < 0 ? w : w.slice(0, eq);
+      let value = eq < 0 ? null : w.slice(eq + 1);
+      if (value === null && API_VALUED_LONG.has(name)) {
+        value = args[i + 1] ?? "";
+        i += 1;
+      }
+      take(name, value);
+      continue;
+    }
+    if (/^-./.test(w)) {
+      // A cluster: letters that take no value (`-i`), then at most one that takes the rest of
+      // the word, an `=` before it dropped, or the next word.
+      for (let c = 1; c < w.length; c += 1) {
+        if (!API_VALUED_SHORT.has(w[c])) continue;
+        let value = w.slice(c + 1).replace(/^=/, "");
+        if (value === "") {
+          value = args[i + 1] ?? "";
+          i += 1;
+        }
+        take(`-${w[c]}`, value);
+        break;
+      }
+      continue;
+    }
+    endpoint ??= w;
   }
-  return false;
+  const path = String(endpoint ?? "")
+    .replace(/^https?:\/\/[^/]+/i, "")
+    .replace(/[?#].*$/, "")
+    .replace(/^\/+/, "")
+    .replace(/\/+$/, "");
+  return { method: method ?? (fields.length || input ? "POST" : "GET"), methodUnread, path, fields };
+}
+
+const REPO_PATH = "repos/[^/]+/[^/]+";
+/** A field that makes a repository public, or renames it. */
+const exposesOrRenames = (fields) => fields.some((f) => /^visibility=public$/i.test(f) || /^private=false$/i.test(f) || /^name=./.test(f));
+
+/** What publishes on the forge, read on `gh`'s own words: a pull request merged (on these
+ *  projects the main branch is production), a deployment run again, and the same through the
+ *  API (`PUT .../pulls/N/merge`, `POST .../merges`, `POST .../actions/runs/N/rerun`). */
+function forgePublishes(seg) {
+  const gh = ghWords(seg);
+  if (!gh) return false;
+  if (ghRuns(gh, "pr", ["merge"]) || ghRuns(gh, "run", ["rerun"])) return true;
+  const api = ghApi(gh);
+  if (!api || api.method === "GET") return false;
+  if (new RegExp(`^${REPO_PATH}/pulls/[^/]+/merge$`).test(api.path)) return true;
+  if (new RegExp(`^${REPO_PATH}/merges$`).test(api.path)) return true;
+  return new RegExp(`^${REPO_PATH}/actions/(?:runs/[^/]+/(?:rerun|rerun-failed-jobs)|jobs/[^/]+/rerun)$`).test(api.path);
+}
+
+/** What destroys, exposes or moves something on the forge, read on `gh`'s own words: a
+ *  repository deleted, renamed, made public (an edit, or a creation) or transferred, a release
+ *  deleted, a secret or a variable removed, whatever the API is asked to DELETE (an access, a
+ *  member, a branch, an invitation), and a repository made public or renamed through the API. A
+ *  method the command line does not show (a variable) is asked about too. */
+function forgeDestroys(seg) {
+  const gh = ghWords(seg);
+  if (!gh) return false;
+  if (ghRuns(gh, "repo", ["delete", "rename"])) return true;
+  if (ghRuns(gh, "release", ["delete", "delete-asset"])) return true;
+  if (ghRuns(gh, "secret", ["delete", "remove"]) || ghRuns(gh, "variable", ["delete", "remove"])) return true;
+  const { args } = gh;
+  if (ghRuns(gh, "repo", ["edit"]) && args.some((w, i) => /^--visibility=public$/i.test(w) || (w === "--visibility" && /^public$/i.test(args[i + 1] ?? "")))) return true;
+  if (ghRuns(gh, "repo", ["create"]) && args.some((w) => /^--public(?:=(?:true|t|1))?$/i.test(w))) return true;
+  const api = ghApi(gh);
+  if (!api) return false;
+  if (api.method === "DELETE" || api.methodUnread) return true;
+  if (/(?:^|\/)transfer$/.test(api.path)) return true;
+  if (api.method !== "GET" && new RegExp(`^${REPO_PATH}$`).test(api.path) && exposesOrRenames(api.fields)) return true;
+  return api.method === "POST" && /^(?:user|orgs\/[^/]+)\/repos$/.test(api.path) && api.fields.some((f) => /^visibility=public$/i.test(f) || /^private=false$/i.test(f));
 }
 
 export function decide(command, inherited = new Map(), vars = new Map(), carried = false) {
@@ -1711,7 +1842,7 @@ export function decide(command, inherited = new Map(), vars = new Map(), carried
     //     inventory, 06/10/2026). And what destroys, exposes or moves something on the forge
     //     (forgeDestroys). Reads pass, and so do the gestures that create or write
     //     (`gh pr create`, `gh secret set`, `gh workflow run`).
-    if (/^gh\s+(?:pr\s+merge|run\s+rerun)\b/.test(seg)) {
+    if (forgePublishes(seg)) {
       keep(
         ASK,
         "A merge into the main branch publishes (on these projects the main branch is production), and so does running a deployment again. Confirm with the user first (a standing agreement stated in chat counts).",
@@ -1721,7 +1852,7 @@ export function decide(command, inherited = new Map(), vars = new Map(), carried
     if (forgeDestroys(seg)) {
       keep(
         ASK,
-        "This deletes, exposes or moves something on the forge (a repository, a secret, an access, a branch or an invitation, or code made public). Say exactly what is targeted, by name, and confirm with the user.",
+        "This deletes, exposes or moves something on the forge (a repository, a release, a secret, an access, a branch or an invitation, a repository renamed, or code made public). Say exactly what is targeted, by name, and confirm with the user.",
       );
       continue;
     }
@@ -1794,7 +1925,7 @@ export function decide(command, inherited = new Map(), vars = new Map(), carried
     if (/^(?:node|bun|deno|tsx)\s/.test(seg) && /execute-deletions\.mjs/.test(seg)) {
       keep(
         ASK,
-        "Irreversible cloud deletions (Vercel, Neon, R2, DNS). This runs only inside /delete-project, after its explicit double confirmation.",
+        "Irreversible cloud deletions (Vercel, Neon, R2, DNS, and the GitHub repository /bootstrap created for the project). This runs only inside /delete-project, after its explicit double confirmation.",
       );
       continue;
     }

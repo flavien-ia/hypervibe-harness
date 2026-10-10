@@ -155,7 +155,7 @@ If an installation fails, display the exact error and stop.
 
 ### Pnpm global bin in the PATH (cross-platform, idempotent)
 
-`pnpm` installs the global CLIs (`pnpm add -g <cli>`) in a dedicated folder (`%LOCALAPPDATA%\pnpm` on Windows, `~/Library/pnpm` on macOS, `~/.local/share/pnpm` on Linux). This folder must be on the PATH so that `vercel`, `wrangler`, `neonctl`, etc. are callable without an absolute path. But `npm install -g pnpm` (Step 3) installs the latest available version of pnpm without configuring the PATH. A separate `pnpm setup` is needed. Without it, every skill that runs `vercel --version` hits `command not found` and wastes 5-10 lines diagnosing it (seen in prod 2026-05-02).
+`pnpm` installs the global CLIs (`pnpm add -g <cli>`) in a dedicated folder (`%LOCALAPPDATA%\pnpm` on Windows, `~/Library/pnpm` on macOS, `~/.local/share/pnpm` on Linux). This folder must be on the PATH so that `vercel`, `wrangler`, etc. are callable without an absolute path. But `npm install -g pnpm` (Step 3) installs the latest available version of pnpm without configuring the PATH. A separate `pnpm setup` is needed. Without it, every skill that runs `vercel --version` hits `command not found` and wastes 5-10 lines diagnosing it (seen in prod 2026-05-02).
 
 Run this script. It wraps `pnpm setup`, which is the canonical cross-platform command to configure PNPM_HOME + PATH (User registry on Windows, `~/.zshrc` or `~/.bashrc` on Unix). Idempotent: re-running is a no-op if already configured.
 

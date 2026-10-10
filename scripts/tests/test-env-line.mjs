@@ -5,12 +5,18 @@
 //   - a value written into the local .env comes back unchanged when the site reads it: quoted
 //     when it has to be, refused when no quoting can carry it, the value never in a message;
 //   - the masked window and the administrator's secret pipe write lines the helper reads back
-//     exactly, so a password with a # is not cut short on the way.
+//     exactly, so a password with a # is not cut short on the way;
+//   - a `$` too (3.4.9, outside review): Next runs dotenv-expand over the .env, which expands
+//     `$name` even between quotes, and only `\$` keeps a dollar. A value is written with `\$`, a
+//     line read with `\$` gives `$`, and a line whose `$name` the site would expand is refused
+//     on its way to the hosting. With HV_NEXT_ENV naming the folder of an @next/env, every
+//     line written here is also read back by Next's own loader.
 // No network: the temporary project has no hosting, the helper stops after its local step.
 //
 //   node scripts/tests/test-env-line.mjs
 
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -19,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const LINE = join(ROOT, "scripts", "_env-line.mjs");
 const HELPER = join(ROOT, "scripts", "push-env-vars.mjs");
-const { dotenvLine, dotenvValue } = await import(pathToFileURL(LINE).href);
+const { dotenvExpands, dotenvLine, dotenvValue } = await import(pathToFileURL(LINE).href);
 const SECRET = "valeur-secrete-qui-ne-doit-jamais-sortir";
 
 let checks = 0;
@@ -46,6 +52,12 @@ const reads = [
   ["", ""],
   ['""', ""],
   ["postgres://u:p@h/db?x=1&y=2", "postgres://u:p@h/db?x=1&y=2"],
+  // A dollar kept by `\$`, whatever the quotes (dotenv-expand reads it back `$`).
+  ["pa\\$\\$w0rd", "pa$$w0rd"],
+  ["'pa\\$\\$w0rd'", "pa$$w0rd"],
+  ['"pa\\$\\$w0rd"', "pa$$w0rd"],
+  ["a\\\\$b", "a\\$b"],
+  ["fin\\$", "fin$"],
 ];
 for (const [raw, want] of reads) {
   const got = dotenvValue(raw);
@@ -53,7 +65,9 @@ for (const [raw, want] of reads) {
 }
 
 console.log("\n── Écrire une ligne que le site relit à l'identique ──");
-const values = ["abc", "deux mots", "ab#cd", " devant", "derriere ", '"guillemets"', "l'apostrophe", 'un " seul', "un ` seul", "a'b\"c", "ligne1\nligne2", "barre\\noblique", "", "postgres://u:p@h/db?x=1&y=2", `sk_live_${SECRET}`];
+const dollars = ["pa$$w0rd", "x$y", "$", "a$", "${X}", "${X:-def}", "a\\$b", "cost $5", "it's $5", "ab#$cd", "ligne1\nligne $x", "$$$$"];
+const values = ["abc", "deux mots", "ab#cd", " devant", "derriere ", '"guillemets"', "l'apostrophe", 'un " seul', "un ` seul", "a'b\"c", "ligne1\nligne2", "barre\\noblique", "", "postgres://u:p@h/db?x=1&y=2", `sk_live_${SECRET}`, ...dollars];
+const written = [];
 for (const v of values) {
   let line = null;
   try {
@@ -61,7 +75,43 @@ for (const v of values) {
   } catch {
     line = null;
   }
-  check(`${JSON.stringify(v)} s'écrit sur une ligne et se relit à l'identique`, line !== null && !/[\r\n]/.test(line) && dotenvValue(line.slice(4)) === v, String(line));
+  if (line !== null) written.push([v, line]);
+  check(`${JSON.stringify(v)} s'écrit sur une ligne et se relit à l'identique, sans un $ que le site développerait`, line !== null && !/[\r\n]/.test(line) && dotenvValue(line.slice(4)) === v && !dotenvExpands(line.slice(4)), String(line));
+}
+check("un $ s'écrit \\$ : pa$$w0rd devient la ligne W0=pa\\$\\$w0rd", dotenvLine("W0", "pa$$w0rd") === "W0=pa\\$\\$w0rd", dotenvLine("W0", "pa$$w0rd"));
+
+console.log("\n── Un $nom que le site remplacerait ──");
+for (const [raw, want] of [
+  ["x$y", true],
+  ["pa$$w0rd", true],
+  ["'x$y'", true],
+  ['"${X}"', true],
+  ["`a$b`", true],
+  ["x\\$y", false],
+  ["a$", false],
+  ["a$-b", false],
+  ["$", false],
+  ["prix: 5 $", false],
+  ["note # $y", false],
+]) {
+  check(`${JSON.stringify(raw)} ${want ? "dépend d'une autre variable" : "ne dépend de rien d'autre"}`, dotenvExpands(raw) === want);
+}
+
+// Next's own loader, when this machine says where one is (HV_NEXT_ENV, the folder of an
+// @next/env): every line written above is read back by it, unchanged.
+if (process.env.HV_NEXT_ENV) {
+  const nextEnv = createRequire(import.meta.url)(process.env.HV_NEXT_ENV);
+  const dir = mkdtempSync(join(tmpdir(), "hv-env-line-next-"));
+  try {
+    writeFileSync(join(dir, ".env"), written.map(([, line], i) => line.replace(/^CLE=/, `HV_LIGNE_${i}=`)).join("\n") + "\n");
+    const read = nextEnv.loadEnvConfig(dir, false, { info() {}, error() {} }, true).combinedEnv;
+    const off = written.filter(([v], i) => read[`HV_LIGNE_${i}`] !== v).map(([v]) => JSON.stringify(v));
+    check(`le chargeur de Next lui-même relit chaque ligne écrite à l'identique (${written.length} lignes)`, off.length === 0, off.join(" | "));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+} else {
+  console.log("skip HV_NEXT_ENV n'est pas posé : les lignes ne sont pas relues par le chargeur de Next");
 }
 check("une valeur sans piège s'écrit telle quelle, sans guillemets", dotenvLine("CLE", "abc") === "CLE=abc" && dotenvLine("CLE", "deux mots") === "CLE=deux mots");
 const impossible = "a'b\"c`d#e";
@@ -110,6 +160,13 @@ function push(args, input) {
   check("... par un refus en mots, avant toute écriture, jamais par un plantage", /^Refused: CLE: /m.test(d.r.stderr) && !/at dotenvLine|node:internal/.test(d.r.stderr), d.r.stderr.slice(0, 200));
   const e = push(["--stdin"], `CLE=${SECRET}\n`);
   check("une valeur ordinaire arrive entière, et n'est jamais affichée", e.env.includes(`CLE=${SECRET}\n`) && !(e.r.stdout + e.r.stderr).includes(SECRET), e.env);
+  const f = push(["--stdin"], "R=pa\\$\\$w0rd\n");
+  check("une ligne déjà protégée pour le site (\\$) part sans ses barres : le .env local la garde protégée", /^R=pa\\\$\\\$w0rd$/m.test(f.env), f.env);
+  const g = push(["--stdin"], "W=x$y\n");
+  check("une ligne dont le site développerait le $ est refusée, rien n'est écrit", g.r.status === 1 && g.env === "AUTRE=1\n" && /^Refused: W: /m.test(g.r.stderr), g.env);
+  check("... le refus nomme la clé, jamais la valeur", !(g.r.stdout + g.r.stderr).includes("x$y"));
+  const h = push(["W0=pa$$w0rd"]);
+  check("une valeur en argument avec des $ s'écrit \\$ dans le .env local", /^W0=pa\\\$\\\$w0rd$/m.test(h.env), h.env);
 }
 
 console.log("\n── Ceux qui écrivent des lignes pour l'outil ──");
@@ -123,12 +180,15 @@ console.log("\n── Ceux qui écrivent des lignes pour l'outil ──");
     const back = out.trim().split("\n").map((l) => dotenvValue(l.slice(l.indexOf("=") + 1)));
     check("le tube du coffre de l'administrateur écrit des lignes que l'outil relit à l'identique", back[0] === "ab#cd" && back[1] === " espace", JSON.stringify(out));
   }
+  const pull = readFileSync(join(ROOT, "scripts", "pull-env-vars.mjs"), "utf8");
+  check("la récupération depuis l'hébergeur écrit ses lignes par dotenvLine (un $ n'y est plus développé, un \\\" plus gardé)", /dotenvLine\(k, String\(v\)\.replace\(\/\\\\n\/g, "\\n"\)\.replace\(\/\\\\r\/g, "\\r"\)\)/.test(pull) && !/const needsQuote = /.test(pull), "pull-env-vars.mjs");
   const ev = join(ROOT, "scripts", "env-value.mjs");
   if (existsSync(ev)) {
     const dir = mkdtempSync(join(tmpdir(), "hv-env-line-ev-"));
-    writeFileSync(join(dir, ".env"), "NOTE=abc # une note\nDIESE='ab#cd'\n");
+    writeFileSync(join(dir, ".env"), "NOTE=abc # une note\nDIESE='ab#cd'\nDOLLAR=pa\\$\\$w0rd\n");
     const lu = (k) => spawnSync(process.execPath, [ev, "--project-dir", dir, k], { encoding: "utf8" }).stdout;
     check("env-value.mjs lit comme le site : la note laissée de côté, le # entre guillemets gardé", lu("NOTE") === "abc" && lu("DIESE") === "ab#cd", `${lu("NOTE")} | ${lu("DIESE")}`);
+    check("... et un \\$ relu $", lu("DOLLAR") === "pa$$w0rd", lu("DOLLAR"));
     rmSync(dir, { recursive: true, force: true });
   }
 }

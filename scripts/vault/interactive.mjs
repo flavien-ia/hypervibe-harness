@@ -24,7 +24,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import readline from "node:readline";
 import { resolveLang, makeT } from "./i18n.mjs";
-import { useBwHome } from "./bw-home.mjs";
+import { bwAnswers, useBwHome } from "./bw-home.mjs";
 import { dotenvLine } from "../_env-line.mjs";
 
 const IS_WIN = platform() === "win32";
@@ -106,11 +106,10 @@ function resolveBwCmd() {
   return BW_CMD;
 }
 
-/** Returns true if the resolved bw actually runs. */
+/** Returns true if the resolved bw actually runs: asked through the plugin's folder (bw-home.mjs),
+ *  never bw's own, which the question alone would write. */
 function bwRuns() {
-  const cmd = resolveBwCmd();
-  const r = spawnSync(cmd, ["--version"], { encoding: "utf8", shell: IS_WIN && cmd === "bw", windowsHide: true });
-  return r.status === 0;
+  return bwAnswers(resolveBwCmd());
 }
 
 /**

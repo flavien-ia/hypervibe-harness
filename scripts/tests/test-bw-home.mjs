@@ -18,7 +18,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 // The module lives with the vault's scripts, or with the Bitwarden module once the vault is a choice.
 const MODULE = [join(ROOT, "scripts", "vault", "bw-home.mjs"), join(ROOT, "scripts", "vault", "providers", "bitwarden", "bw-home.mjs")].find((f) => existsSync(f));
-const { bwHome, bwHomeOf, earlierHomes, useBwHome } = await import(pathToFileURL(MODULE).href);
+const { bwAnswers, bwHome, bwHomeOf, earlierHomes, useBwHome } = await import(pathToFileURL(MODULE).href);
 
 let checks = 0;
 let failures = 0;
@@ -191,15 +191,24 @@ for (const [label, seenAgo, pkgAgo, expected] of [
     const s = readFileSync(f, "utf8");
     return /function resolveBwCmd\(/.test(s) || (/function resolveCli\(/.test(s) && /const BW_EXE/.test(s));
   });
-  // Every place that runs bw (its version asked aside: that reads no sign-in) calls useBwHome:
-  // counted, so that one helper left out among several is seen.
+  // Every place that runs bw calls useBwHome, its version asked included (the question alone
+  // writes a sign-in file in the folder bw is given, bw's own otherwise: 10/10/2026): counted, so
+  // that one helper left out among several is seen.
   const missing = runners.flatMap((f) => {
     const s = readFileSync(f, "utf8");
-    const runs = [...s.matchAll(/spawnSync\((cmd|cli\.command|loginCmd|unlockCmd)\b[^\n]{0,80}/g)].filter((m) => !m[0].includes('"--version"')).length;
+    const runs = [...s.matchAll(/spawnSync\((cmd|cli\.command|loginCmd|unlockCmd)\b[^\n]{0,80}/g)].length;
     const uses = (s.match(/useBwHome\(\)/g) ?? []).length;
     return uses >= runs && runs > 0 ? [] : [`${relative(ROOT, f)} (${runs} appel(s) de bw, ${uses} passage(s) par le dossier)`];
   });
-  check(`chaque script qui lance bw passe par le dossier unique, à chaque appel (${runners.length} script(s))`, runners.length >= 1 && missing.length === 0, missing.join(", "));
+  check(`chaque script qui lance bw passe par le dossier unique, à chaque appel, la version comprise (${runners.length} script(s))`, runners.length >= 1 && missing.length === 0, missing.join(", "));
+  // bw by its bare name, run by a script of its own (an installer's probe): only the folder's own
+  // helpers may, and they pass the folder.
+  const bare = scripts
+    .filter((f) => !/[\\/]bw-home\.mjs$/.test(f))
+    .flatMap((f) => [...readFileSync(f, "utf8").matchAll(/(?:spawnSync|spawn|execFileSync|execSync|exec)\(\s*[`"']bw(?:\.exe)?\b[^\n]{0,60}/g)].map((m) => `${relative(ROOT, f)} : ${m[0]}`));
+  check("aucun script ne lance bw par son nom hors des aides du dossier unique", bare.length === 0, bare.join(" | "));
+  const probes = ["interactive.mjs", "install-bw.mjs"].map((n) => scripts.find((f) => f.endsWith(n))).filter(Boolean);
+  check("la sonde d'avant chaque fenêtre et celle de l'installation passent par bwAnswers", probes.length === 2 && probes.every((f) => /bwAnswers\(/.test(readFileSync(f, "utf8"))), probes.map((f) => relative(ROOT, f)).join(", "));
   const vault = readFileSync(join(ROOT, "scripts", "vault", "vault.mjs"), "utf8");
   check("vault.mjs account dit si un compte est connecté", /cmd === "account"/.test(vault));
 }
@@ -227,6 +236,26 @@ for (const [label, seenAgo, pkgAgo, expected] of [
     }
   }
   check("aucune page ne fait lancer bw status directement", offenders.length === 0, offenders.join(" | "));
+}
+
+// 12. The version asked goes through the folder too: on 10/10/2026, `bw --version` alone, run
+//     before every window, wrote an account-less sign-in file in bw's own folder, pointing at
+//     bw's default server (the US one). The launch is simulated: bw itself never runs.
+{
+  const m = machine();
+  const seen = [];
+  const spawn = (cmd, args, options) => {
+    seen.push({ cmd, args, dir: options?.env?.BITWARDENCLI_APPDATA_DIR ?? null });
+    return { status: 0 };
+  };
+  const answered = bwAnswers("bw", { os: "win32", env: { ...m.env }, home: m.home, signedIn: simulated(new Map()).signedIn, spawn });
+  check("la version de bw se demande avec le dossier du plugin, jamais celui de bw", answered === true && seen.length === 1 && seen[0].args[0] === "--version" && seen[0].dir === m.target, JSON.stringify(seen));
+  seen.length = 0;
+  bwAnswers("bw", { os: "win32", env: { ...m.env, BITWARDENCLI_APPDATA_DIR: "D:\\mon-dossier" }, home: m.home, signedIn: simulated(new Map()).signedIn, spawn });
+  check("... un dossier choisi par la personne reste le sien", seen[0]?.dir === "D:\\mon-dossier", JSON.stringify(seen));
+  const asked = [];
+  const silent = bwAnswers("bw", { os: "win32", env: { ...m.env }, home: m.home, signedIn: simulated(new Map()).signedIn, spawn: (cmd, args, options) => (asked.push(options?.env?.BITWARDENCLI_APPDATA_DIR ?? null), { status: 1 }) });
+  check("... un bw qui ne répond pas est dit absent, la question posée avec le dossier", silent === false && asked[0] === m.target, JSON.stringify(asked));
 }
 
 for (const d of temps) rmSync(d, { recursive: true, force: true });

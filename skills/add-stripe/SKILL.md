@@ -218,11 +218,11 @@ esac
 
 If `stripe listen` fails (CLI not authenticated) -> invoke `_setup-stripe-cli` then start over.
 
-**Note for future dev sessions**: when the user tests payments locally, they will need to run, **in parallel** with `pnpm dev`, in their terminal:
+**Note for future dev sessions** (for Claude): before a local payment test, Claude starts both in the background, the dev server (`pnpm dev`) and the listener that relays Stripe's webhooks to it, and never asks the person to open a terminal:
 ```bash
 stripe listen <STRIPE_PROFILE> --forward-to localhost:3000/api/webhooks/stripe
 ```
-(The `whsec_...` captured now stays valid, so no re-configuration needed.)
+(The `whsec_...` captured now stays valid, so no re-configuration needed. The whole procedure: "Local payment test", after Step 12.)
 
 ## Step 9 - Update CLAUDE.md
 
@@ -233,7 +233,7 @@ Invoke `_update-claude-md` with:
   - `- \`STRIPE_SECRET_KEY\` - Stripe secret key (test or live depending on mode)`
   - `- \`STRIPE_WEBHOOK_SECRET\` - signing secret to verify webhooks (different for the local CLI vs the production endpoint)`
 - `conventions`:
-  - `- **Testing payments locally**: in a separate terminal, in parallel with \`pnpm dev\`, run the command \`stripe listen <STRIPE_PROFILE> --forward-to localhost:3000/api/webhooks/stripe\`. Without it, Stripe's webhooks are not received by the local app and checkout will not work. The \`STRIPE_WEBHOOK_SECRET\` in \`.env\` is already configured for this listener (captured during /add-stripe).`
+  - `- **Testing payments locally** (for Claude): before a local payment test, start both in the background, never in a terminal the person would have to open: \`pnpm dev\` and \`stripe listen <STRIPE_PROFILE> --forward-to localhost:3000/api/webhooks/stripe\`. Without the listener, Stripe's webhooks never reach the local app and checkout does not work. The \`STRIPE_WEBHOOK_SECRET\` in \`.env\` is already this listener's (captured during /add-stripe). The success page is reached by paying with the test card \`4242 4242 4242 4242\`, never by a session written by hand.`
   - only when `<STRIPE_PROFILE>` is not empty: `- **Stripe account of this project**: the Stripe CLI profile \`<profile name>\` (account "<display_name>"). Every \`stripe\` command of this project takes \`--project-name <profile name>\`; a bare \`stripe\` command runs on another account.`
 - `custom`:
   - heading: `## Stripe products`
@@ -354,9 +354,7 @@ Present to the user:
 
 > ✅ **Stripe Checkout configured.**
 >
-> 🧪 **You are in TEST mode - no real payment is collected.** To test:
-> - Fake card number: `4242 4242 4242 4242` (any future expiry date, any CVC)
-> - Before each test session, open a separate terminal and run `stripe listen <STRIPE_PROFILE> --forward-to localhost:3000/api/webhooks/stripe` in parallel with `pnpm dev` (otherwise the webhooks are not received -> checkout broken)
+> 🧪 **You are in TEST mode - no real payment is collected.** Whenever you want to try a payment, tell me *"let's test a payment"*: I start everything myself (the site and Stripe's listener), check that something can be bought, and give you the links and the test card.
 >
 > 🔴 **To go LIVE (collect real payments)**: when you are sure everything works in test, tell me *"switch Stripe to live"* and I'll guide you. The full procedure is also documented in `CLAUDE.md` -> section "Switch Stripe to live mode (production)".
 
@@ -385,6 +383,31 @@ If `plan` is `null`:
 > - 💳 **Check your Vercel plan before going live.** Vercel reserves its free Hobby plan for personal, non-commercial projects, and a site that collects payments needs the paid **Pro** plan (current price: https://vercel.com/pricing).
 
 If `plan` is `pro` or `enterprise`: say nothing about the plan.
+
+---
+
+## Local payment test (when the person asks for it)
+
+When the person wants to try a payment (a "yes" right after the summary, or in a later session: the project's `CLAUDE.md` points here), Claude does everything. **The person types no command and opens no terminal.**
+
+1. **Is there something to buy?** The buy buttons pass a Stripe price id (`createCheckoutSession`, Step 6). Find the page that carries one (the page that calls `createCheckoutSession`, `/pricing` when Step 11 built it) and the price ids it passes (in the code, or in the `.env` when the code reads them there). Each must be an active TEST price:
+   ```bash
+   stripe prices retrieve <price_id> <STRIPE_PROFILE>   # expect "active": true and "livemode": false
+   ```
+   No page with a buy button, or no price that answers: say so, and offer to build the payment pages (Step 11) rather than giving links that lead nowhere. Stop there.
+2. **Start both, in the background** (`run_in_background`, never in the foreground: both keep running while the person tests), from the project's root:
+   - the site: `pnpm dev` (or the environment's own way of previewing a dev server, when it offers one); if this project's dev server already runs in this conversation, reuse it;
+   - the listener, its signing secret masked in its output (the line that says it is ready also prints the secret):
+     ```bash
+     stripe listen <STRIPE_PROFILE> --forward-to localhost:3000/api/webhooks/stripe 2>&1 | awk '{ gsub(/whsec_[A-Za-z0-9]+/, "whsec_***"); print; fflush() }'
+     ```
+   Wait until the site answers on `http://localhost:3000` and the listener says `Ready!`. The site must be on port 3000: the listener and Stripe's return pages point there. If another program holds it (the dev server announces another port), say so and stop both rather than testing a site the payment would not come back to. Stripe's return pages use `NEXT_PUBLIC_APP_URL` of the local `.env` (`http://localhost:3000`, set by /bootstrap): if it says another address, the payment comes back there, say it before the test.
+3. **Give the links, clickable, and the test card once**, in the person's language:
+   > Everything is running. Open **http://localhost:3000/pricing** (the page with the buy button) and pay with the test card `4242 4242 4242 4242`, any future expiry date, any CVC. After paying, Stripe brings you back to http://localhost:3000/payment/success; if you cancel, to http://localhost:3000/payment/cancel.
+
+   (The page with the button is the one found at point 1, `/pricing` or another.)
+4. **Never fabricate a paid session**: the success page is reached by paying with the test card, never by an address or a session written by hand.
+5. When the person says they paid, read the listener's output: `checkout.session.completed` answered `[200]` means the app received the payment. Say it in one line. Stop both once the person is done.
 
 ---
 

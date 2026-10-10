@@ -59,11 +59,7 @@ Adds **online payments** to your app via Stripe Checkout. To sell products, acce
 {{/callout}}
 
 {{callout:tip|To test locally}}
-When you test payments locally (`pnpm dev`), open another terminal in parallel and run:
-```
-stripe listen --forward-to localhost:3000/api/webhooks/stripe
-```
-Without it, Stripe's webhooks do not reach your local app and checkout stays stuck. The `STRIPE_WEBHOOK_SECRET` in `.env` is already configured for this listener. If Hypervibe paired this project with a Stripe account of its own, the exact command (with `--project-name`) is written in the project's `CLAUDE.md`.
+When you want to try a payment on your computer, just say so: Claude starts the site and the listener that relays Stripe's notifications to it, checks that something can be bought in test mode, then gives you the links and the test card. You type no command. The `STRIPE_WEBHOOK_SECRET` in `.env` is already this listener's, and when Hypervibe paired this project with a Stripe account of its own, the project's `CLAUDE.md` tells Claude which one.
 {{/callout}}
 
 {{callout:info|To go live}}

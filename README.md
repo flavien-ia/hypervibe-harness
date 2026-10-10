@@ -167,8 +167,8 @@ So the operations that cannot be undone are guarded, not merely discouraged:
 |---|---|---|
 | `git add -A`, `git add .`, `git add :/`, `git add ':(top)'`, `git add '*'`, `git add -u`, `git commit -a`, `git commit --all` | **refused** | A sweeping stage once swept another session's uncommitted work into a commit. Stage nominatively: `git add <file>`. |
 | `git push` | **confirmation** | Pushing publishes. Consent lives in the conversation, so a human confirms. |
-| `gh pr merge`, `gh run rerun` | **confirmation** | A merge into the main branch publishes (the main branch is production), and so does running a deployment again. |
-| `gh repo delete`, `gh secret delete`, `gh variable delete`, `gh api` with `DELETE`, a repository made public or transferred | **confirmation** | Deletes, exposes or moves something on the forge: a repository, a secret, an access, a branch. Reads, `gh pr create` and `gh secret set` pass. |
+| `gh pr merge`, `gh run rerun` | **confirmation** | A merge into the main branch publishes (the main branch is production), and so does running a deployment again. Read the way gh reads it: with the repository option before the verb (`gh pr -R owner/repo merge`) or through `gh api`, the same question. |
+| `gh repo delete`, `gh secret delete`, `gh variable delete`, `gh api` with `DELETE`, `gh release delete`, `gh repo rename`, a repository made public or transferred | **confirmation** | Deletes, exposes or moves something on the forge: a repository, a release, a secret, an access, a branch, through the command or through `gh api`. Reads, `gh pr create` and `gh secret set` pass. |
 | `vercel --prod`, `--target production`, `promote`, `rollback` | **confirmation** | Deploys normally go through `git push`. `vercel build --prod` deploys nothing and is not asked. |
 | `wrangler deploy`, `wrangler secret put` (not `--dry-run`) | **confirmation** | The shared worker runs with the account's keys; a deploy publishes code that holds them. |
 | `pnpm db:push`, `pnpm --filter web db:push`, `drizzle-kit push` | **confirmation** | On this stack the database you reach IS production. |

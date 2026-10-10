@@ -18,8 +18,12 @@
 //   --scope      : JSON array of categories to delete. Subset of:
 //                  ["vercel","neon","r2","workers","dns","db-backup",
 //                   "cron-jobs","render","stripe-webhooks","upstash",
-//                   "email-routing","memory"]
+//                   "email-routing","memory","github"]
 //                  Pass ["all"] as a shortcut to delete everything.
+//                  "github" deletes the repository /bootstrap created for
+//                  this project and declared in its manifest, and no other
+//                  (_github-repo.mjs): any other repository stays a manual
+//                  step, whatever the scope says.
 //   --vercel-project : optional, comma-separated Vercel project ids. Required
 //                  when the inventory flags `vercel.ambiguous` (several
 //                  projects answer to the name, in different teams): the ids
@@ -38,7 +42,8 @@
 // - Sequential where needed: db-backup AFTER neon (since the db-backup
 //   removal references the Neon projectId), cron-jobs AFTER db-backup (both
 //   commit + redeploy the same ~/.hypervibe-jobs registry, never in
-//   parallel), memory AT THE END.
+//   parallel), memory, then the GitHub repository LAST: a run that stops
+//   half way leaves the code where it was.
 // - Each operation is fault-tolerant: one failure doesn't abort the whole
 //   batch. The user can re-run with a narrower scope to retry.
 // - NEVER touches the local project dir (sandbox blocks it). The LLM
@@ -54,6 +59,7 @@ import { tokenMatches, moreSpecificOwner } from "../_match.mjs";
 import { spawnSpec } from "../_spawn.mjs";
 import { vercelContext, deleteProject } from "../_vercel-projects.mjs";
 import { trimIndex } from "./_memory-index.mjs";
+import { deleteRight, repositoryToDelete } from "./_github-repo.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -101,7 +107,7 @@ try {
   console.error(`Invalid --scope JSON: ${SCOPE_JSON}`);
   process.exit(1);
 }
-const ALL_CATEGORIES = ["vercel", "neon", "r2", "workers", "dns", "db-backup", "cron-jobs", "render", "stripe-webhooks", "upstash", "email-routing", "memory"];
+const ALL_CATEGORIES = ["vercel", "neon", "r2", "workers", "dns", "db-backup", "cron-jobs", "render", "stripe-webhooks", "upstash", "email-routing", "memory", "github"];
 if (scope.length === 1 && scope[0] === "all") scope = ALL_CATEGORIES;
 const scopeSet = new Set(scope);
 
@@ -662,6 +668,52 @@ async function deleteMemory() {
   return { status: failed ? "partial" : "deleted", results };
 }
 
+// gh, or in a recette the stand-in HYPERVIBE_GH_BIN names (a .mjs run by node, the same hook as
+// scripts/vercel-github-app.mjs).
+function runGh(args) {
+  const standin = process.env.HYPERVIBE_GH_BIN;
+  if (standin && standin.endsWith(".mjs")) {
+    const r = spawnSync(process.execPath, [standin, ...args], { encoding: "utf8", windowsHide: true });
+    return { code: r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
+  }
+  return runCmdSync("gh", args, { timeout: 120000 });
+}
+const GONE = /Could not resolve to a Repository|HTTP 404/i;
+
+// The repository /bootstrap created for this project, and only that one: decided again here from
+// the inventory's facts (the folder's remote, the manifest), never from a flag the inventory
+// carries. gh needs the delete_repo right, which /delete-project asks for before the execution;
+// without it, the repository stays a manual step and the report says why.
+async function deleteGitHub() {
+  const g = inventory.github;
+  if (!g?.exists) return { status: "skipped", reason: "no repository in the inventory" };
+  const target = repositoryToDelete(g, inventory.manifest?.resources ?? []);
+  if (!target.deletable) return { status: "skipped", manual: true, url: g.url ?? null, reason: target.reason };
+  const right = await deleteRight(async (_cmd, args) => runGh(args));
+  if (right.ok !== true) {
+    return {
+      status: "failed",
+      manual: true,
+      repository: target.repository,
+      url: g.url ?? null,
+      ...(right.ok === false ? { needsScope: "delete_repo", ...(right.fromEnvironment ? { fromEnvironment: true } : {}) } : {}),
+      error:
+        right.ok === false
+          ? `gh is signed in${right.account ? ` as ${right.account}` : ""} without the right to delete a repository (delete_repo): nothing was asked of GitHub`
+          : right.reason,
+    };
+  }
+  const r = runGh(["repo", "delete", target.repository, "--yes"]);
+  if (r.code !== 0) {
+    const said = `${r.stderr}${r.stdout}`.trim();
+    if (GONE.test(said)) return { status: "deleted", results: [{ repository: target.repository, status: "absent" }] };
+    return { status: "failed", manual: true, repository: target.repository, url: g.url ?? null, error: said.slice(0, 300) || `gh exited with ${r.code}` };
+  }
+  const after = runGh(["repo", "view", target.repository, "--json", "name"]);
+  const verified = after.code !== 0 && GONE.test(`${after.stderr}${after.stdout}`);
+  return { status: "deleted", results: [{ repository: target.repository, url: g.url ?? null, status: "deleted", verified }] };
+}
+
 // ─── orchestration ─────────────────────────────────────────────────────────
 // Parallel batch 1: independent operations (vercel, r2, workers, dns,
 // render, stripe-webhooks, upstash, email-routing).
@@ -720,6 +772,11 @@ if (scopeSet.has("cron-jobs")) {
 if (scopeSet.has("memory")) {
   const r = await deleteMemory();
   record("memory", r);
+}
+if (scopeSet.has("github")) {
+  // Last: everything else is gone or reported before the code is.
+  const r = await deleteGitHub();
+  record("github", r);
 }
 
 // Categories explicitly skipped because not in scope

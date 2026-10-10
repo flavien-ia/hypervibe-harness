@@ -47,7 +47,7 @@ if (args[0] === "env" && args[1] === "pull") {
   const env = (args.find((a) => a.startsWith("--environment=")) || "--environment=development").split("=")[1];
   // What the real command line writes: a sensitive variable comes back as KEY="".
   const files = {
-    production: 'SECRET_KEY=""\\nDATABASE_URL=""\\nNEXT_PUBLIC_URL="https://prod.example"\\nPLAIN_FLAG="on"\\n',
+    production: 'SECRET_KEY=""\\nDATABASE_URL=""\\nNEXT_PUBLIC_URL="https://prod.example"\\nPLAIN_FLAG="on"\\nDOLLAR="pa$$w0rd"\\nMULTI="l1\\\\nl2"\\nCITE="dit "oui""\\n',
     preview: 'SECRET_KEY=""\\nNEXT_PUBLIC_URL="https://preview.example"\\n',
     development: 'NEXT_PUBLIC_URL="http://localhost:3000"\\n',
   };
@@ -102,6 +102,8 @@ try {
     check("a secret the host never gives back does not erase the local one", /^SECRET_KEY=valeur-locale-a-garder$/m.test(local), local.replace(/\n/g, " | "));
     check("... nor is it added as an empty line where the project had none", !/^DATABASE_URL=/m.test(local));
     check("a readable value is still brought back", /^NEXT_PUBLIC_URL=https:\/\/prod\.example$/m.test(local) && /^PLAIN_FLAG=on$/m.test(local));
+    check("a $ is written \\$, which Next reads back $ (bare or between double quotes, Next expanded it)", /^DOLLAR=pa\\\$\\\$w0rd$/m.test(local), local.replace(/\n/g, " | "));
+    check("a line break the host wrote as \\n stays one, a double quote inside the value keeps no backslash", /^MULTI="l1\\nl2"$/m.test(local) && /^CITE=dit "oui"$/m.test(local), local.replace(/\n/g, " | "));
     check("the report says the secret could not be read, never that it is present", /SECRET_KEY/.test(r.stdout) && !/SECRET_KEY \(present\)/.test(r.stdout) && /not readable|unreadable|illisible|never given back/i.test(r.stdout), r.stdout.trim().replace(/\n/g, " | "));
   }
   // ── 1b. A temporary folder with a space in its path ──────────────────────
@@ -166,7 +168,7 @@ try {
     const sources = report?.steps?.["env-vars"]?.sources ?? [];
     const prod = sources.find((s) => s.source === "vercel" && s.env === "production");
     check("the snapshot is made", Boolean(report?.zipPath) && existsSync(report.zipPath), (r.stderr || "").trim().slice(-300));
-    check("the production pull counts only the values it could read", prod?.vars === 2, JSON.stringify(prod));
+    check("the production pull counts only the values it could read", prod?.vars === 5, JSON.stringify(prod));
     check("... and names the secrets the host never gives back", Array.isArray(prod?.unreadable) && prod.unreadable.includes("SECRET_KEY") && prod.unreadable.includes("DATABASE_URL"), JSON.stringify(prod));
     const local = sources.find((s) => s.source === "local" && s.file === ".env.local");
     check("the project's own files are saved beside it, with their values", local?.ok === true && local.vars === 2, JSON.stringify(local));

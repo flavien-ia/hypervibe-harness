@@ -62,7 +62,7 @@ import { spawn } from "node:child_process";
 import { platform } from "node:os";
 import { loadAuthToken } from "./_vercel-auth.mjs";
 import { vercelApiBase } from "./_vercel-projects.mjs";
-import { dotenvLine, dotenvValue } from "./_env-line.mjs";
+import { dotenvExpands, dotenvLine, dotenvValue } from "./_env-line.mjs";
 
 const USAGE = [
   "Usage:",
@@ -179,6 +179,15 @@ if (readStdin) {
     const idx = line.indexOf("=");
     if (idx <= 0 || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(line.slice(0, idx))) {
       console.error(`Invalid line ${n + 1} on the standard input (expected KEY=VALUE).`);
+      process.exit(1);
+    }
+    // A `$name` the site's loader replaces with another variable's value: what the site reads
+    // cannot be told from this line, and the text as it stands would give the hosting another
+    // value than the site's own. Refused by its name, before anything is written (_env-line.mjs).
+    if (dotenvExpands(line.slice(idx + 1))) {
+      console.error(
+        `Refused: ${line.slice(0, idx)}: its value holds a $ followed by a name, which the site's loader replaces with another variable's value. Nothing was written, neither the local .env nor the hosting. For a literal dollar, write \\$ in the .env line.`,
+      );
       process.exit(1);
     }
     pairs.push({ key: line.slice(0, idx), value: dotenvValue(line.slice(idx + 1)) });

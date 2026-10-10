@@ -856,9 +856,8 @@ For the actions that remain (genuinely manual), give **step-by-step** instructio
 >
 > **What you must do:**
 >
-> *a) To develop locally:*
-> - Run `stripe listen --forward-to localhost:3000/api/webhooks/stripe` in a separate terminal before testing payments
-> - The `STRIPE_WEBHOOK_SECRET` in `.env` already matches this command
+> *a) To test a payment locally:*
+> - Tell me *"let's test a payment"*: I start the site and Stripe's listener myself, then give you the links and the test card (the `STRIPE_WEBHOOK_SECRET` in `.env` is already the listener's)
 >
 > *b) To enable payments in production (after the site is deployed):*
 > - Ask Claude Code: **"configure the Stripe webhook for prod on https://<domain>"**

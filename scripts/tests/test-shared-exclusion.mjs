@@ -135,7 +135,9 @@ const full = () => ({
   const unprotected = kinds.filter((k) => !SHARED_RULES[k] && !NOT_DELETED_KINDS.includes(k));
   check("every kind the manifest knows has its sharing rule (or nothing deletes it)", kinds.length >= 13 && unprotected.length === 0, unprotected.join(", "));
   const deletions = readFileSync(join(HERE, "..", "delete-project", "execute-deletions.mjs"), "utf8");
-  const notResources = new Set(["project", "cloudflareAccountId", "ownerCandidates", "memory"]);
+  // `manifest` is what the inventory read in the project's manifest: the deletion of the
+  // repository reads it to decide (3.4.9), it is never emptied.
+  const notResources = new Set(["project", "cloudflareAccountId", "ownerCandidates", "memory", "manifest"]);
   const deleted = [...new Set([...deletions.matchAll(/inventory\.(\w+)/g)].map((m) => m[1]))].filter((s) => !notResources.has(s));
   const uncovered = deleted.filter((s) => !SHARED_SECTIONS.includes(s));
   check("every inventory section the deletion empties is read by a sharing rule", deleted.length > 5 && uncovered.length === 0, uncovered.join(", "));
